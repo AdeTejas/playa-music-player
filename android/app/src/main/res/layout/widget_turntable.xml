@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#111111"
+    android:padding="8dp">
+
+    <ImageView
+        android:id="@+id/widget_album_art"
+        android:layout_width="64dp"
+        android:layout_height="64dp"
+        android:layout_centerVertical="true"
+        android:src="@android:drawable/ic_menu_gallery"
+        android:scaleType="centerCrop"
+        android:background="#333333" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_toEndOf="@id/widget_album_art"
+        android:layout_toStartOf="@id/widget_play_pause"
+        android:layout_centerVertical="true"
+        android:orientation="vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="8dp">
+
+        <TextView
+            android:id="@+id/widget_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Track Title"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/widget_artist"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Artist Name"
+            android:textColor="#AAAAAA"
+            android:textSize="14sp"
+            android:maxLines="1"
+            android:ellipsize="end" />
+    </LinearLayout>
+
+    <ImageButton
+        android:id="@+id/widget_play_pause"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_alignParentEnd="true"
+        android:layout_centerVertical="true"
+        android:background="?android:attr/selectableItemBackground"
+        android:src="@android:drawable/ic_media_play"
+        android:tint="#FFFFFF" />
+
+</RelativeLayout>

@@ -1,0 +1,71 @@
+name: playa_clean
+description: A dark glossy music player app
+publish_to: "none"
+
+environment:
+  sdk: ">=3.7.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  
+  # Audio + background + progress + device media
+  just_audio: ^0.10.5
+  just_audio_windows: ^0.2.2
+  just_audio_background: ^0.0.1-beta.17
+  audio_session: ^0.1.21
+  path: ^1.9.0
+  audio_video_progress_bar: ^2.0.1
+  on_audio_query: ^2.9.0
+  permission_handler: ^12.0.1
+  rxdart: ^0.28.0
+  wakelock_plus: ^1.2.8
+  
+  # Persistent storage (bookmarks use SharedPreferences)
+  path_provider: ^2.1.5
+  
+  # Lyrics sync
+  flutter_lyric: ^2.0.4+6
+  http: ^1.2.2
+  
+  # Audio visualizations
+  audio_waveforms: ^1.1.0
+  
+  # UI/Animation
+  shared_preferences: ^2.3.3
+  flutter_animate: ^4.2.0
+  phosphor_flutter: ^2.0.1
+  wave: ^0.2.2
+  google_fonts: ^6.1.0
+  home_widget: ^0.8.1
+  uuid: ^4.5.2
+  
+  # Database
+  sqflite: ^2.3.3
+  sqflite_common_ffi: ^2.3.3
+
+dev_dependencies:
+  flutter_launcher_icons: ^0.13.1
+  flutter_lints: ^4.0.0
+  flutter_test:
+    sdk: flutter
+  build_runner: ^2.4.13
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/app_icon.png"
+  min_sdk_android: 21
+  windows:
+    generate: true
+    image_path: "assets/app_icon.png"
+    icon_size: 256
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
+  shaders:
+    - shaders/frosted_glass.frag

@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"name": "playa_clean",
+			"path": "."
+		}
+	],
+	"settings": {
+		"java.configuration.updateBuildConfiguration": "automatic"
+	}
+}
