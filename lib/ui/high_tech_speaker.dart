@@ -1,60 +1,43 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:playa_clean/main.dart'; // For colors
 
 class HighTechSpeaker extends StatefulWidget {
   final bool isPlaying;
   final double? bpm;
+  final Duration? position;
   final double volume;
+  final Color accentColor;
 
   const HighTechSpeaker({
-    super.key, 
+    super.key,
     required this.isPlaying,
     this.bpm,
+    this.position,
     this.volume = 1.0,
+    this.accentColor = const Color(0xFFFFB300),
   });
 
   @override
   State<HighTechSpeaker> createState() => _HighTechSpeakerState();
 }
 
-class _HighTechSpeakerState extends State<HighTechSpeaker> with SingleTickerProviderStateMixin {
+class _HighTechSpeakerState extends State<HighTechSpeaker>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
 
   @override
   void initState() {
     super.initState();
-    _updateControllerDuration();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat();
   }
 
   @override
   void didUpdateWidget(HighTechSpeaker oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.bpm != oldWidget.bpm) {
-      _updateControllerDuration();
-    }
-  }
-
-  void _updateControllerDuration() {
-    // Default to 120 BPM (500ms per beat) if null
-    final bpm = widget.bpm ?? 120.0;
-    // Clamp to reasonable values (e.g. 60-200)
-    final effectiveBpm = bpm.clamp(60.0, 200.0);
-    final durationMs = (60000 / effectiveBpm).round();
-    
-    if (mounted) {
-      // If controller exists, recreate it or just update duration if possible?
-      // AnimationController duration can be updated but requires reset to take effect cleanly usually.
-      // Simpler to just dispose and recreate or just update duration property.
-      // Actually, we can just set duration.
-    }
-    
-    // Initial creation
-    // We use a shorter duration for the "thump" animation cycle
-    _controller = AnimationController(
-      vsync: this,
-      duration: Duration(milliseconds: durationMs),
-    )..repeat(reverse: true);
+    // No beat anchoring: visualizer is time-driven, not BPM-driven.
   }
 
   @override
@@ -68,21 +51,22 @@ class _HighTechSpeakerState extends State<HighTechSpeaker> with SingleTickerProv
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, child) {
-        // If not playing, settle to a "breathing" idle state
-        // If playing, thump more vigorously
-        // Add some randomness/noise to make it feel more "audio-reactive"
-        final noise = sin(DateTime.now().millisecondsSinceEpoch * 0.01) * 0.1;
-        
-        final double value = widget.isPlaying 
-            ? (_controller.value + noise).clamp(0.0, 1.0)
-            : (_controller.value * 0.2 + 0.4); // Subtle breath when paused
+        final posSeconds = (widget.position?.inMicroseconds ?? 0) / 1e6;
+        // Use monotonic time (no visible looping) while still allowing the
+        // track position to influence phase when playing.
+        final animSeconds =
+            ((_controller.lastElapsedDuration?.inMicroseconds ?? 0) / 1e6);
+        final t = (widget.isPlaying ? posSeconds : 0.0) + animSeconds;
+        final idle = !widget.isPlaying;
+        final energy = (idle ? 0.35 : 1.0) * widget.volume.clamp(0.0, 1.0);
 
         return CustomPaint(
           size: const Size(double.infinity, 120),
-          painter: _SpeakerPainter(
-            animationValue: value,
+          painter: _HypnoSpeakerPainter(
+            t: t,
             isPlaying: widget.isPlaying,
-            volume: widget.volume,
+            energy: energy,
+            accentColor: widget.accentColor,
           ),
         );
       },
@@ -90,144 +74,239 @@ class _HighTechSpeakerState extends State<HighTechSpeaker> with SingleTickerProv
   }
 }
 
-class _SpeakerPainter extends CustomPainter {
-  final double animationValue;
+class _HypnoSpeakerPainter extends CustomPainter {
+  final double t;
   final bool isPlaying;
-  final double volume;
+  final double energy;
+  final Color accentColor;
 
-  _SpeakerPainter({
-    required this.animationValue, 
+  static const double _kRibbonIntensityMul = 1.45;
+
+  _HypnoSpeakerPainter({
+    required this.t,
     required this.isPlaying,
-    required this.volume,
+    required this.energy,
+    required this.accentColor,
   });
+
+  double _hash(double x) {
+    final s = sin(x * 12.9898) * 43758.5453;
+    return s - s.floorToDouble();
+  }
+
+  double _smoothstep(double edge0, double edge1, double x) {
+    final t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    return t * t * (3 - 2 * t);
+  }
+
+  Path _catmullRom(List<Offset> pts) {
+    if (pts.length < 2) return Path();
+    final path = Path()..moveTo(pts.first.dx, pts.first.dy);
+    for (int i = 0; i < pts.length - 1; i++) {
+      final p0 = pts[i == 0 ? 0 : i - 1];
+      final p1 = pts[i];
+      final p2 = pts[i + 1];
+      final p3 = pts[(i + 2) < pts.length ? (i + 2) : (pts.length - 1)];
+
+      final c1 = p1 + (p2 - p0) / 6.0;
+      final c2 = p2 - (p3 - p1) / 6.0;
+      path.cubicTo(c1.dx, c1.dy, c2.dx, c2.dy, p2.dx, p2.dy);
+    }
+    return path;
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    // Max radius fits within height, with some padding
-    final maxRadius = (min(size.width, size.height) / 2) * 0.9;
-    final scale = maxRadius / 60.0; // Reference radius 60.0
-    
-    // Dynamic excursion (speaker cone movement)
-    final excursion = (isPlaying ? (animationValue * 8.0) : (animationValue * 2.0)) * scale * volume;
-
-    // 1. Outer Housing (Static Ring)
-    final housingPaint = Paint()
-      ..color = const Color(0xFF2A2E35)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 4.0 * scale;
-    
-    canvas.drawCircle(center, maxRadius, housingPaint);
-
-    // 2. Tech Accents (Glowing Ticks)
-    // Changed to Amber/Gold to match wood
-    final accentColor = const Color(0xFFFFB300); // Amber 600
-    
-    final tickPaint = Paint()
-      ..color = accentColor.withOpacity(0.6)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.0 * scale
-      ..strokeCap = StrokeCap.round;
-
-    for (int i = 0; i < 12; i++) {
-      final angle = (i * 30) * (pi / 180);
-      final p1 = Offset(
-        center.dx + (maxRadius + 2 * scale) * cos(angle),
-        center.dy + (maxRadius + 2 * scale) * sin(angle),
-      );
-      final p2 = Offset(
-        center.dx + (maxRadius + 8 * scale) * cos(angle),
-        center.dy + (maxRadius + 8 * scale) * sin(angle),
-      );
-      canvas.drawLine(p1, p2, tickPaint);
-    }
-
-    // 3. Surround (Rubber edge)
-    final surroundPaint = Paint()
-      ..color = const Color(0xFF111111)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 8.0 * scale;
-    
-    // The surround expands slightly with the beat
-    canvas.drawCircle(center, maxRadius - (6 * scale) + (excursion * 0.2), surroundPaint);
-
-    // 4. Cone (The main moving part)
-    // Gradient for depth - Warm tint
-    final coneGradient = RadialGradient(
-      colors: [
-        const Color(0xFF2D2418), // Dark brown/bronze
-        const Color(0xFF0A0A0A),
-      ],
-      stops: const [0.0, 1.0],
+    final w = size.width;
+    final h = size.height;
+    final r = min(w, h) * 0.5;
+    final pad = r * 0.10;
+    final rect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(
+        (w - (2 * r)) / 2,
+        (h - (2 * r)) / 2,
+        2 * r,
+        2 * r,
+      ).deflate(pad),
+      Radius.circular(r * 0.22),
     );
 
-    final coneRadius = maxRadius - (12 * scale);
-    final conePaint = Paint()
-      ..shader = coneGradient.createShader(
-        Rect.fromCircle(center: center, radius: coneRadius),
+    // Background panel
+    canvas.drawRRect(rect, Paint()..color = const Color(0xFF07090C));
+    canvas.drawRRect(
+      rect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = r * 0.06
+        ..color = const Color(0xFF1E232B),
+    );
+
+    canvas.save();
+    canvas.clipRRect(rect);
+
+    final inner = rect.deflate(r * 0.16);
+    final center = Offset(
+      rect.left + rect.width / 2,
+      rect.top + rect.height / 2,
+    );
+    final e = (0.12 + 0.88 * energy).clamp(0.0, 1.0);
+    final slow = t * 2 * pi * 0.20;
+    final fast = t * 2 * pi * 0.75;
+
+    // Hypnotic "ribbons" (no rings/arcs/sweep)
+    final ribbonArea = Rect.fromLTWH(
+      inner.left,
+      inner.top + inner.height * 0.12,
+      inner.width,
+      inner.height * 0.76,
+    );
+    final ribbons = isPlaying ? 5 : 3;
+    for (int i = 0; i < ribbons; i++) {
+      final fi = i.toDouble();
+      final yBase =
+          ribbonArea.top + ribbonArea.height * (0.18 + 0.64 * (fi / (ribbons)));
+      final amp = ribbonArea.height * (0.06 + 0.12 * e) * (1.0 - fi * 0.10);
+      final phase = slow + fi * 1.7;
+      final freq = 1.2 + fi * 0.35;
+      final wobble = 0.55 + 0.45 * sin(fast + fi);
+
+      // Build smooth spline points.
+      const steps = 64;
+      final pts = <Offset>[];
+      for (int s = 0; s <= steps; s++) {
+        final nx = (s / steps);
+        final x = ribbonArea.left + ribbonArea.width * nx;
+        final env = 0.22 + 0.78 * sin(pi * nx);
+
+        // Slow drift prevents a "tileable" loop feel.
+        final drift = sin((t * 0.07) + fi * 0.9) * ribbonArea.height * 0.015;
+        final y =
+            yBase +
+            drift +
+            sin(phase + nx * 2 * pi * freq) * amp * env +
+            sin(phase * 0.71 + nx * 2 * pi * (freq * 0.53)) * amp * 0.38 * env;
+
+        pts.add(Offset(x, y));
+      }
+      final path = _catmullRom(pts);
+
+      final alpha = ((isPlaying ? 0.86 : 0.52) *
+              (0.65 + 0.35 * wobble) *
+              0.85 *
+              _kRibbonIntensityMul)
+          .clamp(0.0, 1.0);
+      final strokeW = ribbonArea.height * (0.10 - fi * 0.010);
+      final bounds = path.getBounds();
+      final shader = LinearGradient(
+        begin: Alignment.centerLeft,
+        end: Alignment.centerRight,
+        colors: [
+          Colors.transparent,
+          accentColor.withValues(alpha: alpha.clamp(0.0, 1.0)),
+          Colors.white.withValues(alpha: (alpha * 0.16).clamp(0.0, 0.34)),
+          accentColor.withValues(alpha: (alpha * 0.70).clamp(0.0, 1.0)),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.26, 0.52, 0.80, 1.0],
+      ).createShader(bounds);
+
+      // Glow pass
+      canvas.drawPath(
+        path,
+        Paint()
+          ..isAntiAlias = true
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round
+          ..strokeWidth = strokeW
+          ..shader = shader
+          ..blendMode = BlendMode.plus
+          ..maskFilter = MaskFilter.blur(
+            BlurStyle.normal,
+            r * 0.187 * _kRibbonIntensityMul,
+          ),
       );
-
-    // Draw cone with excursion
-    canvas.drawCircle(center, coneRadius - (excursion * 0.5), conePaint);
-
-    // 5. Dust Cap (Center dome) - Moves the most
-    final dustCapRadius = coneRadius * 0.35;
-    final dustCapPaint = Paint()
-      ..color = const Color(0xFF1A1510) // Very dark brown
-      ..style = PaintingStyle.fill
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 2.0 * scale); // Soft look
-
-    // Draw dust cap
-    canvas.drawCircle(center, dustCapRadius + excursion, dustCapPaint);
-
-    // 6. High Tech Glow Ring (Center)
-    final glowOpacity = (0.4 + (animationValue * 0.4)) * (isPlaying ? volume : 0.5);
-    final glowPaint = Paint()
-      ..color = (isPlaying ? accentColor : const Color(0xFF5D4037)).withOpacity(glowOpacity.clamp(0.0, 1.0))
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.0 * scale
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 4.0 * scale);
-
-    canvas.drawCircle(center, dustCapRadius + excursion, glowPaint);
-    
-    // Sharp ring inside the glow
-    final sharpRingPaint = Paint()
-      ..color = (isPlaying ? accentColor : const Color(0xFF8D6E63)).withOpacity(0.8)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5 * scale;
-      
-    canvas.drawCircle(center, dustCapRadius + excursion, sharpRingPaint);
-
-    // 7. Hexagon Grid Overlay (Tech texture on cone)
-    // Only draw if radius is big enough
-    if (coneRadius > 20 * scale) {
-      _drawHexGrid(canvas, center, coneRadius - (excursion * 0.5), isPlaying, scale);
-    }
-  }
-
-  void _drawHexGrid(Canvas canvas, Offset center, double radius, bool isPlaying, double scale) {
-    final hexPaint = Paint()
-      ..color = Colors.white.withOpacity(0.05)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.0 * scale;
-
-    // Simple grid simulation
-    final step = 15.0 * scale;
-    for (double x = -radius; x <= radius; x += step) {
-      // Vertical lines clipped to circle
-      final h = sqrt(radius * radius - x * x);
-      canvas.drawLine(
-        Offset(center.dx + x, center.dy - h),
-        Offset(center.dx + x, center.dy + h),
-        hexPaint,
+      // Highlight pass (thin and crisp)
+      canvas.drawPath(
+        path,
+        Paint()
+          ..isAntiAlias = true
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round
+          ..strokeWidth = max(1.0, strokeW * 0.22)
+          ..shader = LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [
+              Colors.transparent,
+              Colors.white.withValues(alpha: (alpha * 0.811).clamp(0.0, 0.97)),
+              Colors.transparent,
+            ],
+            stops: const [0.0, 0.5, 1.0],
+          ).createShader(bounds)
+          ..blendMode = BlendMode.plus,
       );
     }
+
+    // Diaphragm "breath" in the center
+    final breath = 0.5 + 0.5 * sin(fast * 0.9);
+    final diaphragmR = r * (0.18 + 0.03 * breath * e);
+    final glowA =
+        (isPlaying ? 0.655 : 0.374) * (0.55 + 0.45 * breath) * e * 0.85;
+    final diaphragmRect = Rect.fromCircle(center: center, radius: diaphragmR);
+    canvas.drawCircle(
+      center,
+      diaphragmR * 1.55,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            accentColor.withValues(alpha: glowA.clamp(0.0, 0.44)),
+            Colors.transparent,
+          ],
+          stops: const [0.0, 1.0],
+        ).createShader(
+          Rect.fromCircle(center: center, radius: diaphragmR * 1.6),
+        )
+        ..blendMode = BlendMode.plus,
+    );
+    canvas.drawOval(
+      diaphragmRect,
+      Paint()
+        ..shader = const RadialGradient(
+          colors: [Color(0xFF0B0F14), Color(0xFF050609)],
+          stops: [0.0, 1.0],
+        ).createShader(diaphragmRect),
+    );
+    canvas.drawOval(
+      diaphragmRect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = r * 0.04
+        ..color = const Color(0xFF1E232B),
+    );
+
+    // Subtle shimmer grain (deterministic)
+    final grainPaint = Paint()..blendMode = BlendMode.plus;
+    for (int i = 0; i < 28; i++) {
+      final hx = _hash(i + 13.0);
+      final hy = _hash(i + 71.0);
+      final p = Offset(
+        inner.left + hx * inner.width,
+        inner.top + hy * inner.height,
+      );
+      final tw = 0.5 + 0.5 * sin(fast + i * 0.7);
+      final a =
+          (isPlaying ? 0.172 : 0.109) * _smoothstep(0.0, 1.0, tw) * e * 0.85;
+      grainPaint.color = Colors.white.withValues(alpha: a.clamp(0.0, 0.125));
+      canvas.drawCircle(p, r * (0.010 + 0.010 * _hash(i + 99.0)), grainPaint);
+    }
+
+    canvas.restore();
   }
 
   @override
-  bool shouldRepaint(covariant _SpeakerPainter oldDelegate) {
-    return oldDelegate.animationValue != animationValue || 
-           oldDelegate.isPlaying != isPlaying ||
-           oldDelegate.volume != volume;
+  bool shouldRepaint(covariant _HypnoSpeakerPainter oldDelegate) {
+    return true;
   }
 }

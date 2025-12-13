@@ -4,10 +4,10 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 /// Real-Time DSP Engine
-/// 
+///
 /// In a production environment, this class would bridge to a native C++ library
 /// (e.g., using `dart:ffi`) to perform low-latency audio processing.
-/// 
+///
 /// Planned Features:
 /// - 10-Band Parametric EQ (replacing Android EQ)
 /// - Compressor / Limiter for consistent volume
@@ -16,7 +16,7 @@ import 'package:flutter/foundation.dart';
 class DspEngine {
   static final DspEngine _instance = DspEngine._();
   static DspEngine get instance => _instance;
-  
+
   DspEngine._();
 
   bool _isInitialized = false;
@@ -25,7 +25,7 @@ class DspEngine {
 
   Future<void> init() async {
     if (_isInitialized) return;
-    
+
     try {
       if (Platform.isWindows) {
         // _nativeLib = DynamicLibrary.open('dsp_core.dll');
@@ -34,7 +34,7 @@ class DspEngine {
         // _nativeLib = DynamicLibrary.open('libdsp_core.so');
         debugPrint('DSP: Native library placeholder for Android');
       }
-      
+
       _isInitialized = true;
       debugPrint('DSP Engine Initialized (Simulation Mode)');
     } catch (e) {

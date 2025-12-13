@@ -18,7 +18,11 @@ class SongRepository {
     await DatabaseService.instance.updateRating(songId, rating);
   }
 
-  Future<void> saveLyrics(String songId, String lyrics, {String? source}) async {
+  Future<void> saveLyrics(
+    String songId,
+    String lyrics, {
+    String? source,
+  }) async {
     await DatabaseService.instance.saveLyrics(songId, lyrics, source: source);
   }
 
@@ -27,7 +31,7 @@ class SongRepository {
   }
 
   Future<void> incrementPlayCount(String songId) async {
-     await DatabaseService.instance.incrementPlayCount(songId);
+    await DatabaseService.instance.incrementPlayCount(songId);
   }
 
   Future<void> recordPlay(String songId) async {

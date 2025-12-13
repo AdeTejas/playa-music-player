@@ -8,6 +8,7 @@ class SongMetadata {
   final DateTime? lastPlayed;
   final double? bpm;
   final String? key;
+  final String? dnaSignature;
 
   const SongMetadata({
     required this.id,
@@ -17,6 +18,7 @@ class SongMetadata {
     this.lastPlayed,
     this.bpm,
     this.key,
+    this.dnaSignature,
   });
 
   SongMetadata copyWith({
@@ -26,6 +28,7 @@ class SongMetadata {
     DateTime? lastPlayed,
     double? bpm,
     String? key,
+    String? dnaSignature,
   }) {
     return SongMetadata(
       id: id,
@@ -35,6 +38,7 @@ class SongMetadata {
       lastPlayed: lastPlayed ?? this.lastPlayed,
       bpm: bpm ?? this.bpm,
       key: key ?? this.key,
+      dnaSignature: dnaSignature ?? this.dnaSignature,
     );
   }
 
@@ -47,6 +51,7 @@ class SongMetadata {
       'lastPlayed': lastPlayed?.toIso8601String(),
       'bpm': bpm,
       'key': key,
+      'dnaSignature': dnaSignature,
     };
   }
 
@@ -56,11 +61,13 @@ class SongMetadata {
       rating: map['rating'] as int?,
       lyrics: map['lyrics'] as String?,
       playCount: (map['playCount'] as int?) ?? 0,
-      lastPlayed: map['lastPlayed'] != null
-          ? DateTime.tryParse(map['lastPlayed'] as String)
-          : null,
+      lastPlayed:
+          map['lastPlayed'] != null
+              ? DateTime.tryParse(map['lastPlayed'] as String)
+              : null,
       bpm: map['bpm'] as double?,
       key: map['key'] as String?,
+      dnaSignature: map['dnaSignature'] as String?,
     );
   }
 

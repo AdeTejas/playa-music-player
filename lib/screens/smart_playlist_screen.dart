@@ -3,13 +3,10 @@ import 'package:on_audio_query/on_audio_query.dart';
 import '../repositories/song_repository.dart';
 import '../services/player_controller.dart';
 import '../ui/tokens.dart';
+import '../ui/glass_panel.dart';
 import '../widgets/artwork_image.dart';
 
-enum SmartPlaylistType {
-  heavyRotation,
-  forgottenFavorites,
-  recentlyAdded,
-}
+enum SmartPlaylistType { heavyRotation, forgottenFavorites, recentlyAdded }
 
 class SmartPlaylistScreen extends StatefulWidget {
   final SmartPlaylistType type;
@@ -66,11 +63,12 @@ class _SmartPlaylistScreenState extends State<SmartPlaylistScreen> {
           final countB = metaMap[b.id.toString()]?.playCount ?? 0;
           return countB.compareTo(countA); // Descending
         });
-        
-        filtered = allSongs
-            .where((s) => (metaMap[s.id.toString()]?.playCount ?? 0) > 0)
-            .take(50)
-            .toList();
+
+        filtered =
+            allSongs
+                .where((s) => (metaMap[s.id.toString()]?.playCount ?? 0) > 0)
+                .take(50)
+                .toList();
         break;
 
       case SmartPlaylistType.forgottenFavorites:
@@ -78,19 +76,20 @@ class _SmartPlaylistScreenState extends State<SmartPlaylistScreen> {
         final metaMap = {for (var m in allMeta) m.id: m};
         final now = DateTime.now();
         final monthAgo = now.subtract(const Duration(days: 30));
-        
-        filtered = allSongs.where((s) {
-          final meta = metaMap[s.id.toString()];
-          if (meta == null) return false;
-          
-          final count = meta.playCount;
-          final lastPlayed = meta.lastPlayed;
-          
-          // Played at least 3 times, but not in the last 30 days
-          return count > 2 && 
-                 lastPlayed != null && 
-                 lastPlayed.isBefore(monthAgo);
-        }).toList();
+
+        filtered =
+            allSongs.where((s) {
+              final meta = metaMap[s.id.toString()];
+              if (meta == null) return false;
+
+              final count = meta.playCount;
+              final lastPlayed = meta.lastPlayed;
+
+              // Played at least 3 times, but not in the last 30 days
+              return count > 2 &&
+                  lastPlayed != null &&
+                  lastPlayed.isBefore(monthAgo);
+            }).toList();
         break;
     }
 
@@ -105,57 +104,80 @@ class _SmartPlaylistScreenState extends State<SmartPlaylistScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: kColorBg,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: Text(_title),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _songs.isEmpty
-              ? Center(
-                  child: Text(
-                    'No songs found for this criteria',
-                    style: TextStyle(color: kColorOn2),
-                  ),
-                )
+      body:
+          _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _songs.isEmpty
+              ? const Center(
+                child: Text(
+                  'No songs found for this criteria',
+                  style: TextStyle(color: kColorOn2),
+                ),
+              )
               : ListView.builder(
-                  itemCount: _songs.length,
-                  itemBuilder: (context, index) {
-                    final song = _songs[index];
-                    return ListTile(
-                      leading: ArtworkImage(
-                        id: song.id,
-                        type: ArtworkType.AUDIO,
-                        nullArtworkWidget: Container(
-                          width: 48,
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: kColorCard,
-                            borderRadius: BorderRadius.circular(4),
+                itemCount: _songs.length,
+                itemBuilder: (context, index) {
+                  final song = _songs[index];
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                    child: GlassPanel(
+                      useShader: false,
+                      borderRadius: BorderRadius.circular(14),
+                      borderColor: Colors.white.withValues(alpha: 0.15),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: ListTile(
+                          leading: ArtworkImage(
+                            id: song.id,
+                            type: ArtworkType.AUDIO,
+                            nullArtworkWidget: Container(
+                              width: 48,
+                              height: 48,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.06),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.12),
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.music_note,
+                                color: kColorOn2,
+                              ),
+                            ),
                           ),
-                          child: const Icon(Icons.music_note, color: kColorOn2),
+                          title: Text(
+                            song.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: kColorOn),
+                          ),
+                          subtitle: Text(
+                            song.artist ?? 'Unknown',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: kColorOn2),
+                          ),
+                          onTap: () {
+                            PlayerController.ensure().replaceQueue(
+                              _songs,
+                              initialIndex: index,
+                              queueContextType: 'smartPlaylist',
+                              queueContextId: widget.type.name,
+                            );
+                          },
                         ),
                       ),
-                      title: Text(
-                        song.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: kColorOn),
-                      ),
-                      subtitle: Text(
-                        song.artist ?? 'Unknown',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: kColorOn2),
-                      ),
-                      onTap: () {
-                        PlayerController.ensure().replaceQueue(_songs, initialIndex: index);
-                      },
-                    );
-                  },
-                ),
+                    ),
+                  );
+                },
+              ),
     );
   }
 }

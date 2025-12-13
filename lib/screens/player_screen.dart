@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:on_audio_query/on_audio_query.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -10,6 +9,7 @@ import '../services/settings_service.dart';
 import '../services/database_service.dart';
 import '../models/song_metadata.dart';
 import '../ui/tokens.dart';
+import '../ui/glass_panel.dart';
 import '../ui/turntable_widget.dart';
 import '../ui/waveform_widget.dart';
 import '../ui/lyrics_sheet.dart';
@@ -52,215 +52,312 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final ctrl = PlayerProvider.of(context);
     final p = ctrl.player;
 
-    return SafeArea(
-      top: false,
-      bottom: false,
-      child: AnimatedBuilder(
-        animation: SettingsService.instance,
-        builder: (context, _) {
-          return StreamBuilder<SequenceState?>(
-            stream: p.sequenceStateStream,
+    final topInset = MediaQuery.paddingOf(context).top;
+
+    return Stack(
+      children: [
+        SafeArea(
+          top: false,
+          bottom: false,
+          child: AnimatedBuilder(
+            animation: SettingsService.instance,
             builder: (context, _) {
-              final tag = ctrl.currentMediaItem;
-              return StreamBuilder<PlayerState>(
-                stream: p.playerStateStream,
+              return StreamBuilder<SequenceState?>(
+                stream: p.sequenceStateStream,
                 builder: (context, _) {
-                  return OrientationBuilder(
-                    builder: (context, orientation) {
-              if (orientation == Orientation.landscape) {
-                // Landscape Layout
-                return Row(
-                  children: [
-                    // Left: Turntable
-                    Expanded(
-                      flex: 5,
-                      child: Center(
-                        child: AspectRatio(
-                          aspectRatio: 1.0,
-                          child: RepaintBoundary(
-                            child: TurntableDeck(
-                              ctrl: ctrl,
-                              item: tag,
-                              isVisible: widget.isVisible,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    // Right: Controls
-                    Expanded(
-                      flex: 4,
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.all(kSp),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            // Track Info
-                            Text(
-                              tag?.title ?? '—',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: -0.5,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              tag?.artist ?? 'Unknown',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(color: kColorOn2, fontSize: 16),
-                            ),
-                            if (tag != null) _SonicDnaBadge(songId: tag.id),
-                            const SizedBox(height: kSp * 2),
-                            
-                            // Waveform
-                            SizedBox(
-                              height: 80,
-                              child: (SettingsService.instance.showWaveforms && tag != null && tag.extras?['path'] != null)
-                                  ? WaveformWidget(
-                                      path: tag.extras!['path'] as String,
-                                      player: p,
-                                      playedColor: Color(SettingsService.instance.accentColor),
-                                    )
-                                  : const SizedBox(),
-                            ),
-                            const SizedBox(height: kSp * 2),
-                            
-                            // Transport
-                            _TransportBar(ctrl: ctrl),
-                            const SizedBox(height: kSp),
-                            _SecondaryControls(ctrl: ctrl),
-                            const SizedBox(height: kSp),
-                            // Favorite Button
-                            ValueListenableBuilder<List<String>>(
-                              valueListenable: ctrl.favoritesNotifier,
-                              builder: (context, favorites, _) {
-                                final isFav = tag != null && favorites.contains(tag.id);
-                                return IconButton(
-                                  onPressed: tag == null ? null : () => ctrl.toggleFavorite(tag.id),
-                                  icon: Icon(
-                                    isFav ? PhosphorIconsFill.heart : PhosphorIconsRegular.heart,
-                                    color: isFav ? Colors.redAccent : kColorOn2,
-                                    size: 28,
+                  final tag = ctrl.currentMediaItem;
+                  return StreamBuilder<PlayerState>(
+                    stream: p.playerStateStream,
+                    builder: (context, _) {
+                      return OrientationBuilder(
+                        builder: (context, orientation) {
+                          if (orientation == Orientation.landscape) {
+                            // Landscape Layout
+                            return Row(
+                              children: [
+                                // Left: Turntable
+                                Expanded(
+                                  flex: 5,
+                                  child: Center(
+                                    child: AspectRatio(
+                                      aspectRatio: 1.0,
+                                      child: RepaintBoundary(
+                                        child: TurntableDeck(
+                                          ctrl: ctrl,
+                                          item: tag,
+                                          isVisible: widget.isVisible,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                // Right: Controls
+                                Expanded(
+                                  flex: 4,
+                                  child: SingleChildScrollView(
+                                    padding: const EdgeInsets.all(kSp),
+                                    child: Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        // Track Info
+                                        Text(
+                                          tag?.title ?? '—',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(
+                                            fontSize: 20,
+                                            fontWeight: FontWeight.w700,
+                                            letterSpacing: -0.5,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          tag?.artist ?? 'Unknown',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(
+                                            color: kColorOn2,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                        if (tag != null)
+                                          _SonicDnaBadge(songId: tag.id),
+                                        const SizedBox(height: kSp * 2),
+
+                                        // Waveform
+                                        SizedBox(
+                                          height: 80,
+                                          child:
+                                              (SettingsService
+                                                          .instance
+                                                          .showWaveforms &&
+                                                      tag != null &&
+                                                      tag.extras?['path'] !=
+                                                          null)
+                                                  ? WaveformWidget(
+                                                    path:
+                                                        tag.extras!['path']
+                                                            as String,
+                                                    player: p,
+                                                    playedColor: Color(
+                                                      SettingsService
+                                                          .instance
+                                                          .accentColor,
+                                                    ),
+                                                  )
+                                                  : const SizedBox(),
+                                        ),
+                                        const SizedBox(height: kSp * 2),
+
+                                        // Transport
+                                        _TransportBar(ctrl: ctrl),
+                                        const SizedBox(height: kSp),
+                                        _SecondaryControls(ctrl: ctrl),
+                                        const SizedBox(height: kSp),
+                                        // Favorite Button
+                                        ValueListenableBuilder<List<String>>(
+                                          valueListenable:
+                                              ctrl.favoritesNotifier,
+                                          builder: (context, favorites, _) {
+                                            final isFav =
+                                                tag != null &&
+                                                favorites.contains(tag.id);
+                                            return IconButton(
+                                              onPressed:
+                                                  tag == null
+                                                      ? null
+                                                      : () =>
+                                                          ctrl.toggleFavorite(
+                                                            tag.id,
+                                                          ),
+                                              icon: Icon(
+                                                isFav
+                                                    ? PhosphorIconsFill.heart
+                                                    : PhosphorIconsRegular
+                                                        .heart,
+                                                color:
+                                                    isFav
+                                                        ? Colors.redAccent
+                                                        : kColorOn2,
+                                                size: 28,
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            );
+                          } else {
+                            // Portrait Layout
+                            return LayoutBuilder(
+                              builder: (context, constraints) {
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: kSp * 1.5,
+                                  ),
+                                  child: Column(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceEvenly,
+                                    children: [
+                                      const SizedBox(height: kSp),
+                                      Expanded(
+                                        child: Center(
+                                          child: AspectRatio(
+                                            aspectRatio: 1.0,
+                                            child: RepaintBoundary(
+                                              child: TurntableDeck(
+                                                ctrl: ctrl,
+                                                item: tag,
+                                                isVisible: widget.isVisible,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: kSp),
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          const SizedBox(width: 48), // Balance
+                                          Expanded(
+                                            child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(
+                                                  tag?.title ?? '—',
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  textAlign: TextAlign.center,
+                                                  style: const TextStyle(
+                                                    fontSize: 18,
+                                                    fontWeight: FontWeight.w700,
+                                                    letterSpacing: -0.5,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  tag?.artist ?? 'Unknown',
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  textAlign: TextAlign.center,
+                                                  style: const TextStyle(
+                                                    color: kColorOn2,
+                                                    fontSize: 14,
+                                                  ),
+                                                ),
+                                                if (tag != null)
+                                                  _SonicDnaBadge(
+                                                    songId: tag.id,
+                                                  ),
+                                              ],
+                                            ),
+                                          ),
+                                          ValueListenableBuilder<List<String>>(
+                                            valueListenable:
+                                                ctrl.favoritesNotifier,
+                                            builder: (context, favorites, _) {
+                                              final isFav =
+                                                  tag != null &&
+                                                  favorites.contains(tag.id);
+                                              return SizedBox(
+                                                width: 48,
+                                                child: IconButton(
+                                                  onPressed:
+                                                      tag == null
+                                                          ? null
+                                                          : () => ctrl
+                                                              .toggleFavorite(
+                                                                tag.id,
+                                                              ),
+                                                  icon: Icon(
+                                                    isFav
+                                                        ? PhosphorIconsFill
+                                                            .heart
+                                                        : PhosphorIconsRegular
+                                                            .heart,
+                                                    color:
+                                                        isFav
+                                                            ? Colors.redAccent
+                                                            : kColorOn2,
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: kSp),
+                                      SizedBox(
+                                        height: 60,
+                                        child:
+                                            (SettingsService
+                                                        .instance
+                                                        .showWaveforms &&
+                                                    tag != null &&
+                                                    tag.extras?['path'] != null)
+                                                ? WaveformWidget(
+                                                  path:
+                                                      tag.extras!['path']
+                                                          as String,
+                                                  player: p,
+                                                  playedColor: Color(
+                                                    SettingsService
+                                                        .instance
+                                                        .accentColor,
+                                                  ),
+                                                )
+                                                : const SizedBox(),
+                                      ),
+                                      const SizedBox(height: kSp),
+                                      _TransportBar(ctrl: ctrl),
+                                      const SizedBox(height: kSp),
+                                      _SecondaryControls(ctrl: ctrl),
+                                      const SizedBox(height: kSp),
+                                    ],
                                   ),
                                 );
                               },
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              } else {
-                // Portrait Layout
-                return LayoutBuilder(
-                  builder: (context, constraints) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: kSp * 1.5),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          const SizedBox(height: kSp),
-                          Expanded(
-                            child: Center(
-                              child: AspectRatio(
-                                aspectRatio: 1.0,
-                                child: RepaintBoundary(
-                                  child: TurntableDeck(
-                                    ctrl: ctrl,
-                                    item: tag,
-                                    isVisible: widget.isVisible,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: kSp),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const SizedBox(width: 48), // Balance
-                              Expanded(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      tag?.title ?? '—',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.w700,
-                                        letterSpacing: -0.5,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      tag?.artist ?? 'Unknown',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(color: kColorOn2, fontSize: 14),
-                                    ),
-                                    if (tag != null) _SonicDnaBadge(songId: tag.id),
-                                  ],
-                                ),
-                              ),
-                              ValueListenableBuilder<List<String>>(
-                                valueListenable: ctrl.favoritesNotifier,
-                                builder: (context, favorites, _) {
-                                  final isFav = tag != null && favorites.contains(tag.id);
-                                  return SizedBox(
-                                    width: 48,
-                                    child: IconButton(
-                                      onPressed: tag == null ? null : () => ctrl.toggleFavorite(tag.id),
-                                      icon: Icon(
-                                        isFav ? PhosphorIconsFill.heart : PhosphorIconsRegular.heart,
-                                        color: isFav ? Colors.redAccent : kColorOn2,
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: kSp),
-                          SizedBox(
-                            height: 60,
-                            child: (SettingsService.instance.showWaveforms && tag != null && tag.extras?['path'] != null)
-                                ? WaveformWidget(
-                                    path: tag.extras!['path'] as String,
-                                    player: p,
-                                    playedColor: Color(SettingsService.instance.accentColor),
-                                  )
-                                : const SizedBox(),
-                          ),
-                          const SizedBox(height: kSp),
-                          _TransportBar(ctrl: ctrl),
-                          const SizedBox(height: kSp),
-                          _SecondaryControls(ctrl: ctrl),
-                          const SizedBox(height: kSp),
-                        ],
-                      ),
-                    );
-                  },
-                );
-              }
-            },
-          );
+                            );
+                          }
+                        },
+                      );
+                    },
+                  );
                 },
               );
             },
-          );
-        },
-      ),
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          top: 0,
+          child: IgnorePointer(
+            child: Container(
+              height: topInset + kSp * 3.0,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    kColorBg.withValues(alpha: 0.98),
+                    kColorBg.withValues(alpha: 0.10),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -272,6 +369,7 @@ class _TransportBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = ctrl.player;
+    final accent = Theme.of(context).colorScheme.primary;
 
     final controls = <Widget>[
       _IconBtn(
@@ -283,10 +381,7 @@ class _TransportBar extends StatelessWidget {
           } else {
             final len = p.sequenceState.sequence.length;
             if (len > 0) {
-              await p.seek(
-                Duration.zero,
-                index: len - 1,
-              );
+              await p.seek(Duration.zero, index: len - 1);
             }
           }
           HapticFeedback.selectionClick();
@@ -316,7 +411,7 @@ class _TransportBar extends StatelessWidget {
             HapticFeedback.selectionClick();
           },
           style: ElevatedButton.styleFrom(
-            backgroundColor: kColorAppAccent,
+            backgroundColor: accent,
             shape: const CircleBorder(),
             padding: const EdgeInsets.all(14),
             elevation: 6,
@@ -357,10 +452,7 @@ class _TransportBar extends StatelessWidget {
           } else {
             final len = p.sequenceState.sequence.length;
             if (len > 0) {
-              await p.seek(
-                Duration.zero,
-                index: 0,
-              );
+              await p.seek(Duration.zero, index: 0);
             }
           }
           HapticFeedback.selectionClick();
@@ -406,9 +498,8 @@ class _SecondaryControls extends StatelessWidget {
           builder: (_, snap) {
             final shuf = snap.data ?? false;
             return _ChipIcon(
-              icon: shuf
-                  ? PhosphorIconsFill.shuffle
-                  : PhosphorIconsLight.shuffle,
+              icon:
+                  shuf ? PhosphorIconsFill.shuffle : PhosphorIconsLight.shuffle,
               label: 'Shuffle',
               active: shuf,
               onTap: () async {
@@ -425,22 +516,21 @@ class _SecondaryControls extends StatelessWidget {
           initialData: p.loopMode,
           builder: (_, snap) {
             final lm = snap.data ?? LoopMode.off;
-            final next = lm == LoopMode.off
-                ? LoopMode.one
-                : (lm == LoopMode.one
-                    ? LoopMode.all
-                    : LoopMode.off);
-            final icon = lm == LoopMode.one
-                ? PhosphorIconsBold.numberCircleOne
-                : PhosphorIconsBold.arrowsClockwise;
+            final next =
+                lm == LoopMode.off
+                    ? LoopMode.one
+                    : (lm == LoopMode.one ? LoopMode.all : LoopMode.off);
+            final icon =
+                lm == LoopMode.one
+                    ? PhosphorIconsBold.numberCircleOne
+                    : PhosphorIconsBold.arrowsClockwise;
             final active = lm != LoopMode.off;
             return _ChipIcon(
               icon: icon,
-              label: lm == LoopMode.all
-                  ? 'Repeat All'
-                  : (lm == LoopMode.one
-                      ? 'Repeat One'
-                      : 'Repeat'),
+              label:
+                  lm == LoopMode.all
+                      ? 'Repeat All'
+                      : (lm == LoopMode.one ? 'Repeat One' : 'Repeat'),
               active: active,
               onTap: () {
                 if (!ctrl.isReady) return;
@@ -458,6 +548,7 @@ class _SecondaryControls extends StatelessWidget {
             if (!ctrl.isReady) return;
             showToast(context, 'Generating Neural Mix...');
             await ctrl.smartShuffle();
+            if (!context.mounted) return;
             showToast(context, 'Mix Ready');
             HapticFeedback.mediumImpact();
           },
@@ -469,12 +560,9 @@ class _SecondaryControls extends StatelessWidget {
           onTap: () async {
             if (!ctrl.isReady) return;
             final current = p.speed;
-            final picked =
-                await showModalBottomSheet<double>(
+            final picked = await showModalBottomSheet<double>(
               context: context,
-              builder: (_) => _SpeedSheet(
-                current: current,
-              ),
+              builder: (_) => _SpeedSheet(current: current),
             );
             if (picked != null && picked > 0) {
               try {
@@ -497,41 +585,51 @@ class _SecondaryControls extends StatelessWidget {
           active: false,
           onTap: () {
             if (!ctrl.isReady) return;
-            
+
             // Show dialog to annotate immediately
             final controller = TextEditingController();
             showDialog(
               context: context,
-              builder: (ctx) => AlertDialog(
-                backgroundColor: kColorSurface,
-                title: const Text('Add Chapter'),
-                content: TextField(
-                  controller: controller,
-                  autofocus: true,
-                  decoration: const InputDecoration(
-                    hintText: 'Note (optional)...',
-                    hintStyle: TextStyle(color: Colors.white38),
-                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: kColorOn2)),
-                    focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: kColorAppAccent)),
+              builder: (ctx) {
+                final a = Theme.of(ctx).colorScheme.primary;
+                return AlertDialog(
+                  backgroundColor: kColorSurface,
+                  title: const Text('Add Chapter'),
+                  content: TextField(
+                    controller: controller,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      hintText: 'Note (optional)...',
+                      hintStyle: const TextStyle(color: Colors.white38),
+                      enabledBorder: const UnderlineInputBorder(
+                        borderSide: BorderSide(color: kColorOn2),
+                      ),
+                      focusedBorder: UnderlineInputBorder(
+                        borderSide: BorderSide(color: a),
+                      ),
+                    ),
+                    style: const TextStyle(color: kColorOn),
                   ),
-                  style: const TextStyle(color: kColorOn),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Cancel', style: TextStyle(color: kColorOn2)),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      ctrl.addBookmark(note: controller.text);
-                      Navigator.pop(ctx);
-                      showToast(context, 'Chapter added');
-                      HapticFeedback.selectionClick();
-                    },
-                    child: const Text('Add', style: TextStyle(color: kColorAppAccent)),
-                  ),
-                ],
-              ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text(
+                        'Cancel',
+                        style: TextStyle(color: kColorOn2),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        ctrl.addBookmark(note: controller.text);
+                        Navigator.pop(ctx);
+                        showToast(context, 'Chapter added');
+                        HapticFeedback.selectionClick();
+                      },
+                      child: Text('Add', style: TextStyle(color: a)),
+                    ),
+                  ],
+                );
+              },
             );
           },
         ),
@@ -584,30 +682,25 @@ class _ChipIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: active ? kColorAppAccent.withValues(alpha: 0.2) : Colors.transparent,
+          color: active ? accent.withValues(alpha: 0.2) : Colors.transparent,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: active ? kColorAppAccent : Colors.white10,
-          ),
+          border: Border.all(color: active ? accent : Colors.white10),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              size: 16,
-              color: active ? kColorAppAccent : kColorOn2,
-            ),
+            Icon(icon, size: 16, color: active ? accent : kColorOn2),
             const SizedBox(width: 6),
             Text(
               label,
               style: TextStyle(
-                color: active ? kColorAppAccent : kColorOn2,
+                color: active ? accent : kColorOn2,
                 fontSize: 12,
                 fontWeight: active ? FontWeight.bold : FontWeight.normal,
               ),
@@ -625,6 +718,7 @@ class _SpeedSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
     return Container(
       color: kColorSurface,
       padding: const EdgeInsets.all(kSp * 2),
@@ -638,19 +732,20 @@ class _SpeedSheet extends StatelessWidget {
           const SizedBox(height: kSp),
           Wrap(
             spacing: kSp,
-            children: [0.5, 0.8, 1.0, 1.2, 1.5, 2.0].map((speed) {
-              final selected = (speed - current).abs() < 0.01;
-              return ChoiceChip(
-                label: Text('${speed}x'),
-                selected: selected,
-                onSelected: (_) => Navigator.pop(context, speed),
-                selectedColor: kColorAppAccent,
-                backgroundColor: kColorCard,
-                labelStyle: TextStyle(
-                  color: selected ? Colors.white : kColorOn,
-                ),
-              );
-            }).toList(),
+            children:
+                [0.5, 0.8, 1.0, 1.2, 1.5, 2.0].map((speed) {
+                  final selected = (speed - current).abs() < 0.01;
+                  return ChoiceChip(
+                    label: Text('${speed}x'),
+                    selected: selected,
+                    onSelected: (_) => Navigator.pop(context, speed),
+                    selectedColor: accent,
+                    backgroundColor: kColorCard,
+                    labelStyle: TextStyle(
+                      color: selected ? Colors.white : kColorOn,
+                    ),
+                  );
+                }).toList(),
           ),
         ],
       ),
@@ -662,13 +757,18 @@ class QueueSheet extends StatefulWidget {
   final PlayerController ctrl;
   final ScrollController scrollController;
 
-  const QueueSheet({super.key, required this.ctrl, required this.scrollController});
+  const QueueSheet({
+    super.key,
+    required this.ctrl,
+    required this.scrollController,
+  });
 
   @override
   State<QueueSheet> createState() => _QueueSheetState();
 }
 
-class _QueueSheetState extends State<QueueSheet> with SingleTickerProviderStateMixin {
+class _QueueSheetState extends State<QueueSheet>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   String _searchQuery = '';
 
@@ -680,30 +780,24 @@ class _QueueSheetState extends State<QueueSheet> with SingleTickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: kColorSurface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
+    final accent = Theme.of(context).colorScheme.primary;
+    return GlassPanel(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      borderColor: Colors.white.withValues(alpha: 0.14),
+      backgroundColor: kColorGlassBlackTint,
       child: Column(
         children: [
           TabBar(
             controller: _tabController,
-            indicatorColor: kColorAppAccent,
-            labelColor: kColorAppAccent,
+            indicatorColor: accent,
+            labelColor: accent,
             unselectedLabelColor: kColorOn2,
-            tabs: const [
-              Tab(text: 'Queue'),
-              Tab(text: 'Library'),
-            ],
+            tabs: const [Tab(text: 'Queue'), Tab(text: 'Library')],
           ),
           Expanded(
             child: TabBarView(
               controller: _tabController,
-              children: [
-                _buildQueueList(),
-                _buildLibraryList(),
-              ],
+              children: [_buildQueueList(), _buildLibraryList()],
             ),
           ),
         ],
@@ -716,6 +810,7 @@ class _QueueSheetState extends State<QueueSheet> with SingleTickerProviderStateM
     return StreamBuilder<SequenceState?>(
       stream: p.sequenceStateStream,
       builder: (context, snapshot) {
+        final accent = Theme.of(context).colorScheme.primary;
         final state = snapshot.data;
         final sequence = state?.sequence ?? [];
         return ReorderableListView.builder(
@@ -735,7 +830,7 @@ class _QueueSheetState extends State<QueueSheet> with SingleTickerProviderStateM
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: isPlaying ? kColorAppAccent : kColorOn,
+                  color: isPlaying ? accent : kColorOn,
                   fontWeight: isPlaying ? FontWeight.bold : FontWeight.normal,
                 ),
               ),
@@ -745,9 +840,14 @@ class _QueueSheetState extends State<QueueSheet> with SingleTickerProviderStateM
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: kColorOn2, fontSize: 12),
               ),
-              trailing: isPlaying
-                  ? const Icon(PhosphorIconsFill.speakerHigh, color: kColorAppAccent, size: 16)
-                  : null,
+              trailing:
+                  isPlaying
+                      ? Icon(
+                        PhosphorIconsFill.speakerHigh,
+                        color: accent,
+                        size: 16,
+                      )
+                      : null,
               onTap: () {
                 p.seek(Duration.zero, index: index);
                 Navigator.pop(context);
@@ -760,11 +860,13 @@ class _QueueSheetState extends State<QueueSheet> with SingleTickerProviderStateM
   }
 
   Widget _buildLibraryList() {
-    final songs = widget.ctrl.librarySongs.where((s) {
-      if (_searchQuery.isEmpty) return true;
-      return s.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-             (s.artist?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false);
-    }).toList();
+    final songs =
+        widget.ctrl.librarySongs.where((s) {
+          if (_searchQuery.isEmpty) return true;
+          return s.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+              (s.artist?.toLowerCase().contains(_searchQuery.toLowerCase()) ??
+                  false);
+        }).toList();
 
     return Column(
       children: [
@@ -773,7 +875,10 @@ class _QueueSheetState extends State<QueueSheet> with SingleTickerProviderStateM
           child: TextField(
             decoration: InputDecoration(
               hintText: 'Search Library...',
-              prefixIcon: const Icon(PhosphorIconsRegular.magnifyingGlass, color: kColorOn2),
+              prefixIcon: const Icon(
+                PhosphorIconsRegular.magnifyingGlass,
+                color: kColorOn2,
+              ),
               filled: true,
               fillColor: Colors.white10,
               border: OutlineInputBorder(
@@ -789,16 +894,29 @@ class _QueueSheetState extends State<QueueSheet> with SingleTickerProviderStateM
         ),
         Expanded(
           child: ListView.builder(
-            // Not attaching scrollController here to avoid conflict, 
+            // Not attaching scrollController here to avoid conflict,
             // but this means this list won't drive the sheet drag.
             itemCount: songs.length,
             itemBuilder: (context, index) {
               final s = songs[index];
               return ListTile(
-                title: Text(s.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: kColorOn)),
-                subtitle: Text(s.artist ?? '<unknown>', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: kColorOn2)),
+                title: Text(
+                  s.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: kColorOn),
+                ),
+                subtitle: Text(
+                  s.artist ?? '<unknown>',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: kColorOn2),
+                ),
                 trailing: IconButton(
-                  icon: const Icon(PhosphorIconsRegular.plusCircle, color: kColorOn2),
+                  icon: const Icon(
+                    PhosphorIconsRegular.plusCircle,
+                    color: kColorOn2,
+                  ),
                   onPressed: () {
                     widget.ctrl.addToQueue(s);
                     showToast(context, 'Added to Queue');
@@ -808,38 +926,57 @@ class _QueueSheetState extends State<QueueSheet> with SingleTickerProviderStateM
                   showModalBottomSheet(
                     context: context,
                     backgroundColor: kColorSurface,
-                    builder: (ctx) => Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        ListTile(
-                          leading: const Icon(PhosphorIconsRegular.play, color: kColorOn),
-                          title: const Text('Play Now', style: TextStyle(color: kColorOn)),
-                          onTap: () {
-                            widget.ctrl.replaceQueue([s]);
-                            Navigator.pop(ctx);
-                            Navigator.pop(context);
-                          },
+                    builder:
+                        (ctx) => Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            ListTile(
+                              leading: const Icon(
+                                PhosphorIconsRegular.play,
+                                color: kColorOn,
+                              ),
+                              title: const Text(
+                                'Play Now',
+                                style: TextStyle(color: kColorOn),
+                              ),
+                              onTap: () {
+                                widget.ctrl.replaceQueue([s]);
+                                Navigator.pop(ctx);
+                                Navigator.pop(context);
+                              },
+                            ),
+                            ListTile(
+                              leading: const Icon(
+                                PhosphorIconsRegular.queue,
+                                color: kColorOn,
+                              ),
+                              title: const Text(
+                                'Play Next',
+                                style: TextStyle(color: kColorOn),
+                              ),
+                              onTap: () {
+                                widget.ctrl.insertNext(s);
+                                Navigator.pop(ctx);
+                                showToast(context, 'Playing Next');
+                              },
+                            ),
+                            ListTile(
+                              leading: const Icon(
+                                PhosphorIconsRegular.plus,
+                                color: kColorOn,
+                              ),
+                              title: const Text(
+                                'Add to Queue',
+                                style: TextStyle(color: kColorOn),
+                              ),
+                              onTap: () {
+                                widget.ctrl.addToQueue(s);
+                                Navigator.pop(ctx);
+                                showToast(context, 'Added to Queue');
+                              },
+                            ),
+                          ],
                         ),
-                        ListTile(
-                          leading: const Icon(PhosphorIconsRegular.queue, color: kColorOn),
-                          title: const Text('Play Next', style: TextStyle(color: kColorOn)),
-                          onTap: () {
-                            widget.ctrl.insertNext(s);
-                            Navigator.pop(ctx);
-                            showToast(context, 'Playing Next');
-                          },
-                        ),
-                        ListTile(
-                          leading: const Icon(PhosphorIconsRegular.plus, color: kColorOn),
-                          title: const Text('Add to Queue', style: TextStyle(color: kColorOn)),
-                          onTap: () {
-                            widget.ctrl.addToQueue(s);
-                            Navigator.pop(ctx);
-                            showToast(context, 'Added to Queue');
-                          },
-                        ),
-                      ],
-                    ),
                   );
                 },
               );
@@ -858,57 +995,65 @@ class BookmarksSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bookmarks = ctrl.bookmarks;
-    return Container(
-      color: kColorSurface,
-      height: 400,
-      child: Column(
-        children: [
-          const Padding(
-            padding: EdgeInsets.all(16),
-            child: Text(
-              'Chapters / Bookmarks',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-          ),
-          if (bookmarks.isEmpty)
-            const Expanded(
-              child: Center(
-                child: Text('No chapters added', style: TextStyle(color: kColorOn2)),
+    final accent = Theme.of(context).colorScheme.primary;
+    return GlassPanel(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      borderColor: Colors.white.withValues(alpha: 0.14),
+      backgroundColor: kColorGlassBlackTint,
+      child: SizedBox(
+        height: 400,
+        child: Column(
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text(
+                'Chapters / Bookmarks',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
-            )
-          else
-            Expanded(
-              child: ListView.builder(
-                itemCount: bookmarks.length,
-                itemBuilder: (context, index) {
-                  final b = bookmarks[index];
-                  final pos = Duration(milliseconds: b['pos'] as int);
-                  return ListTile(
-                    leading: Text(
-                      _fmt(pos),
-                      style: const TextStyle(
-                        color: kColorAppAccent,
-                        fontFamily: 'monospace',
+            ),
+            if (bookmarks.isEmpty)
+              const Expanded(
+                child: Center(
+                  child: Text(
+                    'No chapters added',
+                    style: TextStyle(color: kColorOn2),
+                  ),
+                ),
+              )
+            else
+              Expanded(
+                child: ListView.builder(
+                  itemCount: bookmarks.length,
+                  itemBuilder: (context, index) {
+                    final b = bookmarks[index];
+                    final pos = Duration(milliseconds: b['pos'] as int);
+                    return ListTile(
+                      leading: Text(
+                        _fmt(pos),
+                        style: TextStyle(
+                          color: accent,
+                          fontFamily: 'monospace',
+                        ),
                       ),
-                    ),
-                    title: Text(b['note'] as String),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete_outline, size: 18),
-                      onPressed: () {
-                        ctrl.removeBookmark(index);
+                      title: Text(b['note'] as String),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete_outline, size: 18),
+                        onPressed: () {
+                          ctrl.removeBookmark(index);
+                          Navigator.pop(context);
+                          showToast(context, 'Chapter removed');
+                        },
+                      ),
+                      onTap: () {
+                        ctrl.player.seek(pos);
                         Navigator.pop(context);
-                        showToast(context, 'Chapter removed');
                       },
-                    ),
-                    onTap: () {
-                      ctrl.player.seek(pos);
-                      Navigator.pop(context);
-                    },
-                  );
-                },
+                    );
+                  },
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -943,7 +1088,11 @@ class _SonicDnaBadge extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(PhosphorIconsBold.waveform, size: 14, color: Color(0xFF8D5524)),
+              const Icon(
+                PhosphorIconsBold.waveform,
+                size: 14,
+                color: Color(0xFF8D5524),
+              ),
               const SizedBox(width: 6),
               Text(
                 '${meta.bpm!.toInt()} BPM',

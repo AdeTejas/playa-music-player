@@ -10,6 +10,7 @@ class StaticTurntable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accentColor = Theme.of(context).colorScheme.primary;
     return Container(
       width: 200,
       height: 200,
@@ -21,6 +22,7 @@ class StaticTurntable extends StatelessWidget {
             painter: TurntableBasePainter(
               strobeEnabled: true,
               strobeColor: Colors.green,
+              accentColor: accentColor,
             ),
           ),
           CustomPaint(
@@ -34,6 +36,7 @@ class StaticTurntable extends StatelessWidget {
               strobeEnabled: true,
               is33RPM: true,
               isPlaying: isPlaying,
+              accentColor: accentColor,
             ),
           ),
         ],

@@ -43,5 +43,6 @@ class Playlist {
 
   String toJson() => json.encode(toMap());
 
-  factory Playlist.fromJson(String source) => Playlist.fromMap(json.decode(source));
+  factory Playlist.fromJson(String source) =>
+      Playlist.fromMap(json.decode(source));
 }

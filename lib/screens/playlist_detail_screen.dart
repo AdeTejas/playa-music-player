@@ -5,6 +5,7 @@ import '../models/playlist.dart';
 import '../repositories/playlist_repository.dart';
 import '../services/player_controller.dart';
 import '../ui/tokens.dart';
+import '../ui/glass_panel.dart';
 import '../widgets/artwork_image.dart';
 
 class PlaylistDetailScreen extends StatefulWidget {
@@ -33,7 +34,9 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     // Refresh playlist data first
     final allPlaylists = await _repo.getAll();
     try {
-      _currentPlaylist = allPlaylists.firstWhere((p) => p.id == widget.playlist.id);
+      _currentPlaylist = allPlaylists.firstWhere(
+        (p) => p.id == widget.playlist.id,
+      );
     } catch (_) {
       // Playlist might have been deleted
       if (mounted) Navigator.pop(context);
@@ -41,10 +44,12 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     }
 
     if (_currentPlaylist.songIds.isEmpty) {
-      if (mounted) setState(() {
-        _songs = [];
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _songs = [];
+          _loading = false;
+        });
+      }
       return;
     }
 
@@ -58,7 +63,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
 
     final songMap = {for (var s in allSongs) s.id.toString(): s};
     final List<SongModel> resolvedSongs = [];
-    
+
     for (final id in _currentPlaylist.songIds) {
       if (songMap.containsKey(id)) {
         resolvedSongs.add(songMap[id]!);
@@ -77,16 +82,16 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     await _repo.removeSong(_currentPlaylist.id, song.id.toString());
     _loadSongs();
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Removed "${song.title}"')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Removed "${song.title}"')));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: kColorBg,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -94,73 +99,110 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
         actions: [
           IconButton(
             icon: const Icon(PhosphorIconsRegular.play),
-            onPressed: _songs.isEmpty ? null : () {
-              PlayerController.ensure().replaceQueue(_songs);
-            },
+            onPressed:
+                _songs.isEmpty
+                    ? null
+                    : () {
+                      PlayerController.ensure().replaceQueue(
+                        _songs,
+                        queueContextType: 'playlist',
+                        queueContextId: _currentPlaylist.id,
+                      );
+                    },
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _songs.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(PhosphorIconsRegular.musicNotes, size: 64, color: kColorOn2),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No songs yet',
-                        style: TextStyle(color: kColorOn2, fontSize: 18),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Add songs from your Library',
-                        style: TextStyle(color: Colors.white38),
-                      ),
-                    ],
-                  ),
-                )
+      body:
+          _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _songs.isEmpty
+              ? const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      PhosphorIconsRegular.musicNotes,
+                      size: 64,
+                      color: kColorOn2,
+                    ),
+                    SizedBox(height: 16),
+                    Text(
+                      'No songs yet',
+                      style: TextStyle(color: kColorOn2, fontSize: 18),
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      'Add songs from your Library',
+                      style: TextStyle(color: Colors.white38),
+                    ),
+                  ],
+                ),
+              )
               : ListView.builder(
-                  itemCount: _songs.length,
-                  itemBuilder: (context, index) {
-                    final song = _songs[index];
-                    return ListTile(
-                      leading: ArtworkImage(
-                        id: song.id,
-                        type: ArtworkType.AUDIO,
-                        nullArtworkWidget: Container(
-                          width: 48,
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: kColorCard,
-                            borderRadius: BorderRadius.circular(4),
+                itemCount: _songs.length,
+                itemBuilder: (context, index) {
+                  final song = _songs[index];
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                    child: GlassPanel(
+                      useShader: false,
+                      borderRadius: BorderRadius.circular(14),
+                      borderColor: Colors.white.withValues(alpha: 0.15),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: ListTile(
+                          leading: ArtworkImage(
+                            id: song.id,
+                            type: ArtworkType.AUDIO,
+                            nullArtworkWidget: Container(
+                              width: 48,
+                              height: 48,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.06),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.12),
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.music_note,
+                                color: kColorOn2,
+                              ),
+                            ),
                           ),
-                          child: const Icon(Icons.music_note, color: kColorOn2),
+                          title: Text(
+                            song.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: kColorOn),
+                          ),
+                          subtitle: Text(
+                            song.artist ?? 'Unknown',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: kColorOn2),
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(
+                              Icons.remove_circle_outline,
+                              color: Colors.white38,
+                            ),
+                            onPressed: () => _removeSong(song),
+                          ),
+                          onTap: () {
+                            PlayerController.ensure().replaceQueue(
+                              _songs,
+                              initialIndex: index,
+                              queueContextType: 'playlist',
+                              queueContextId: _currentPlaylist.id,
+                            );
+                          },
                         ),
                       ),
-                      title: Text(
-                        song.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: kColorOn),
-                      ),
-                      subtitle: Text(
-                        song.artist ?? 'Unknown',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: kColorOn2),
-                      ),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.remove_circle_outline, color: Colors.white38),
-                        onPressed: () => _removeSong(song),
-                      ),
-                      onTap: () {
-                        PlayerController.ensure().replaceQueue(_songs, initialIndex: index);
-                      },
-                    );
-                  },
-                ),
+                    ),
+                  );
+                },
+              ),
     );
   }
 }

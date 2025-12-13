@@ -1,6 +1,9 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:on_audio_query/on_audio_query.dart';
+
+import '../services/artwork_cache_service.dart';
 
 class ArtworkImage extends StatelessWidget {
   final int id;
@@ -37,14 +40,44 @@ class ArtworkImage extends StatelessWidget {
       );
     }
 
-    return QueryArtworkWidget(
-      id: id,
-      type: type,
-      nullArtworkWidget: nullArtworkWidget,
-      artworkBorder: artworkBorder,
-      artworkFit: artworkFit ?? BoxFit.cover,
-      artworkWidth: width ?? 50,
-      artworkHeight: height ?? 50,
+    final w = width ?? 50;
+    final h = height ?? 50;
+    final requestSize = (w > h ? w : h).ceil().clamp(64, 1200);
+
+    return FutureBuilder<Uint8List?>(
+      future: ArtworkCacheService.instance.getArtworkBytes(
+        id: id,
+        type: type,
+        size: requestSize,
+      ),
+      builder: (context, snap) {
+        final bytes = snap.data;
+        if (bytes == null || bytes.isEmpty) {
+          return SizedBox(
+            width: w,
+            height: h,
+            child: ClipRRect(
+              borderRadius: artworkBorder ?? BorderRadius.zero,
+              child: nullArtworkWidget ?? const Icon(Icons.music_note),
+            ),
+          );
+        }
+
+        return SizedBox(
+          width: w,
+          height: h,
+          child: ClipRRect(
+            borderRadius: artworkBorder ?? BorderRadius.zero,
+            child: Image.memory(
+              bytes,
+              fit: artworkFit ?? BoxFit.cover,
+              gaplessPlayback: true,
+              cacheWidth: w.ceil(),
+              cacheHeight: h.ceil(),
+            ),
+          ),
+        );
+      },
     );
   }
 }

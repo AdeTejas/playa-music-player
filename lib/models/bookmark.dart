@@ -7,10 +7,7 @@ class Bookmark {
   Bookmark({required this.position, this.note = ''});
 
   Map<String, dynamic> toMap() {
-    return {
-      'position': position.inMilliseconds,
-      'note': note,
-    };
+    return {'position': position.inMilliseconds, 'note': note};
   }
 
   factory Bookmark.fromMap(Map<String, dynamic> map) {
@@ -22,8 +19,9 @@ class Bookmark {
 
   String toJson() => json.encode(toMap());
 
-  factory Bookmark.fromJson(String source) => Bookmark.fromMap(json.decode(source));
-  
+  factory Bookmark.fromJson(String source) =>
+      Bookmark.fromMap(json.decode(source));
+
   // Helper to try parsing from what might be a simple int string (legacy) or a JSON string
   static Bookmark parse(String str) {
     try {
@@ -34,7 +32,7 @@ class Bookmark {
     } catch (_) {
       // Ignore json parse error, fall through to legacy
     }
-    
+
     // Fallback: treat as legacy millisecond string
     final ms = int.tryParse(str) ?? 0;
     return Bookmark(position: Duration(milliseconds: ms));

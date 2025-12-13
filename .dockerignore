@@ -1,0 +1,13 @@
+.git
+.gitignore
+.idea
+.vscode
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+doc/
+test/

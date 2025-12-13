@@ -1,7 +1,10 @@
 import 'dart:async';
-import 'dart:math';
+import 'dart:io';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'database_service.dart';
+import '../models/song_metadata.dart';
+import '../utils/sonic_dna_tag_reader.dart';
+import 'sonic_dna_android_analyzer.dart';
 
 class SonicDnaService {
   static final SonicDnaService _instance = SonicDnaService._();
@@ -14,6 +17,17 @@ class SonicDnaService {
 
   bool _isScanning = false;
   bool get isScanning => _isScanning;
+
+  Future<String?> _fileSignature(String pathOrUri) async {
+    try {
+      final f = File(pathOrUri);
+      if (!await f.exists()) return null;
+      final st = await f.stat();
+      return '${st.size}:${st.modified.millisecondsSinceEpoch}';
+    } catch (_) {
+      return null;
+    }
+  }
 
   Future<void> analyzeLibrary(List<SongModel> songs) async {
     // Forward to the implementation
@@ -30,27 +44,53 @@ class SonicDnaService {
     int processed = 0;
     final total = songs.length;
 
+    final existing = await DatabaseService.instance.getAllSongMetadata();
+    final metaById = {for (final m in existing) m.id: m};
+
     for (final song in songs) {
-      // Check if already analyzed
-      final meta = await DatabaseService.instance.getSongMetadata(song.id.toString());
-      if (meta?.bpm != null) {
+      final pathOrUri = song.data;
+      final sig = await _fileSignature(pathOrUri);
+
+      // Check if already analyzed for this exact file version.
+      final meta = metaById[song.id.toString()];
+      final hasDna = (meta?.bpm != null || meta?.key != null);
+      final sigMatches =
+          (sig != null &&
+              meta?.dnaSignature != null &&
+              meta!.dnaSignature == sig);
+      if (hasDna && (sig == null || sigMatches)) {
         processed++;
         _progressController.add(processed / total);
         continue;
       }
 
-      // Simulate Analysis
-      await Future.delayed(const Duration(milliseconds: 20));
+      // Yield a little to keep UI responsive during large scans.
+      await Future.delayed(const Duration(milliseconds: 1));
 
-      // Deterministic DNA
-      final seed = (song.duration ?? 0) + (song.size);
-      final rnd = Random(seed);
-      final bpm = (70.0 + rnd.nextDouble() * 110.0).roundToDouble();
-      final keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-      final modes = ['Maj', 'Min'];
-      final key = '${keys[rnd.nextInt(keys.length)]} ${modes[rnd.nextInt(modes.length)]}';
+      // 1) Fast path: tags
+      final dna = await SonicDnaTagReader.readFromFilePath(pathOrUri);
+      double? bpm = dna.bpm;
+      String? key = dna.key;
 
-      await DatabaseService.instance.updateSonicDna(song.id.toString(), bpm, key);
+      // 2) Android fallback: decode PCM + analyze when tags are missing
+      if ((bpm == null && key == null) && Platform.isAndroid) {
+        final r = await SonicDnaAndroidAnalyzer.analyze(pathOrUri);
+        bpm = r.bpm;
+        key = r.key;
+      }
+
+      if (bpm != null || key != null) {
+        await DatabaseService.instance.updateSonicDna(
+          song.id.toString(),
+          bpm: bpm,
+          key: key,
+          dnaSignature: sig,
+        );
+        // Keep local cache warm to avoid re-querying later in the loop.
+        metaById[song.id.toString()] = (meta ??
+                SongMetadata(id: song.id.toString()))
+            .copyWith(bpm: bpm, key: key, dnaSignature: sig);
+      }
 
       processed++;
       _progressController.add(processed / total);

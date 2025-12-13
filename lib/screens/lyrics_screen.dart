@@ -1,6 +1,7 @@
 // lib/screens/lyrics_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_lyric/lyrics_reader.dart';
+import '../ui/glass_panel.dart';
 import '../ui/tokens.dart';
 import '../repositories/song_repository.dart';
 
@@ -22,7 +23,8 @@ class LyricsScreen extends StatefulWidget {
   State<LyricsScreen> createState() => _LyricsScreenState();
 }
 
-class _LyricsScreenState extends State<LyricsScreen> with TickerProviderStateMixin {
+class _LyricsScreenState extends State<LyricsScreen>
+    with TickerProviderStateMixin {
   final _repo = SongRepository.instance;
   dynamic _lyricsModel;
   bool _loading = true;
@@ -53,9 +55,8 @@ class _LyricsScreenState extends State<LyricsScreen> with TickerProviderStateMix
       }
 
       // Parse LRC format or plain text
-      final model = LyricsModelBuilder.create()
-          .bindLyricToMain(lyricsText)
-          .getModel();
+      final model =
+          LyricsModelBuilder.create().bindLyricToMain(lyricsText).getModel();
 
       setState(() {
         _lyricsModel = model;
@@ -72,7 +73,7 @@ class _LyricsScreenState extends State<LyricsScreen> with TickerProviderStateMix
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF06070A),
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
@@ -87,13 +88,14 @@ class _LyricsScreenState extends State<LyricsScreen> with TickerProviderStateMix
         ],
       ),
       body: _buildBody(),
-      floatingActionButton: _lyricsModel == null && !_loading
-          ? FloatingActionButton.extended(
-              onPressed: () => _showAddLyricsDialog(),
-              icon: const Icon(Icons.add),
-              label: const Text('Add Lyrics'),
-            )
-          : null,
+      floatingActionButton:
+          _lyricsModel == null && !_loading
+              ? FloatingActionButton.extended(
+                onPressed: () => _showAddLyricsDialog(),
+                icon: const Icon(Icons.add),
+                label: const Text('Add Lyrics'),
+              )
+              : null,
     );
   }
 
@@ -104,17 +106,30 @@ class _LyricsScreenState extends State<LyricsScreen> with TickerProviderStateMix
 
     if (_error != null) {
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.lyrics_outlined, size: 64, color: Colors.white24),
-            const SizedBox(height: kSp * 2),
-            Text(
-              _error!,
-              style: const TextStyle(color: Colors.white54),
-              textAlign: TextAlign.center,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: GlassPanel(
+            useShader: true,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.lyrics_outlined,
+                    size: 64,
+                    color: Colors.white24,
+                  ),
+                  const SizedBox(height: kSp * 2),
+                  Text(
+                    _error!,
+                    style: const TextStyle(color: Colors.white54),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
             ),
-          ],
+          ),
         ),
       );
     }
@@ -138,46 +153,56 @@ class _LyricsScreenState extends State<LyricsScreen> with TickerProviderStateMix
     return StreamBuilder<Duration>(
       stream: widget.positionStream,
       builder: (context, snapshot) {
-        return LyricsReader(
-          padding: const EdgeInsets.symmetric(horizontal: kSp * 3, vertical: kSp * 2),
-          model: _lyricsModel,
-          position: snapshot.data?.inMilliseconds ?? 0,
-          lyricUi: UINetease(
-            highlight: true,
-            defaultSize: 18,
-            defaultExtSize: 16,
-            otherMainSize: 16,
-            bias: 0.3,
-            lineGap: 16,
-            inlineGap: 12,
-          ),
-          playing: true,
-          emptyBuilder: () => const Center(
-            child: Text(
-              'No lyrics text available',
-              style: TextStyle(color: Colors.white54),
-            ),
-          ),
-          selectLineBuilder: (progress, confirm) {
-            return Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.transparent,
-                          const Color(0xFFFF4D4D).withValues(alpha: 0.3),
-                          Colors.transparent,
-                        ],
+        return Padding(
+          padding: const EdgeInsets.all(16),
+          child: GlassPanel(
+            useShader: true,
+            child: LyricsReader(
+              padding: const EdgeInsets.symmetric(
+                horizontal: kSp * 3,
+                vertical: kSp * 2,
+              ),
+              model: _lyricsModel,
+              position: snapshot.data?.inMilliseconds ?? 0,
+              lyricUi: UINetease(
+                highlight: true,
+                defaultSize: 18,
+                defaultExtSize: 16,
+                otherMainSize: 16,
+                bias: 0.3,
+                lineGap: 16,
+                inlineGap: 12,
+              ),
+              playing: true,
+              emptyBuilder:
+                  () => const Center(
+                    child: Text(
+                      'No lyrics text available',
+                      style: TextStyle(color: Colors.white54),
+                    ),
+                  ),
+              selectLineBuilder: (progress, confirm) {
+                return Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Colors.transparent,
+                              const Color(0xFFFF4D4D).withValues(alpha: 0.3),
+                              Colors.transparent,
+                            ],
+                          ),
+                        ),
+                        height: 2,
                       ),
                     ),
-                    height: 2,
-                  ),
-                ),
-              ],
-            );
-          },
+                  ],
+                );
+              },
+            ),
+          ),
         );
       },
     );
@@ -187,37 +212,64 @@ class _LyricsScreenState extends State<LyricsScreen> with TickerProviderStateMix
     final controller = TextEditingController();
     final result = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Add Lyrics'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Paste lyrics in LRC format or plain text:',
-              style: TextStyle(fontSize: 12, color: Colors.white70),
+      builder:
+          (ctx) => Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: 24,
             ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              maxLines: 10,
-              decoration: const InputDecoration(
-                hintText: '[00:12.00] First line of lyrics\n[00:15.00] Second line...',
-                border: OutlineInputBorder(),
+            child: GlassPanel(
+              useShader: true,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text(
+                      'Add Lyrics',
+                      style: TextStyle(
+                        color: kColorOn,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Paste lyrics in LRC format or plain text:',
+                      style: TextStyle(fontSize: 12, color: Colors.white70),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: controller,
+                      maxLines: 10,
+                      decoration: const InputDecoration(
+                        hintText:
+                            '[00:12.00] First line of lyrics\n[00:15.00] Second line...',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('Cancel'),
+                        ),
+                        const SizedBox(width: 8),
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, controller.text),
+                          child: const Text('Save'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, controller.text),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
     );
 
     if (result != null && result.isNotEmpty) {
@@ -229,34 +281,65 @@ class _LyricsScreenState extends State<LyricsScreen> with TickerProviderStateMix
   Future<void> _showEditDialog() async {
     final meta = await _repo.getMetadata(widget.songId);
     final controller = TextEditingController(text: meta?.lyrics ?? '');
-    
+
     if (!mounted) return;
-    
+
     final result = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Edit Lyrics'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: TextField(
-            controller: controller,
-            maxLines: 15,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
+      builder:
+          (ctx) => Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: 24,
+            ),
+            child: GlassPanel(
+              useShader: true,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text(
+                      'Edit Lyrics',
+                      style: TextStyle(
+                        color: kColorOn,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.maxFinite,
+                      child: TextField(
+                        controller: controller,
+                        maxLines: 15,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('Cancel'),
+                        ),
+                        const SizedBox(width: 8),
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, controller.text),
+                          child: const Text('Save'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, controller.text),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
     );
 
     if (result != null) {

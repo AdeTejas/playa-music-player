@@ -22,7 +22,10 @@ class StarRating extends StatelessWidget {
       children: List.generate(maxRating, (index) {
         final starIndex = index + 1;
         return GestureDetector(
-          onTap: onRatingChanged != null ? () => onRatingChanged!(starIndex) : null,
+          onTap:
+              onRatingChanged != null
+                  ? () => onRatingChanged!(starIndex)
+                  : null,
           child: Icon(
             starIndex <= rating ? Icons.star : Icons.star_border,
             size: size,

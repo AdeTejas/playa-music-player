@@ -1,4 +1,4 @@
-package com.example.playa_clean
+package com.paxpiece.playa
 
 import android.appwidget.AppWidgetManager
 import android.content.Context

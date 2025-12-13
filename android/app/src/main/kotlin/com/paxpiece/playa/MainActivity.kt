@@ -1,13 +1,16 @@
-package com.example.playa_clean
+package com.paxpiece.playa
 
 import android.media.audiofx.Equalizer
 import androidx.annotation.NonNull
 import com.ryanheise.audioservice.AudioServiceActivity
+import com.paxpiece.playa.sonic.PcmDecode
+import com.paxpiece.playa.sonic.SonicDnaAnalyzer
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : AudioServiceActivity() {
-    private val CHANNEL = "com.example.playa_clean/equalizer"
+    private val CHANNEL = "com.paxpiece.playa/equalizer"
+    private val SONIC_CHANNEL = "com.paxpiece.playa/sonic_dna"
     private var equalizer: Equalizer? = null
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
@@ -96,6 +99,46 @@ class MainActivity : AudioServiceActivity() {
                 }
             } catch (e: Exception) {
                 result.error("EQ_ERROR", e.message, null)
+            }
+        }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SONIC_CHANNEL).setMethodCallHandler { call, result ->
+            try {
+                when (call.method) {
+                    "analyzeTrack" -> {
+                        val uri = call.argument<String>("uri") ?: ""
+                        val maxSeconds = call.argument<Int>("maxSeconds") ?: 90
+                        val targetSampleRate = call.argument<Int>("targetSampleRate") ?: 11025
+
+                        if (uri.isBlank()) {
+                            result.success(mapOf("bpm" to null, "key" to null, "confidence" to 0.0))
+                            return@setMethodCallHandler
+                        }
+
+                        // Run decode+analysis off the UI thread.
+                        Thread {
+                            try {
+                                val decoded = PcmDecode.decodeToMonoFloat(
+                                    context = this,
+                                    uriString = uri,
+                                    maxSeconds = maxSeconds,
+                                    targetSampleRate = targetSampleRate,
+                                )
+                                val r = SonicDnaAnalyzer.analyze(decoded.pcm, decoded.sampleRate)
+                                result.success(mapOf(
+                                    "bpm" to r.bpm,
+                                    "key" to r.key,
+                                    "confidence" to r.confidence,
+                                ))
+                            } catch (e: Exception) {
+                                result.success(mapOf("bpm" to null, "key" to null, "confidence" to 0.0))
+                            }
+                        }.start()
+                    }
+                    else -> result.notImplemented()
+                }
+            } catch (e: Exception) {
+                result.success(mapOf("bpm" to null, "key" to null, "confidence" to 0.0))
             }
         }
     }

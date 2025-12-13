@@ -12,3 +12,14 @@ void showToast(BuildContext context, String msg) {
     ),
   );
 }
+
+String formatDuration(Duration? duration) {
+  if (duration == null) return '--:--';
+  final h = duration.inHours;
+  final m = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+  final s = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+  if (h > 0) {
+    return '$h:$m:$s';
+  }
+  return '$m:$s';
+}
