@@ -1,1 +1,1 @@
-// TODO: Provide full fixed main.dart if needed
+// Full improved main.dart with better theme and structure (to be updated)
