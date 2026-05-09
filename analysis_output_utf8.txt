@@ -1,0 +1,138 @@
+﻿Resolving dependencies...
+Downloading packages...
+  _fe_analyzer_shared 61.0.0 (100.0.0 available)
+  analyzer 5.13.0 (13.0.0 available)
+  archive 4.0.7 (4.0.9 available)
+  async 2.12.0 (2.13.1 available)
+  audio_session 0.1.25 (0.2.3 available)
+  audio_waveforms 1.3.0 (2.0.2 available)
+  build 2.4.1 (4.0.6 available)
+  build_config 1.1.2 (1.3.0 available)
+  build_resolvers 2.4.2 (3.0.4 available)
+  build_runner 2.4.13 (2.15.0 available)
+  build_runner_core 7.3.2 (9.3.2 available)
+  built_value 8.12.0 (8.12.6 available)
+  checked_yaml 2.0.3 (2.0.4 available)
+  cli_util 0.4.2 (0.5.1 available)
+  code_builder 4.11.0 (4.11.1 available)
+  cross_file 0.3.5 (0.3.5+2 available)
+  cupertino_icons 1.0.8 (1.0.9 available)
+  dart_style 2.3.2 (3.1.9 available)
+  dbus 0.7.11 (0.7.12 available)
+  device_info_plus 10.1.2 (13.1.0 available)
+  device_info_plus_platform_interface 7.0.3 (8.1.0 available)
+  ffi 2.1.4 (2.2.0 available)
+  file_picker 8.3.7 (11.0.2 available)
+  flutter_launcher_icons 0.13.1 (0.14.4 available)
+  flutter_lints 4.0.0 (6.0.0 available)
+  flutter_lyric 2.0.4+6 (3.0.3 available)
+  flutter_plugin_android_lifecycle 2.0.31 (2.0.34 available)
+  google_fonts 6.3.2 (8.1.0 available)
+  home_widget 0.8.1 (0.9.1 available)
+  image 4.5.4 (4.8.0 available)
+  js 0.6.7 (0.7.2 available)
+  json_annotation 4.9.0 (4.11.0 available)
+  lints 4.0.0 (6.1.0 available)
+  matcher 0.12.19 (0.12.20 available)
+! media_kit_libs_windows_audio 1.0.9 from path third_party\media_kit_libs_windows_audio (overridden)
+  meta 1.17.0 (1.18.2 available)
+  package_info_plus 9.0.0 (10.1.0 available)
+  package_info_plus_platform_interface 3.2.1 (4.1.0 available)
+  path_provider_android 2.2.19 (2.3.1 available)
+  path_provider_foundation 2.4.2 (2.6.0 available)
+  petitparser 6.1.0 (7.0.2 available)
+  posix 6.0.3 (6.5.0 available)
+  safe_local_storage 2.0.1 (2.0.3 available)
+  shared_preferences 2.5.3 (2.5.5 available)
+  shared_preferences_android 2.4.13 (2.4.23 available)
+  shared_preferences_foundation 2.5.4 (2.5.6 available)
+  shared_preferences_platform_interface 2.4.1 (2.4.2 available)
+  shelf_web_socket 2.0.1 (3.0.0 available)
+  source_span 1.10.1 (1.10.2 available)
+  sqflite 2.4.2 (2.4.2+1 available)
+  sqflite_android 2.4.1 (2.4.2+3 available)
+  sqflite_common 2.5.5 (2.5.7 available)
+  sqflite_common_ffi 2.3.6 (2.4.0+3 available)
+  sqlite3 2.9.4 (3.3.1 available)
+  synchronized 3.3.1 (3.4.0+1 available)
+  test_api 0.7.10 (0.7.12 available)
+  uri_parser 3.0.1 (3.0.2 available)
+  uuid 4.5.2 (4.5.3 available)
+  vector_math 2.2.0 (2.3.0 available)
+  vm_service 14.3.1 (15.2.0 available)
+  wakelock_plus 1.4.0 (1.6.0 available)
+  wakelock_plus_platform_interface 1.3.0 (1.5.0 available)
+  watcher 1.1.4 (1.2.1 available)
+  win32 5.13.0 (6.2.0 available)
+  win32_registry 1.1.5 (3.0.3 available)
+  xml 6.5.0 (7.0.1 available)
+Got dependencies!
+65 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Analyzing playa_clean...                                        
+
+  error - The getter 'favoritesNotifier' isn't defined for the type 'PlayerController' - lib\screens\library_page.dart:201:46 - undefined_getter
+  error - The getter 'favoritesNotifier' isn't defined for the type 'PlayerController' - lib\screens\library_page.dart:523:57 - undefined_getter
+  error - The getter 'favoritesNotifier' isn't defined for the type 'PlayerController' - lib\screens\player_screen.dart:127:52 - undefined_getter
+  error - The method 'toggleFavorite' isn't defined for the type 'PlayerController' - lib\screens\player_screen.dart:137:64 - undefined_method
+  error - The method 'smartShuffle' isn't defined for the type 'PlayerController' - lib\screens\player_screen.dart:492:31 - undefined_method
+  error - The method 'addBookmark' isn't defined for the type 'PlayerController' - lib\screens\player_screen.dart:635:43 - undefined_method
+  error - The method 'reloadBookmarks' isn't defined for the type 'PlayerController' - lib\screens\player_screen.dart:657:31 - undefined_method
+  error - The getter 'favoritesNotifier' isn't defined for the type 'PlayerController' - lib\screens\player_screen.dart:809:39 - undefined_getter
+  error - The method 'toggleFavorite' isn't defined for the type 'PlayerController' - lib\screens\player_screen.dart:815:38 - undefined_method
+  error - The method 'updateBookmarkNote' isn't defined for the type 'PlayerController' - lib\screens\player_screen.dart:1347:16 - undefined_method
+  error - The method 'removeBookmark' isn't defined for the type 'PlayerController' - lib\screens\player_screen.dart:1414:44 - undefined_method
+  error - The method '_loadFavorites' isn't defined for the type 'PlayerController' - lib\services\player_controller.dart:742:11 - undefined_method
+  error - The method '_maybeExtendNeuralMix' isn't defined for the type 'PlayerController' - lib\services\player_controller.dart:774:19 - undefined_method
+  error - The method '_maybeExtendNeuralMix' isn't defined for the type 'PlayerController' - lib\services\player_controller.dart:807:15 - undefined_method
+  error - The method '_logAudioError' isn't defined for the type 'PlayerController' - lib\services\player_controller.dart:844:9 - undefined_method
+  error - The method '_logAudioError' isn't defined for the type 'PlayerController' - lib\services\player_controller.dart:946:7 - undefined_method
+  error - The method '_logAudioError' isn't defined for the type 'PlayerController' - lib\services\player_controller.dart:954:9 - undefined_method
+   info - Use 'const' with the constructor to improve performance - lib\services\player_controller.dart:1168:19 - prefer_const_constructors
+   info - The local variable '_saveBookmarks' starts with an underscore - lib\services\player_controller.dart:1205:16 - no_leading_underscores_for_local_identifiers
+warning - The declaration 'addBookmark' isn't referenced - lib\services\player_controller.dart:1241:16 - unused_element
+warning - The declaration 'updateBookmarkNote' isn't referenced - lib\services\player_controller.dart:1287:16 - unused_element
+warning - The declaration 'removeBookmark' isn't referenced - lib\services\player_controller.dart:1294:16 - unused_element
+warning - The declaration 'reloadBookmarks' isn't referenced - lib\services\player_controller.dart:1301:16 - unused_element
+warning - The declaration 'jumpTo' isn't referenced - lib\services\player_controller.dart:1305:16 - unused_element
+warning - The declaration 'smartShuffle' isn't referenced - lib\services\player_controller.dart:1310:16 - unused_element
+  error - Local variable '_logAudioError' can't be referenced before it is declared - lib\services\player_controller.dart:1465:11 - referenced_before_declaration
+   info - The local variable '_maybeExtendNeuralMix' starts with an underscore - lib\services\player_controller.dart:1478:16 - no_leading_underscores_for_local_identifiers
+warning - The declaration '_maybeExtendNeuralMix' isn't referenced - lib\services\player_controller.dart:1478:16 - unused_element
+  error - Local variable '_generateNeuralMixSources' can't be referenced before it is declared - lib\services\player_controller.dart:1506:32 - referenced_before_declaration
+   info - The local variable '_generateNeuralMixSources' starts with an underscore - lib\services\player_controller.dart:1538:32 - no_leading_underscores_for_local_identifiers
+warning - The declaration 'setSpeed' isn't referenced - lib\services\player_controller.dart:1623:16 - unused_element
+warning - The declaration 'removeFromQueue' isn't referenced - lib\services\player_controller.dart:1627:16 - unused_element
+warning - The declaration 'playExternalFile' isn't referenced - lib\services\player_controller.dart:1645:16 - unused_element
+  error - Local variable '_logAudioError' can't be referenced before it is declared - lib\services\player_controller.dart:1659:9 - referenced_before_declaration
+  error - Local variable '_logAudioError' can't be referenced before it is declared - lib\services\player_controller.dart:1671:9 - referenced_before_declaration
+  error - Local variable '_logAudioError' can't be referenced before it is declared - lib\services\player_controller.dart:1674:7 - referenced_before_declaration
+   info - The local variable '_logAudioError' starts with an underscore - lib\services\player_controller.dart:1678:8 - no_leading_underscores_for_local_identifiers
+warning - The declaration 'isFavorite' isn't referenced - lib\services\player_controller.dart:1727:8 - unused_element
+warning - The declaration 'toggleFavorite' isn't referenced - lib\services\player_controller.dart:1729:16 - unused_element
+   info - The local variable '_loadFavorites' starts with an underscore - lib\services\player_controller.dart:1742:16 - no_leading_underscores_for_local_identifiers
+warning - The declaration '_loadFavorites' isn't referenced - lib\services\player_controller.dart:1742:16 - unused_element
+warning - The declaration 'play' isn't referenced - lib\services\player_controller.dart:1748:3 - unused_element
+warning - The declaration 'stop' isn't referenced - lib\services\player_controller.dart:1750:8 - unused_element
+  error - Expected to find '}' - lib\services\player_controller.dart:1752:1 - expected_token
+  error - The method 'setSpeed' isn't defined for the type 'PlayerController' - lib\ui\turntable_widget.dart:897:21 - undefined_method
+  error - The method 'setSpeed' isn't defined for the type 'PlayerController' - lib\ui\turntable_widget.dart:944:21 - undefined_method
+  error - The method 'setSpeed' isn't defined for the type 'PlayerController' - lib\ui\turntable_widget.dart:1048:19 - undefined_method
+  error - The method 'play' isn't defined for the type 'PlayerController' - lib\widgets\mini_player.dart:136:73 - undefined_method
+  error - The method 'stop' isn't defined for the type 'PlayerController' - lib\widgets\mini_player.dart:168:49 - undefined_method
+   info - Use 'const' for final variables initialized to a constant value - test\bookmark_test.dart:13:7 - prefer_const_declarations
+   info - Use 'const' for final variables initialized to a constant value - test\bookmark_test.dart:31:7 - prefer_const_declarations
+   info - Use 'const' for final variables initialized to a constant value - test\bookmark_test.dart:66:7 - prefer_const_declarations
+   info - Use 'const' for final variables initialized to a constant value - test\bookmark_test.dart:87:7 - prefer_const_declarations
+   info - Use 'const' for final variables initialized to a constant value - test\bookmark_test.dart:99:7 - prefer_const_declarations
+   info - Use 'const' for final variables initialized to a constant value - test\bookmark_test.dart:117:7 - prefer_const_declarations
+   info - Use 'const' for final variables initialized to a constant value - test\bookmark_test.dart:137:7 - prefer_const_declarations
+
+flutter : 56 issues found. (ran in 2.0s)
+At line:1 char:33
++ ... ; flutter pub get; flutter analyze > analysis_output.txt 2>&1; Get-Co ...
++                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (56 issues found. (ran in 2.0s):St 
+   ring) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

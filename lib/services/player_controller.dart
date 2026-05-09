@@ -17,9 +17,7 @@ import '../utils/replaygain_tag_reader.dart';
 import 'analytics_service.dart';
 import 'artwork_cache_service.dart';
 import 'equalizer_service.dart';
-import 'logger_service.dart';
 import 'settings_service.dart';
-import 'telemetry_service.dart';
 
 // Runs in a background isolate via `compute`.
 // Reads ReplayGain tags for Smart Volume (normalization + limiter).
@@ -630,8 +628,8 @@ class PlayerController {
       try {
         await audioSource.add(source);
         _sources.add(source);
-      } catch (e, st) {
-        LoggerService.instance.warning('Error adding to queue: $e', e, st);
+      } catch (e) {
+        debugPrint("Error adding to queue: $e");
       }
     } else {
       await replaceQueue([song]);
@@ -645,28 +643,12 @@ class PlayerController {
   }
 
   final bookmarks = <Map<String, dynamic>>[];
-  final ValueNotifier<List<Map<String, dynamic>>> bookmarksNotifier = ValueNotifier(const []);
+  final ValueNotifier<List<Map<String, dynamic>>> bookmarksNotifier =
+      ValueNotifier(const []);
   String currentId = '';
-  String? _lastBookmarkLoadId;
-  Future<SharedPreferences>? _sharedPreferencesFuture;
 
-  bool get hasQueue => (player.sequenceState.sequence.isNotEmpty);
+  bool get hasQueue => player.sequenceState.sequence.isNotEmpty;
   bool get isReady => hasQueue;
-
-  String? get activeBookmarkId {
-    final current = currentMediaItem?.id;
-    if (current != null && current.isNotEmpty) return current;
-    if (currentId.isNotEmpty) return currentId;
-    return null;
-  }
-
-  void _syncBookmarks() {
-    bookmarksNotifier.value = List<Map<String, dynamic>>.unmodifiable(bookmarks);
-  }
-
-  Future<SharedPreferences> get _sharedPreferences async {
-    return _sharedPreferencesFuture ??= SharedPreferences.getInstance();
-  }
 
   MediaItem? get currentMediaItem {
     final seq = player.sequenceState;
@@ -753,12 +735,6 @@ class PlayerController {
 
     // Listen for track completion to update play counts
     player.playerStateStream.listen((state) {
-      // Helpful breadcrumbs for playback failures that don't throw synchronously.
-      if (Platform.isWindows) {
-        debugPrint(
-          'PlayerState: playing=${state.playing} processing=${state.processingState} index=${player.currentIndex}',
-        );
-      }
       if (state.processingState == ProcessingState.completed) {
         final item = currentMediaItem;
         if (item != null) {
@@ -780,9 +756,7 @@ class PlayerController {
     player.currentIndexStream.listen((_) async {
       final tag = currentMediaItem;
       if (tag == null) return;
-      final nextId = tag.id;
-      final shouldReloadBookmarks = nextId != currentId;
-      currentId = nextId;
+      currentId = tag.id;
 
       _prefetchNeighborArtwork();
 
@@ -792,9 +766,7 @@ class PlayerController {
         SongRepository.instance.updateLastPlayed(songId).catchError((_) {});
       }
 
-      if (shouldReloadBookmarks) {
-        await _loadBookmarks();
-      }
+      await _loadBookmarks();
       _saveState();
 
       // Smart Volume (ReplayGain + limiter) per-track.
@@ -841,11 +813,11 @@ class PlayerController {
         } catch (_) {}
       },
       onError: (Object e, StackTrace st) {
-        _logAudioError('playbackEventStream', e, st);
-
-        // Attempt to skip to next track on error (mobile only).
-        // On desktop, skipping can hide the real failure from the user.
-        if (Platform.isAndroid && player.hasNext) {
+        debugPrint('Playback error: $e');
+        _lastPlaybackError = e;
+        _lastPlaybackErrorAt = DateTime.now();
+        // Attempt to skip to next track on error
+        if (player.hasNext) {
           debugPrint('Skipping to next track due to error...');
           player.seekToNext();
           player.play();
@@ -857,35 +829,27 @@ class PlayerController {
   Future<void> _saveState() async {
     final tag = currentMediaItem;
     if (tag == null) return;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if (tag.extras != null && tag.extras!.containsKey('songId')) {
-        await prefs.setInt('last_song_original_id', tag.extras!['songId'] as int);
-      }
-      await prefs.setInt('last_position_ms', player.position.inMilliseconds);
-    } catch (e) {
-      // Handle save error silently
+    final prefs = await SharedPreferences.getInstance();
+    if (tag.extras != null && tag.extras!.containsKey('songId')) {
+      await prefs.setInt('last_song_original_id', tag.extras!['songId'] as int);
     }
+    await prefs.setInt('last_position_ms', player.position.inMilliseconds);
   }
 
   Future<void> restoreState(List<oaq.SongModel> allSongs) async {
     if (hasQueue) return; // Don't restore if already playing (e.g. hot reload)
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final lastId = prefs.getInt('last_song_original_id');
-      final lastPos = prefs.getInt('last_position_ms') ?? 0;
+    final prefs = await SharedPreferences.getInstance();
+    final lastId = prefs.getInt('last_song_original_id');
+    final lastPos = prefs.getInt('last_position_ms') ?? 0;
 
-      if (lastId != null) {
-        try {
-          final song = allSongs.firstWhere((s) => s.id == lastId);
-          await replaceQueue([song], autoPlay: false);
-          await player.seek(Duration(milliseconds: lastPos));
-        } catch (e) {
-          // Song not found in current library
-        }
+    if (lastId != null) {
+      try {
+        final song = allSongs.firstWhere((s) => s.id == lastId);
+        await replaceQueue([song], autoPlay: false);
+        await player.seek(Duration(milliseconds: lastPos));
+      } catch (e) {
+        // Song not found in current library
       }
-    } catch (e) {
-      // Handle restore error silently
     }
   }
 
@@ -942,17 +906,11 @@ class PlayerController {
         initialPosition: Duration.zero,
         preload: true,
       );
-    } catch (e, st) {
-      _logAudioError('setAudioSources(replaceQueue)', e, st, sources: _sources);
-      return;
-    }
-
-    if (autoPlay) {
-      try {
+      if (autoPlay) {
         await player.play();
-      } catch (e, st) {
-        _logAudioError('play(replaceQueue)', e, st);
       }
+    } catch (e) {
+      debugPrint("Error setting audio source: $e");
     }
   }
 
@@ -984,8 +942,8 @@ class PlayerController {
       try {
         await audioSource.insert(insertAt, source);
         _sources.insert(insertAt, source);
-      } catch (e, st) {
-        LoggerService.instance.warning('Error inserting next: $e', e, st);
+      } catch (e) {
+        debugPrint("Error inserting next: $e");
       }
     }
   }
@@ -1076,45 +1034,31 @@ class PlayerController {
   }) async {
     if (s.data.isEmpty) return null;
 
-    // Some code paths persist a file:// URI instead of a raw filesystem path.
-    // Normalize so Windows/macOS/Linux playback works reliably.
-    final rawData = s.data;
-    String normalizedPath = rawData;
-    if (!Platform.isAndroid && rawData.startsWith('file://')) {
-      try {
-        normalizedPath = Uri.parse(rawData).toFilePath();
-      } catch (_) {
-        // Fall back to the raw string.
-        normalizedPath = rawData;
-      }
-    }
-
     Uri uri;
     if (Platform.isAndroid) {
       uri = Uri.parse("content://media/external/audio/media/${s.id}");
     } else {
       // Use Uri.file to handle Windows paths correctly
-      uri = Uri.file(normalizedPath);
+      uri = Uri.file(s.data);
     }
 
     // Check if file exists for Windows
     if (!Platform.isAndroid) {
-      if (!await File(normalizedPath).exists()) {
-        debugPrint(
-          "File not found: $normalizedPath${normalizedPath == rawData ? '' : ' (raw: $rawData)'}",
-        );
+      if (!await File(s.data).exists()) {
+        debugPrint("File not found: ${s.data}");
         return null;
       }
     }
 
-    // NOTE: On desktop we don't currently have a reliable, cheap way to
-    // extract embedded artwork for every file, so leave artUri null.
-    // (Previously this was set to the audio file path, which breaks any
-    // ImageProvider-based artwork loading and prevents fallbacks.)
-    final Uri? artUri =
-        Platform.isAndroid
-            ? Uri.parse("content://media/external/audio/media/${s.id}/albumart")
-            : null;
+    Uri artUri;
+    if (Platform.isAndroid) {
+      artUri = Uri.parse(
+        "content://media/external/audio/media/${s.id}/albumart",
+      );
+    } else {
+      // Use Uri.file for artwork path too
+      artUri = Uri.file(s.data);
+    }
 
     return AudioSource.uri(
       uri,
@@ -1126,7 +1070,7 @@ class PlayerController {
         duration: Duration(milliseconds: s.duration ?? 0),
         artUri: artUri,
         extras: {
-          'path': normalizedPath,
+          'path': s.data,
           'songId': s.id,
           if (extraExtras != null) ...extraExtras,
         },
@@ -1135,171 +1079,64 @@ class PlayerController {
   }
 
   Future<void> _loadBookmarks() async {
-    final id = activeBookmarkId;
-    debugPrint('[BOOKMARK DEBUG] _loadBookmarks: activeBookmarkId=$id');
-    if (id == null || id.isEmpty) {
-      debugPrint('[BOOKMARK DEBUG] _loadBookmarks: id is null or empty, clearing bookmarks');
-      bookmarks.clear();
-      _lastBookmarkLoadId = null;
-      _syncBookmarks();
-      return;
-    }
-    if (id == _lastBookmarkLoadId) {
-      debugPrint('[BOOKMARK DEBUG] _loadBookmarks: already loaded bookmarks for id=$id');
-      return;
-    }
-    _lastBookmarkLoadId = id;
-    
-    TelemetryService.instance.startTimer('bookmark_load');
-    try {
-      final prefs = await _sharedPreferences;
-      final key = 'bookmarks_$id';
-      final saved = prefs.getStringList(key) ?? [];
-      debugPrint('[BOOKMARK DEBUG] _loadBookmarks: loading from key=$key, count=${saved.length}');
-      bookmarks.clear();
-      
-      for (final s in saved) {
-        try {
-          // Try parsing as JSON (new format)
-          final map = jsonDecode(s) as Map<String, dynamic>;
-          
-          // Validate bookmark structure
-          if (!map.containsKey('pos') || map['pos'] is! int) {
-            throw FormatException('Invalid bookmark: missing or invalid pos field');
-          }
-          
-          bookmarks.add(map);
-          debugPrint('[BOOKMARK DEBUG] _loadBookmarks: loaded bookmark pos=${map['pos']} note=${map['note']}');
-        } catch (e) {
-          // Fallback: old format (just milliseconds string)
-          try {
-            final ms = int.tryParse(s);
-            if (ms != null && ms >= 0) {
-              bookmarks.add({'pos': ms, 'note': ''});
-              debugPrint('[BOOKMARK DEBUG] _loadBookmarks: loaded legacy bookmark pos=$ms');
-            } else {
-              debugPrint('[BOOKMARK DEBUG] _loadBookmarks: skipped invalid bookmark: $s');
-            }
-          } catch (e2) {
-            debugPrint('[BOOKMARK DEBUG] _loadBookmarks: failed to parse bookmark: $e2');
-          }
+    if (currentId.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getStringList('bookmarks_$currentId') ?? [];
+    bookmarks.clear();
+    for (final s in saved) {
+      try {
+        // Try parsing as JSON (new format)
+        final map = jsonDecode(s) as Map<String, dynamic>;
+        bookmarks.add(map);
+      } catch (_) {
+        // Fallback: old format (just milliseconds string)
+        final ms = int.tryParse(s);
+        if (ms != null) {
+          bookmarks.add({'pos': ms, 'note': ''});
         }
       }
-      
-      _syncBookmarks();
-      final loadTimeMs = TelemetryService.instance.stopTimer('bookmark_load');
-      debugPrint('[BOOKMARK DEBUG] ✓ Loaded ${bookmarks.length} bookmarks in ${loadTimeMs}ms');
-      AnalyticsService.logEvent('bookmark_load', {'count': bookmarks.length, 'time_ms': loadTimeMs ?? 0});
-    } catch (e, st) {
-      LoggerService.instance.warning('Error loading bookmarks', e, st);
-      debugPrint('[BOOKMARK DEBUG] ❌ Error loading bookmarks: $e');
-      TelemetryService.instance.stopTimer('bookmark_load');
-      await AnalyticsService.instance.logException(e, st, context: {
-        'operation': '_loadBookmarks',
-        'activeBookmarkId': id,
-      });
-      bookmarks.clear();
-      _syncBookmarks();
     }
+    bookmarksNotifier.value = List<Map<String, dynamic>>.unmodifiable(bookmarks);
+  }
 
   Future<void> _saveBookmarks() async {
-    final id = activeBookmarkId;
-    debugPrint('[BOOKMARK DEBUG] _saveBookmarks: activeBookmarkId=$id, bookmark count=${bookmarks.length}');
-    if (id == null || id.isEmpty) {
-      debugPrint('[BOOKMARK DEBUG] _saveBookmarks: id is null or empty, NOT saving');
-      return;
-    }
-    _syncBookmarks();
-    
-    TelemetryService.instance.startTimer('bookmark_save');
-    try {
-      final prefs = await _sharedPreferences;
-      final key = 'bookmarks_$id';
-      final encoded = bookmarks.map((b) => jsonEncode(b)).toList();
-      
-      // Validate before saving
-      if (encoded.isEmpty && bookmarks.isNotEmpty) {
-        throw StateError('Bookmark encoding failed: empty encoded list but bookmarks exist');
-      }
-      
-      await prefs.setStringList(key, encoded);
-      final saveTimeMs = TelemetryService.instance.stopTimer('bookmark_save');
-      debugPrint('[BOOKMARK DEBUG] ✓ Saved ${encoded.length} bookmarks in ${saveTimeMs}ms');
-      AnalyticsService.logEvent('bookmark_save', {'count': encoded.length, 'time_ms': saveTimeMs ?? 0});
-    } catch (e, st) {
-      LoggerService.instance.warning('Error saving bookmarks', e, st);
-      debugPrint('[BOOKMARK DEBUG] ❌ Error saving bookmarks: $e');
-      TelemetryService.instance.stopTimer('bookmark_save');
-      await AnalyticsService.instance.logException(e, st, context: {
-        'operation': '_saveBookmarks',
-        'activeBookmarkId': id,
-        'bookmarkCount': bookmarks.length,
-      });
-    }
+    if (currentId.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      'bookmarks_$currentId',
+      bookmarks.map((b) => jsonEncode(b)).toList(),
+    );
+    bookmarksNotifier.value = List<Map<String, dynamic>>.unmodifiable(bookmarks);
   }
 
   Future<void> addBookmark({String note = ''}) async {
-    try {
-      debugPrint('[BOOKMARK DEBUG] addBookmark: isReady=$isReady, currentMediaItem=${currentMediaItem?.id}');
-      if (!isReady || currentMediaItem == null) {
-        const msg = 'addBookmark rejected: not ready or no media item';
-        debugPrint('[BOOKMARK DEBUG] $msg');
-        await AnalyticsService.instance.logError(
-          title: 'Bookmark Add Failed',
-          message: msg,
-          stackTrace: 'Not ready',
-          context: {'isReady': isReady, 'hasMediaItem': currentMediaItem != null},
-        );
-        return;
-      }
-      final pos = player.position.inMilliseconds;
-      debugPrint('[BOOKMARK DEBUG] addBookmark: adding at pos=$pos, note=$note');
-      
-      // Validate input
-      if (pos < 0) {
-        throw ArgumentError('Position cannot be negative: $pos');
-      }
-      
-      bookmarks.add({'pos': pos, 'note': note});
-
-      // Prevent unbounded bookmark growth which could cause native memory pressure.
-      const maxBookmarks = 500;
-      if (bookmarks.length > maxBookmarks) {
-        final removeCount = bookmarks.length - maxBookmarks;
-        bookmarks.removeRange(0, removeCount);
-        debugPrint('[BOOKMARK DEBUG] addBookmark: trimmed $removeCount old bookmarks');
-      }
-
-      _syncBookmarks();
-      await _saveBookmarks();
-      debugPrint('[BOOKMARK DEBUG] ✓ Bookmark added successfully');
-      AnalyticsService.logEvent('bookmark_add', {'pos': pos, 'note_length': note.length});
-    } catch (e, st) {
-      LoggerService.instance.warning('Error adding bookmark', e, st);
-      debugPrint('[BOOKMARK DEBUG] ❌ Error adding bookmark: $e');
-      await AnalyticsService.instance.logException(e, st, context: {
-        'operation': 'addBookmark',
-        'note_length': note.length,
-      });
-    }
+    if (!isReady) return;
+    bookmarks.add({'pos': player.position.inMilliseconds, 'note': note});
+    await _saveBookmarks();
   }
 
   Future<void> updateBookmarkNote(int index, String note) async {
     if (index < 0 || index >= bookmarks.length) return;
     bookmarks[index]['note'] = note;
-    _syncBookmarks();
     await _saveBookmarks();
   }
 
   Future<void> removeBookmark(int i) async {
     if (i < 0 || i >= bookmarks.length) return;
     bookmarks.removeAt(i);
-    _syncBookmarks();
     await _saveBookmarks();
   }
 
   Future<void> reloadBookmarks() async {
     await _loadBookmarks();
+  }
+
+  Future<void> play() async {
+    await player.play();
+  }
+
+  Future<void> stop() async {
+    await player.stop();
   }
 
   Future<void> jumpTo(int ms) async {
@@ -1461,8 +1298,8 @@ class PlayerController {
             initialPosition: player.position,
           );
           if (wasPlaying) await player.play();
-        } catch (e, st) {
-          _logAudioError('setAudioSources(neuralMixFallback)', e, st);
+        } catch (e) {
+          debugPrint("Neural Mix Error: $e");
         }
       }
 
@@ -1653,72 +1490,11 @@ class PlayerController {
       final uri = Uri.file(filePath);
       final source = AudioSource.uri(uri);
 
-      try {
-        await player.setAudioSources([source]);
-      } catch (e, st) {
-        _logAudioError(
-          'setAudioSources(externalFile)',
-          e,
-          st,
-          sources: [source],
-        );
-        return;
-      }
-
-      try {
-        await player.play();
-      } catch (e, st) {
-        _logAudioError('play(externalFile)', e, st);
-      }
-    } catch (e, st) {
-      _logAudioError('externalFile', e, st);
+      await player.setAudioSources([source]);
+      await player.play();
+    } catch (e) {
+      debugPrint('Error playing external file: $e');
     }
-  }
-
-  void _logAudioError(
-    String action,
-    Object error,
-    StackTrace st, {
-    List<UriAudioSource>? sources,
-  }) {
-    _lastPlaybackError = error;
-    _lastPlaybackErrorAt = DateTime.now();
-
-    try {
-      final item = currentMediaItem;
-      final path = item?.extras?['path']?.toString();
-      final ext =
-          (path != null && path.contains('.'))
-              ? path.substring(path.lastIndexOf('.')).toLowerCase()
-              : null;
-
-      String errLine = '$error';
-      if (error is PlayerException) {
-        errLine =
-            'PlayerException(code=${error.code}, message=${error.message})';
-      }
-
-      debugPrint(
-        'AUDIO_ERROR [$action] platform=${Platform.operatingSystem} playing=${player.playing} '
-        'processing=${player.processingState} index=${player.currentIndex} path=${path ?? "<none>"} ext=${ext ?? "<none>"} error=$errLine',
-      );
-
-      if (sources != null && sources.isNotEmpty) {
-        final previewCount = sources.length.clamp(0, 3);
-        for (int i = 0; i < previewCount; i++) {
-          final s = sources[i];
-          debugPrint('AUDIO_ERROR [$action] source[$i]=${s.uri}');
-        }
-        if (sources.length > previewCount) {
-          debugPrint(
-            'AUDIO_ERROR [$action] (${sources.length - previewCount} more sources omitted)',
-          );
-        }
-      }
-    } catch (_) {
-      // Ensure logging never crashes the app.
-    }
-    debugPrint('AUDIO_ERROR [$action] stack:\n$st');
   }
 
   // Favorites
@@ -1744,8 +1520,4 @@ class PlayerController {
     final list = prefs.getStringList('favorites') ?? [];
     favoritesNotifier.value = list;
   }
-
-  play() {}
-
-  void stop() {}
 }
