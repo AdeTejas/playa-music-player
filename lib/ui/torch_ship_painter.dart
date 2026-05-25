@@ -25,7 +25,7 @@ class TorchShipPainter extends CustomPainter {
     final shipWidth = shipLen * 0.25;
 
     final accent = color;
-    final accentCool = Color.lerp(Colors.cyanAccent, accent, 0.55) ?? accent;
+    final accentCool = accent;
     final accentWarm = Color.lerp(const Color(0xFFD84315), accent, 0.45) ?? accent;
 
     final beatStrength = _computeBeatStrength(timeSeconds, bpm);
@@ -114,7 +114,7 @@ class TorchShipPainter extends CustomPainter {
         ..shader = ui.Gradient.linear(
           Offset(0, shipLen * 0.45),
           Offset(0, shipLen * 0.45 + plumeLen * 1.35),
-          [accentCool.withValues(alpha: 0.38), accent.withValues(alpha: 0.16), Colors.blue.withValues(alpha: 0.0)],
+          [accentCool.withValues(alpha: 0.38), accent.withValues(alpha: 0.16), accent.withValues(alpha: 0.0)],
           [0.0, 0.55, 1.0],
         )
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10)
@@ -127,7 +127,7 @@ class TorchShipPainter extends CustomPainter {
         ..shader = ui.Gradient.linear(
           Offset(0, shipLen * 0.45),
           Offset(0, shipLen * 0.45 + plumeLen * 1.6),
-          [Colors.blue.withValues(alpha: 0.12), Colors.blue.withValues(alpha: 0.04), Colors.transparent],
+          [accent.withValues(alpha: 0.12), accent.withValues(alpha: 0.04), Colors.transparent],
           [0.0, 0.4, 1.0],
         )
         ..blendMode = BlendMode.plus
@@ -176,7 +176,7 @@ class TorchShipPainter extends CustomPainter {
         ..shader = ui.Gradient.linear(
           Offset(0, shipLen * 0.45),
           Offset(0, shipLen * 0.45 + plumeLen * 0.95),
-          [Colors.white.withValues(alpha: 0.95), accentCool.withValues(alpha: 0.78), Colors.blue.withValues(alpha: 0.0)],
+          [Colors.white.withValues(alpha: 0.95), accentCool.withValues(alpha: 0.78), accentCool.withValues(alpha: 0.0)],
           [0.0, 0.22, 1.0],
         )
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4)

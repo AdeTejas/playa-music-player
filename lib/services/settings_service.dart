@@ -16,16 +16,23 @@ class SettingsService extends ChangeNotifier {
   static const String themeAlbumArt = 'albumArt';
 
   static const Map<String, int> colorPresets = {
+    'Ruby Red':       0xFFDC2626,    // Deep red
     'Ember Red':      0xFFEF4444,    // Strong red
     'Blaze Orange':   0xFFF97316,    // Energetic orange
     'Solar Gold':     0xFFFACC15,    // Warm gold
+    'Lime Shock':     0xFFA3E635,    // Electric lime
     'Acid Green':     0xFF22C55E,    // Sharp green
+    'Jade':           0xFF10B981,    // Rich jade
     'Arctic Teal':    0xFF14B8A6,    // Cool teal
     'Stellar Cyan':   0xFF00E5FF,    // Bright cyan (default)
     'Ocean Blue':     0xFF0EA5E9,    // Clean sky blue
     'Electric Indigo':0xFF6366F1,    // Strong indigo
+    'Lavender':       0xFF818CF8,    // Soft lavender
     'Nebula Purple':  0xFFA855F7,    // Vibrant purple
+    'Magenta':        0xFFD946EF,    // Bold magenta
     'Neon Pink':      0xFFF472B6,    // Bright pink
+    'Rose':           0xFFFB7185,    // Soft rose
+    'Crimson':        0xFFBE123C,    // Dark crimson
   };
 
   SettingsService._();
@@ -439,12 +446,8 @@ class SettingsService extends ChangeNotifier {
   Color resolveAccentColor(Color baseAccent, {MediaItem? item}) {
     switch (_themeMode) {
       case themeNeon:
-        final hsl = HSLColor.fromColor(baseAccent);
-        return hsl
-            .withHue((hsl.hue + 265) % 360)                    // Even stronger, more "electric" shift
-            .withSaturation(1.0)
-            .withLightness((hsl.lightness * 0.93).clamp(0.48, 0.92)) // Brighter + more pop
-            .toColor();
+        final hsv = HSVColor.fromColor(baseAccent);
+        return hsv.withSaturation(1.0).withValue(1.0).toColor();
 
       case themeAlbumArt:
         final key = item?.id ?? item?.title ?? item?.artUri?.toString() ?? baseAccent.toString();

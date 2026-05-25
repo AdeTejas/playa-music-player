@@ -8,6 +8,7 @@ export 'tokens/typography.dart';
 // Theme
 export 'theme/app_theme.dart';
 export 'theme/playa_colors.dart';
+export 'theme/color_scheme.dart';
 
 // Components
 export 'components/glass_panel.dart';

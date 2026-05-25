@@ -451,7 +451,7 @@ class PreciseWaveformPainter extends CustomPainter {
       Offset(gradEndX, 0),
       [
         Colors.white,
-        Colors.cyanAccent,
+        playedColor,
         playedColor,
       ],
       [0.0, coolStop, 1.0],
@@ -482,7 +482,7 @@ class PreciseWaveformPainter extends CustomPainter {
       Offset(glowEndX, 0),
       [
         Colors.white.withValues(alpha: (0.65 * glowIntensity).clamp(0.0, 1.0)),
-        Colors.cyanAccent.withValues(alpha: (0.35 * glowIntensity).clamp(0.0, 1.0)),
+        playedColor.withValues(alpha: (0.35 * glowIntensity).clamp(0.0, 1.0)),
         Colors.transparent,
       ],
       [0.0, 0.35, 1.0],
@@ -562,7 +562,7 @@ class PreciseWaveformPainter extends CustomPainter {
         Offset(gradEndX, 0),
         [
           Colors.white,
-          Colors.cyanAccent,
+          playedColor,
           playedColor.withValues(alpha: 0.9),
         ],
         [0.0, hotStop, 1.0],
@@ -596,7 +596,7 @@ class PreciseWaveformPainter extends CustomPainter {
       Offset(gradEndX, 0),
       [
         Colors.white,
-        Colors.cyanAccent,
+        playedColor,
         playedColor,
       ],
       [0.0, coolStop, 1.0],
@@ -615,7 +615,7 @@ class PreciseWaveformPainter extends CustomPainter {
       Offset(gradEndX, 0),
       [
         Colors.white.withValues(alpha: (0.55 * glowIntensity).clamp(0.0, 1.0)),
-        Colors.cyanAccent.withValues(alpha: (0.25 * glowIntensity).clamp(0.0, 1.0)),
+        playedColor.withValues(alpha: (0.25 * glowIntensity).clamp(0.0, 1.0)),
         Colors.transparent,
       ],
       [0.0, 0.3, 1.0],
@@ -722,7 +722,7 @@ class PreciseWaveformPainter extends CustomPainter {
           height * 0.22 * ampFactor,
           [
             Colors.white.withValues(alpha: 0.95 * ampFactor.clamp(0.0, 1.0)),
-            Colors.cyanAccent.withValues(alpha: (0.55 * flareIntensity).clamp(0.0, 1.0)),
+            baseColor.withValues(alpha: (0.55 * flareIntensity).clamp(0.0, 1.0)),
             Colors.transparent,
           ],
           [0.0, 0.35, 1.0],
@@ -740,7 +740,7 @@ class PreciseWaveformPainter extends CustomPainter {
           Offset(nozzleX, centerY),
           height * 0.32 * ampFactor,
           [
-            Colors.cyanAccent.withValues(alpha: (0.25 * flareIntensity).clamp(0.0, 1.0)),
+            baseColor.withValues(alpha: (0.25 * flareIntensity).clamp(0.0, 1.0)),
             Colors.transparent,
           ],
           [0.0, 1.0],
@@ -757,9 +757,9 @@ class PreciseWaveformPainter extends CustomPainter {
           Offset(nozzleX, centerY),
           Offset(nozzleX - plumeLen * 1.25, centerY),
           [
-            Colors.cyan.withValues(alpha: (0.28 * ampFactor).clamp(0.0, 1.0)),
+            baseColor.withValues(alpha: (0.28 * ampFactor).clamp(0.0, 1.0)),
             baseColor.withValues(alpha: (0.16 * ampFactor).clamp(0.0, 1.0)),
-            Colors.blue.withValues(alpha: 0.0),
+            baseColor.withValues(alpha: 0.0),
           ],
           [0.0, 0.55, 1.0],
         )
@@ -776,8 +776,8 @@ class PreciseWaveformPainter extends CustomPainter {
           Offset(nozzleX - plumeLen * 0.95, centerY),
           [
             Colors.white.withValues(alpha: (0.98 * ampFactor).clamp(0.0, 1.0)),
-            Colors.cyanAccent.withValues(alpha: (0.72 * ampFactor).clamp(0.0, 1.0)),
-            Colors.blue.withValues(alpha: 0.0),
+            baseColor.withValues(alpha: (0.72 * ampFactor).clamp(0.0, 1.0)),
+            baseColor.withValues(alpha: 0.0),
           ],
           [0.0, 0.26, 1.0],
         )

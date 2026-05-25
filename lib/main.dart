@@ -30,7 +30,7 @@ import 'screens/library_page.dart';
 import 'screens/player_screen.dart';
 import 'screens/equalizer_screen.dart';
 
-import 'design/design_system.dart'; // New Design System (Phase 1)
+import 'design/design_system.dart';
 import 'widgets/player_provider.dart';
 
 // Debug drawing for turntable painter (set with --dart-define=DEV_TT_GUIDES=true)
@@ -159,11 +159,15 @@ class PlayaApp extends StatelessWidget {
         final rawAccent = Color(SettingsService.instance.accentColor);
         final resolvedAccent = SettingsService.instance.resolveAccentColor(rawAccent);
 
+        final playaColors = PlayaColorsExtension(
+          accent: resolvedAccent,
+        );
+
         final theme = AppTheme.dark.copyWith(
-          colorScheme: ColorScheme.dark(
-            primary: resolvedAccent,
-            onSurface: PlayaColors.onSurface,
-          ),
+          colorScheme: playaColorScheme(resolvedAccent),
+          extensions: <ThemeExtension<dynamic>>[
+            playaColors,
+          ],
           textTheme: GoogleFonts.exo2TextTheme(
             AppTheme.dark.textTheme.apply(bodyColor: PlayaColors.onSurface),
           ),
@@ -757,7 +761,8 @@ class _NavBarItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
+    final c = Theme.of(context).extension<PlayaColorsExtension>()!;
+    final accent = c.accent;
     return GestureDetector(
       onTap: () {
         onTap();
@@ -776,7 +781,7 @@ class _NavBarItem extends StatelessWidget {
               child: Icon(
                 selected ? selectedIcon : icon,
                 key: ValueKey(selected),
-                color: selected ? accent : kColorOn2,
+                color: selected ? accent : c.onSurfaceVariant,
                 size: 24,
               ),
             ),
@@ -784,7 +789,7 @@ class _NavBarItem extends StatelessWidget {
             AnimatedDefaultTextStyle(
               duration: const Duration(milliseconds: 200),
               style: TextStyle(
-                color: selected ? accent : kColorOn2,
+                color: selected ? accent : c.onSurfaceVariant,
                 fontSize: 10,
                 fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
               ),
