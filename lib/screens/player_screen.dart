@@ -525,40 +525,38 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
         );
 
       case 'screensaver':
-        return AnimatedBuilder(
-          animation: SettingsService.instance,
-          builder: (context, _) {
-            final enabled = SettingsService.instance.screensaverEnabled;
-            return _ReorderableChipIcon(
-              key: ValueKey('screensaver'),
-              icon: Icons.slideshow,
-              label: 'Screensaver',
-              active: enabled,
-              isReordering: _isReordering,
-              isSelected: _selectedChipIndex == index,
-              onTap: () async {
-                if (_isReordering) {
-                  setState(() => _selectedChipIndex = index);
-                  HapticFeedback.selectionClick();
-                  return;
-                }
-                await SettingsService.instance.setScreensaverEnabled(!enabled);
-                HapticFeedback.selectionClick();
-              },
-              onLongPress: () {
-                if (_isReordering) {
-                  if (_selectedChipIndex != null && _selectedChipIndex != index) {
-                    _reorderChips(_selectedChipIndex!, index);
-                    setState(() => _selectedChipIndex = null);
-                  }
-                  return;
-                }
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const ScreensaverScreen(),
-                  ),
-                );
-              },
+        return _ReorderableChipIcon(
+          key: ValueKey('screensaver'),
+          icon: Icons.slideshow,
+          label: 'Screensaver',
+          active: false,
+          isReordering: _isReordering,
+          isSelected: _selectedChipIndex == index,
+          onTap: () {
+            if (_isReordering) {
+              setState(() => _selectedChipIndex = index);
+              HapticFeedback.selectionClick();
+              return;
+            }
+            HapticFeedback.selectionClick();
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const ScreensaverScreen(),
+              ),
+            );
+          },
+          onLongPress: () {
+            if (_isReordering) {
+              if (_selectedChipIndex != null && _selectedChipIndex != index) {
+                _reorderChips(_selectedChipIndex!, index);
+                setState(() => _selectedChipIndex = null);
+              }
+              return;
+            }
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const ScreensaverScreen(),
+              ),
             );
           },
         );
