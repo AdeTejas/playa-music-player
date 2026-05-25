@@ -43,12 +43,12 @@ class AnalyticsService {
 
     // Load persisted errors
     final persistedErrors = _prefs.getStringList('error_reports') ?? [];
-    debugPrint('[ANALYTICS] Loaded ${persistedErrors.length} persisted error reports');
+    if (kDebugMode) debugPrint('[ANALYTICS] Loaded ${persistedErrors.length} persisted error reports');
   }
 
   static void logEvent(String name, Map<String, Object?> params) {
     developer.log('analytics_event:$name $params', name: 'analytics.service');
-    debugPrint('[ANALYTICS] Event: $name | $params');
+    if (kDebugMode) debugPrint('[ANALYTICS] Event: $name | $params');
   }
 
   /// Log an error/crash
@@ -72,8 +72,10 @@ class AnalyticsService {
 
     _errors.add(error);
     developer.log('error:$title $message', name: 'analytics.service');
-    debugPrint('[ERROR_REPORT] ❌ $title: $message');
-    debugPrint('[ERROR_REPORT] Stack: $stackTrace');
+    if (kDebugMode) {
+      debugPrint('[ERROR_REPORT] ❌ $title: $message');
+      debugPrint('[ERROR_REPORT] Stack: $stackTrace');
+    }
 
     // Persist to SharedPreferences
     await _persistErrors();
@@ -108,18 +110,19 @@ class AnalyticsService {
     if (_initialized) {
       await _prefs.remove('error_reports');
     }
-    debugPrint('[ANALYTICS] Error reports cleared');
+    if (kDebugMode) debugPrint('[ANALYTICS] Error reports cleared');
   }
 
   /// Print diagnostics
   void printDiagnostics() {
+    if (!kDebugMode) return;
     debugPrint('=== ANALYTICS DIAGNOSTICS ===');
     debugPrint('Errors logged: ${_errors.length}');
     if (_errors.isNotEmpty) {
       debugPrint('Recent errors:');
       _errors.take(5).forEach((e) => debugPrint('  - ${e.title}: ${e.message}'));
     }
-    debugPrint('===============================');
+    debugPrint('==============================');
   }
 }
 

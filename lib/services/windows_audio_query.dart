@@ -203,7 +203,6 @@ class WindowsAudioQuery {
   }
 
   Future<List<SongModel>> querySongs() async {
-    debugPrint('WindowsAudioQuery: Starting scan...');
     final songs = <SongModel>[];
 
     try {
@@ -228,27 +227,20 @@ class WindowsAudioQuery {
 
       for (final dir in dirs) {
         if (await dir.exists()) {
-          debugPrint('WindowsAudioQuery: Scanning ${dir.path}');
           await _scanDirectory(
             dir,
             songs,
             recursive: recursive,
             audioExtensions: extSet,
           );
-        } else {
-          debugPrint('WindowsAudioQuery: Directory not found: ${dir.path}');
         }
       }
-    } catch (e) {
-      debugPrint('WindowsAudioQuery: Error querying songs: $e');
-    }
+    } catch (_) {}
 
-    debugPrint('WindowsAudioQuery: Found ${songs.length} songs');
     return songs;
   }
 
   Future<List<SongModel>> querySongsFromDirectory(String directoryPath) async {
-    debugPrint('WindowsAudioQuery: Scanning directory $directoryPath');
     final songs = <SongModel>[];
 
     try {
@@ -260,16 +252,9 @@ class WindowsAudioQuery {
           recursive: SettingsService.instance.windowsScanRecursive,
           audioExtensions: _audioExtensionsFromSettings(),
         );
-      } else {
-        debugPrint('WindowsAudioQuery: Directory not found: $directoryPath');
       }
-    } catch (e) {
-      debugPrint('WindowsAudioQuery: Error querying songs from directory: $e');
-    }
+    } catch (_) {}
 
-    debugPrint(
-      'WindowsAudioQuery: Found ${songs.length} songs in $directoryPath',
-    );
     return songs;
   }
 
@@ -289,9 +274,7 @@ class WindowsAudioQuery {
           }
         }
       }
-    } catch (e) {
-      debugPrint('Error scanning directory ${dir.path}: $e');
-    }
+    } catch (_) {}
   }
 
   SongModel _fileToSongModel(File file) {

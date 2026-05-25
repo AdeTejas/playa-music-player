@@ -7,9 +7,9 @@ import 'package:permission_handler/permission_handler.dart';
 import '../services/database_service.dart';
 import '../services/library_scan_service.dart';
 import '../services/perf_metrics_service.dart';
-import '../services/player_controller.dart';
-import '../ui/glass_panel.dart';
 import '../ui/tokens.dart';
+import '../widgets/player_provider.dart';
+import '../design/design_system.dart';
 
 class DiagnosticsScreen extends StatefulWidget {
   const DiagnosticsScreen({super.key});
@@ -46,7 +46,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
     final db = DatabaseService.instance;
     final scan = LibraryScanService.instance;
     final perf = PerfMetricsService.instance;
-    final player = PlayerController.ensure();
+    final player = PlayerProvider.of(context);
 
     return [
       'Playa Diagnostics',
@@ -84,7 +84,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
   Widget build(BuildContext context) {
     final db = DatabaseService.instance;
     final perf = PerfMetricsService.instance;
-    final player = PlayerController.ensure();
+    final player = PlayerProvider.of(context);
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -315,7 +315,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
       padding: const EdgeInsets.only(bottom: kSp),
       child: GlassPanel(
         borderRadius: BorderRadius.circular(kRadius),
-        borderColor: Colors.white.withValues(alpha: 0.15),
+        borderColor: PlayaColors.border,
         child: child,
       ),
     );

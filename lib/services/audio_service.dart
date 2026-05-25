@@ -1,3 +1,0 @@
-class AudioService {
-  // dummy
-}

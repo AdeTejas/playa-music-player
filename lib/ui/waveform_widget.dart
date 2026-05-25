@@ -6,6 +6,9 @@ import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 
 import '../services/settings_service.dart';
+import '../design/design_system.dart';
+
+import 'torch_ship_painter.dart';
 
 class WaveformWidget extends StatefulWidget {
   final String path;
@@ -59,12 +62,7 @@ class _WaveformWidgetState extends State<WaveformWidget> {
 
     setState(() => _isExtracting = true);
 
-    // Unified Simulation Logic (for consistency across Windows/Android)
-    // We use a simulated "organic" waveform that matches the Rocinante/Expanse aesthetic
-    // better than raw audio data (which can be too spiky/noisy).
-
-    // Simulate song structure: Intro -> Verse -> Chorus -> Bridge -> Chorus -> Outro
-    final rnd = Random(widget.path.hashCode); // Stable random based on path
+    final rnd = Random(widget.path.hashCode);
     final List<double> data = [];
 
     // Generate smoother, more "plasma-like" data
@@ -157,7 +155,7 @@ class _WaveformWidgetState extends State<WaveformWidget> {
           for (int i = 0; i < _waveformData.length; i++) {
             final x = i * step;
             final amplitude = _waveformData[i];
-            final ampH = amplitude * height * 0.8;
+            final ampH = amplitude * height * 0.88;
             newPath.lineTo(x, centerY - ampH / 2);
           }
           for (int i = _waveformData.length - 1; i >= 0; i--) {
@@ -199,11 +197,9 @@ class _WaveformWidgetState extends State<WaveformWidget> {
                             waveformData: _waveformData,
                             progress: currentProgress.clamp(0.0, 1.0),
                             timeSeconds: timeSeconds,
-                            playedColor: _resolveWaveformAccent(
+                            playedColor: SettingsService.instance.resolveAccentColor(
                               widget.playedColor,
-                              SettingsService.instance.themeMode,
-                              widget.path,
-                              widget.item,
+                              item: widget.item,
                             ),
                             unplayedColor: widget.unplayedColor == Colors.transparent
                                 ? _resolveUnplayedColor(
@@ -243,8 +239,8 @@ class _WaveformWidgetState extends State<WaveformWidget> {
                           builder:
                               (_, durSnap) => Text(
                                 _fmt(durSnap.data ?? Duration.zero),
-                                style: const TextStyle(
-                                  color: Color(0xFFA68B6C), // _on2
+                                style: TextStyle(
+                                  color: PlayaColors.onSurfaceVariant,
                                   fontSize: 10,
                                   shadows: [
                                     Shadow(blurRadius: 2, color: Colors.black),
@@ -312,14 +308,8 @@ class _WaveformWidgetState extends State<WaveformWidget> {
     String path,
     MediaItem? item,
   ) {
-    if (themeMode == SettingsService.themeNeon) {
-      return _neonAccent(accent);
-    }
-    if (themeMode == SettingsService.themeAlbumArt) {
-      final key = item?.id ?? item?.title ?? path;
-      return _albumArtAccent(accent, key);
-    }
-    return accent;
+    // Delegate to central resolver for consistency
+    return SettingsService.instance.resolveAccentColor(accent, item: item);
   }
 
   Color _resolveUnplayedColor(
@@ -341,24 +331,7 @@ class _WaveformWidgetState extends State<WaveformWidget> {
     return null;
   }
 
-  Color _neonAccent(Color accent) {
-    final hsl = HSLColor.fromColor(accent);
-    return hsl
-        .withHue((hsl.hue + 210) % 360)
-        .withSaturation(1.0)
-        .withLightness((hsl.lightness * 0.95).clamp(0.35, 0.75))
-        .toColor();
-  }
 
-  Color _albumArtAccent(Color accent, String key) {
-    final rnd = Random(key.hashCode);
-    return HSLColor.fromAHSL(
-      1.0,
-      rnd.nextDouble() * 360,
-      0.70 + rnd.nextDouble() * 0.18,
-      0.42 + rnd.nextDouble() * 0.12,
-    ).toColor();
-  }
 }
 
 class PreciseWaveformPainter extends CustomPainter {
@@ -398,7 +371,7 @@ class PreciseWaveformPainter extends CustomPainter {
       for (int i = 0; i < waveformData.length; i++) {
         final x = i * step;
         final amplitude = waveformData[i];
-        final height = amplitude * size.height * 0.8;
+        final height = amplitude * size.height * 0.88;
         path.lineTo(x, centerY - height / 2);
       }
       for (int i = waveformData.length - 1; i >= 0; i--) {
@@ -436,12 +409,22 @@ class PreciseWaveformPainter extends CustomPainter {
     final rawTail = cursorX - (shipLen * 0.45);
     final tailX = rawTail.clamp(0.0, width);
 
+    // Sample waveform amplitude near the cursor to drive thruster intensity
+    final cursorIdx = (progress * (waveformData.length - 1)).round().clamp(0, waveformData.length - 1);
+    final exitAmplitude = waveformData[cursorIdx];
+    final windowStart = max(0, cursorIdx - 4);
+    double plumeEnergy = 0;
+    for (int i = windowStart; i <= cursorIdx; i++) {
+      plumeEnergy = max(plumeEnergy, waveformData[i]);
+    }
+    final waveformAmplitude = (exitAmplitude * 0.6 + plumeEnergy * 0.4).clamp(0.0, 1.0);
+
     // Draw Played (Waveform + Plasma Trail)
     canvas.save();
-    // Clip to the tail of the ship so waveform appears to come out of the engine
+    // Clip cleanly at the nozzle so the waveform appears to emerge from the thrusters
     canvas.clipRect(Rect.fromLTWH(0, 0, tailX, size.height));
 
-    // Engine plume behind the ship (separate from the waveform, like exhaust)
+    // Engine plume behind the ship — amplitude-modulated by the waveform
     _drawEnginePlume(
       canvas: canvas,
       nozzleX: tailX,
@@ -450,27 +433,29 @@ class PreciseWaveformPainter extends CustomPainter {
       baseColor: playedColor,
       t: timeSeconds,
       beatStrength: beatStrength,
+      waveformAmplitude: waveformAmplitude,
     );
 
-    // 1. Unified Plasma-to-Track Gradient (The "Merge")
-    // The waveform starts as hot white plasma, cools to cyan, then becomes the track color.
-    // We match the transition width to the plume length for visual consistency.
-    final transitionWidth = shipLen * 1.5;
-
-    // Compute safe gradient endpoints (keep within canvas bounds)
+    // 1. Amplitude-responsive Plasma-to-Track Gradient
+    // Louder sections produce a longer, hotter plasma transition
+    final transitionWidth = shipLen * (0.8 + 0.8 * waveformAmplitude);
     final gradStartX = tailX.clamp(0.0, width);
     final gradEndX = (tailX - transitionWidth).clamp(0.0, width);
+
+    // Hotter gradient when amplitude is high — more white/cyan at the nozzle
+    final hotStop = 0.25 * (1.0 - waveformAmplitude);
+    final coolStop = 0.2 + 0.15 * (1.0 - waveformAmplitude);
 
     final mainShader = ui.Gradient.linear(
       Offset(gradStartX, 0),
       Offset(gradEndX, 0),
       [
-        Colors.white, // Hot Engine Output (At Nozzle)
-        Colors.cyanAccent, // Cooling Plasma
-        playedColor, // Solid Track
+        Colors.white,
+        Colors.cyanAccent,
+        playedColor,
       ],
-      [0.0, 0.2, 1.0],
-      TileMode.clamp, // Extends 'playedColor' to the left
+      [0.0, coolStop, 1.0],
+      TileMode.clamp,
     );
 
     canvas.drawPath(
@@ -480,40 +465,57 @@ class PreciseWaveformPainter extends CustomPainter {
         ..style = PaintingStyle.fill,
     );
 
-    // 2. Plasma Glow Overlay (Bloom)
-    // Adds a soft glowing aura around the hot part
+    // Base solid-ish fill (scaled with amplitude)
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = playedColor.withValues(alpha: (0.10 + 0.12 * waveformAmplitude).clamp(0.0, 1.0))
+        ..style = PaintingStyle.fill,
+    );
+
+    // 2. Amplitude-responsive Plasma Glow Overlay (Bloom)
+    final glowIntensity = 0.2 + 0.8 * waveformAmplitude;
     final glowStartX = tailX.clamp(0.0, width);
     final glowEndX = (tailX - transitionWidth * 0.5).clamp(0.0, width);
     final glowShader = ui.Gradient.linear(
       Offset(glowStartX, 0),
-      Offset(glowEndX, 0), // Tighter glow
+      Offset(glowEndX, 0),
       [
-        Colors.white.withValues(alpha: 0.5), // Slightly less intense
-        Colors.cyan.withValues(alpha: 0.2),
+        Colors.white.withValues(alpha: (0.65 * glowIntensity).clamp(0.0, 1.0)),
+        Colors.cyanAccent.withValues(alpha: (0.35 * glowIntensity).clamp(0.0, 1.0)),
         Colors.transparent,
       ],
-      [0.0, 0.3, 1.0],
+      [0.0, 0.35, 1.0],
     );
 
+    // Stronger outer glow layer
     canvas.drawPath(
       path,
       Paint()
         ..shader = glowShader
         ..style = PaintingStyle.fill
-        ..maskFilter = const MaskFilter.blur(
-          BlurStyle.normal,
-          6.0,
-        ) // Refined blur
-        ..blendMode = BlendMode.plus, // Additive blend for light
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 11.0)
+        ..blendMode = BlendMode.plus,
     );
 
-    // 3. Turbulence / Heat Haze (Subtle)
+    // Inner tighter glow
+    canvas.drawPath(
+      path,
+      Paint()
+        ..shader = glowShader
+        ..style = PaintingStyle.fill
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.0)
+        ..blendMode = BlendMode.plus,
+    );
+
+    // 3. Turbulence / Heat Haze — intensity follows amplitude
+    final turbulenceAlpha = (0.1 * waveformAmplitude).clamp(0.0, 1.0);
     final turbulenceShader = ui.Gradient.linear(
       Offset(tailX, 0),
       Offset(tailX - transitionWidth, 0),
       [
         Colors.white.withValues(alpha: 0.0),
-        Colors.white.withValues(alpha: 0.1),
+        Colors.white.withValues(alpha: turbulenceAlpha),
         Colors.white.withValues(alpha: 0.0),
       ],
       [0.0, 0.5, 1.0],
@@ -528,18 +530,120 @@ class PreciseWaveformPainter extends CustomPainter {
         ..blendMode = BlendMode.overlay,
     );
 
+    // Subtle outline/stroke — brighter when loud
+    canvas.drawPath(
+      path,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.15
+        ..color = Colors.white.withValues(alpha: (0.12 + 0.15 * waveformAmplitude).clamp(0.0, 1.0))
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 0.9),
+    );
+
+    // === Fixed throat: waveform exits the bell at bell's width ===
+    // Pinch zone extends LEFT from the nozzle into the played area
+    const throatScale = 0.10;
+    final throatDist = shipLen * 0.35;
+    final throatStartX = (tailX - throatDist).clamp(0.0, width);
+    final throatEndX = tailX;
+
+    // Stage 1: Tight throat right at the nozzle
+    if (throatEndX > throatStartX) {
+      canvas.save();
+      canvas.clipRect(Rect.fromLTWH(throatStartX, 0, throatDist, size.height));
+
+      canvas.save();
+      canvas.translate(0, centerY);
+      canvas.scale(1.0, throatScale);
+      canvas.translate(0, -centerY);
+
+      final throatShader = ui.Gradient.linear(
+        Offset(gradStartX, 0),
+        Offset(gradEndX, 0),
+        [
+          Colors.white,
+          Colors.cyanAccent,
+          playedColor.withValues(alpha: 0.9),
+        ],
+        [0.0, hotStop, 1.0],
+      );
+
+      canvas.drawPath(
+        path,
+        Paint()
+          ..shader = throatShader
+          ..style = PaintingStyle.fill,
+      );
+      canvas.restore();
+      canvas.restore();
+    }
+
     canvas.restore();
 
-    // Draw Rocinante Cursor
-    _drawRocinante(
-      canvas,
-      Offset(cursorX, cursorY),
-      size.height,
-      playedColor,
-      progress,
-      timeSeconds,
-      beatStrength,
+    // === Full un-pinched section (played area past the throat) ===
+    canvas.save();
+    canvas.clipRect(Rect.fromLTWH(0, 0, throatStartX, size.height));
+
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = playedColor.withValues(alpha: (0.10 + 0.12 * waveformAmplitude).clamp(0.0, 1.0))
+        ..style = PaintingStyle.fill,
     );
+
+    final fullMainShader = ui.Gradient.linear(
+      Offset(gradStartX, 0),
+      Offset(gradEndX, 0),
+      [
+        Colors.white,
+        Colors.cyanAccent,
+        playedColor,
+      ],
+      [0.0, coolStop, 1.0],
+      TileMode.clamp,
+    );
+
+    canvas.drawPath(
+      path,
+      Paint()
+        ..shader = fullMainShader
+        ..style = PaintingStyle.fill,
+    );
+
+    final fullGlowShader = ui.Gradient.linear(
+      Offset(gradStartX, 0),
+      Offset(gradEndX, 0),
+      [
+        Colors.white.withValues(alpha: (0.55 * glowIntensity).clamp(0.0, 1.0)),
+        Colors.cyanAccent.withValues(alpha: (0.25 * glowIntensity).clamp(0.0, 1.0)),
+        Colors.transparent,
+      ],
+      [0.0, 0.3, 1.0],
+    );
+
+    canvas.drawPath(
+      path,
+      Paint()
+        ..shader = fullGlowShader
+        ..style = PaintingStyle.fill
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9.0)
+        ..blendMode = BlendMode.plus,
+    );
+
+    canvas.restore();
+
+    canvas.save();
+    canvas.translate(cursorX, cursorY);
+    canvas.rotate(pi / 2);
+    TorchShipPainter(
+      height: size.height * 0.8,
+      progress: progress,
+      timeSeconds: timeSeconds,
+      color: playedColor,
+      bpm: bpm,
+      drawPlume: false,
+    ).paint(canvas, Size(size.height * 0.8, size.height * 0.8));
+    canvas.restore();
   }
 
   double _computeBeatStrength(double timeSeconds, double? bpm) {
@@ -557,16 +661,18 @@ class PreciseWaveformPainter extends CustomPainter {
     required Color baseColor,
     required double t,
     required double beatStrength,
+    required double waveformAmplitude,
   }) {
     final shipLen = height * 0.8;
-    // Epstein-inspired drive: long, collimated, white-hot core with blue ion halo.
-    final flicker = 1.0 + 0.08 * beatStrength + 0.035 * sin(t * 22.0) + 0.02 * cos(t * 41.0);
+    // Plume intensity scales with waveform amplitude
+    final ampFactor = 0.3 + 0.7 * waveformAmplitude;
+    final flicker = ampFactor * (1.0 + 0.08 * beatStrength + 0.035 * sin(t * 22.0) + 0.02 * cos(t * 41.0));
     final wobble = 1.0 + 0.045 * sin(t * 9.0) + 0.03 * sin(t * 15.0 + 0.9);
     final oscillation = sin(t * 7.0) * height * (0.02 + 0.008 * beatStrength);
 
     final plumeLen = shipLen * 2.25 * flicker;
-    final coreHalfWidth = height * 0.11;
-    final haloHalfWidth = height * 0.26;
+    final coreHalfWidth = height * 0.11 * ampFactor;
+    final haloHalfWidth = height * 0.26 * ampFactor;
 
     Path buildDrivePlume({
       required double halfWidth,
@@ -602,23 +708,45 @@ class PreciseWaveformPainter extends CustomPainter {
     final haloPath = buildDrivePlume(halfWidth: haloHalfWidth, lenScale: 1.18);
     final corePath = buildDrivePlume(halfWidth: coreHalfWidth, lenScale: 0.98);
 
-    // Nozzle flare
+    // Enhanced Nozzle Flare + Energy Burst — modulated by waveform amplitude
+    final flareIntensity = (0.9 + 0.6 * beatStrength) * ampFactor;
+    final flareRadius = height * (0.09 + 0.04 * beatStrength) * ampFactor;
+
+    // Stronger central burst
     canvas.drawCircle(
       Offset(nozzleX, centerY),
-      height * 0.075,
+      flareRadius,
       Paint()
         ..shader = ui.Gradient.radial(
           Offset(nozzleX, centerY),
-          height * 0.18,
+          height * 0.22 * ampFactor,
           [
-            Colors.white.withValues(alpha: 0.95),
-            Colors.cyanAccent.withValues(alpha: 0.35),
+            Colors.white.withValues(alpha: 0.95 * ampFactor.clamp(0.0, 1.0)),
+            Colors.cyanAccent.withValues(alpha: (0.55 * flareIntensity).clamp(0.0, 1.0)),
             Colors.transparent,
           ],
-          [0.0, 0.45, 1.0],
+          [0.0, 0.35, 1.0],
         )
         ..blendMode = BlendMode.plus
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
+    );
+
+    // Wider outer halo for more "power coming out" feel
+    canvas.drawCircle(
+      Offset(nozzleX, centerY),
+      flareRadius * 1.6,
+      Paint()
+        ..shader = ui.Gradient.radial(
+          Offset(nozzleX, centerY),
+          height * 0.32 * ampFactor,
+          [
+            Colors.cyanAccent.withValues(alpha: (0.25 * flareIntensity).clamp(0.0, 1.0)),
+            Colors.transparent,
+          ],
+          [0.0, 1.0],
+        )
+        ..blendMode = BlendMode.plus
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14),
     );
 
     // Ion halo
@@ -629,8 +757,8 @@ class PreciseWaveformPainter extends CustomPainter {
           Offset(nozzleX, centerY),
           Offset(nozzleX - plumeLen * 1.25, centerY),
           [
-            Colors.cyan.withValues(alpha: 0.28),
-            baseColor.withValues(alpha: 0.16),
+            Colors.cyan.withValues(alpha: (0.28 * ampFactor).clamp(0.0, 1.0)),
+            baseColor.withValues(alpha: (0.16 * ampFactor).clamp(0.0, 1.0)),
             Colors.blue.withValues(alpha: 0.0),
           ],
           [0.0, 0.55, 1.0],
@@ -647,8 +775,8 @@ class PreciseWaveformPainter extends CustomPainter {
           Offset(nozzleX, centerY),
           Offset(nozzleX - plumeLen * 0.95, centerY),
           [
-            Colors.white.withValues(alpha: 0.98),
-            Colors.cyanAccent.withValues(alpha: 0.72),
+            Colors.white.withValues(alpha: (0.98 * ampFactor).clamp(0.0, 1.0)),
+            Colors.cyanAccent.withValues(alpha: (0.72 * ampFactor).clamp(0.0, 1.0)),
             Colors.blue.withValues(alpha: 0.0),
           ],
           [0.0, 0.26, 1.0],
@@ -657,7 +785,7 @@ class PreciseWaveformPainter extends CustomPainter {
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
     );
 
-    // Shock diamonds (Mach disks) - subtle, banded highlights.
+    // Shock diamonds (Mach disks) - scale with amplitude
     final diamondPaint =
         Paint()
           ..blendMode = BlendMode.plus
@@ -667,7 +795,7 @@ class PreciseWaveformPainter extends CustomPainter {
       final ratio = i / (diamondCount + 1);
       final x = nozzleX - plumeLen * (0.14 + 0.70 * ratio);
       final y = centerY + sin(t * 6.5 + i) * height * 0.012;
-      final intensity = (1.0 - ratio) * 0.55;
+      final intensity = (1.0 - ratio) * 0.55 * ampFactor;
 
       final w =
           height *
@@ -675,323 +803,12 @@ class PreciseWaveformPainter extends CustomPainter {
           (1.0 - 0.25 * ratio) *
           (0.85 + 0.2 * sin(t * 7.0 + i));
       final h = w * 2.15;
-      diamondPaint.color = Colors.white.withValues(alpha: intensity);
+      diamondPaint.color = Colors.white.withValues(alpha: intensity.clamp(0.0, 1.0));
       canvas.drawOval(
         Rect.fromCenter(center: Offset(x, y), width: w, height: h),
         diamondPaint,
       );
     }
-  }
-
-  void _drawRocinante(
-    Canvas canvas,
-    Offset pos,
-    double height,
-    Color color,
-    double progress,
-    double timeSeconds,
-    double beatStrength,
-  ) {
-    // The Rocinante (Tachi) - Corvette Class
-    final shipLen = height * 0.8; // Reduced from 0.95 (approx 15% smaller)
-    final shipWidth = shipLen * 0.25; // Reduced from 0.35
-    final rnd = Random(
-      (timeSeconds * 10).floor(),
-    ); // Stable random per 100ms (position-driven)
-
-    final accent = color;
-    final accentCool = Color.lerp(Colors.cyanAccent, accent, 0.55) ?? accent;
-    final accentWarm =
-        Color.lerp(const Color(0xFFD84315), accent, 0.45) ?? accent;
-
-    canvas.save();
-    canvas.translate(pos.dx, pos.dy);
-
-    // Stabilized (No turbulence)
-    const turbulence = 0.0;
-    canvas.rotate(pi / 2 + turbulence); // Point right
-
-    // Shadow (offset)
-    canvas.drawPath(
-      _buildRociHull(shipLen, shipWidth).shift(const Offset(4, 8)),
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.5)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
-    );
-
-    // 1. Drive Plume (Epstein Drive) - more collimated + turbulent edges
-    final flicker = 1.0 + 0.12 * beatStrength +
-        0.05 * sin(timeSeconds * 22.0) +
-        0.03 * cos(timeSeconds * 41.0);
-    final wobble =
-        1.0 +
-        0.06 * sin(timeSeconds * 9.0) +
-        0.04 * sin(timeSeconds * 15.0 + 0.9);
-    final plumeLen = shipLen * 1.55 * flicker;
-
-    Path buildDrivePlume({required double width, required double lenScale}) {
-      final baseY = shipLen * 0.45;
-      final len = plumeLen * lenScale;
-      final tipY = baseY + len;
-      final c1Y = baseY + len * 0.25;
-      final c2Y = baseY + len * 0.65;
-      final p = Path();
-      p.moveTo(-width, baseY);
-      p.cubicTo(-width * 0.55, c1Y, -width * 0.25 * wobble, c2Y, 0, tipY);
-      p.cubicTo(width * 0.25 * wobble, c2Y, width * 0.55, c1Y, width, baseY);
-      p.close();
-      return p;
-    }
-
-    final corePath = buildDrivePlume(width: shipWidth * 0.22, lenScale: 1.00);
-    final haloPath = buildDrivePlume(width: shipWidth * 0.55, lenScale: 1.25);
-
-    // Nozzle flare
-    canvas.drawCircle(
-      Offset(0, shipLen * 0.45),
-      shipWidth * 0.18,
-      Paint()
-        ..shader = ui.Gradient.radial(
-          Offset(0, shipLen * 0.45),
-          shipWidth * 0.40,
-          [
-            Colors.white.withValues(alpha: 0.75),
-            accentCool.withValues(alpha: 0.40),
-            Colors.transparent,
-          ],
-          [0.0, 0.4, 1.0],
-        )
-        ..blendMode = BlendMode.plus,
-    );
-
-    // Halo (ionized exhaust)
-    canvas.drawPath(
-      haloPath,
-      Paint()
-        ..shader = ui.Gradient.linear(
-          Offset(0, shipLen * 0.45),
-          Offset(0, shipLen * 0.45 + plumeLen * 1.35),
-          [
-            accentCool.withValues(alpha: 0.38),
-            accent.withValues(alpha: 0.16),
-            Colors.blue.withValues(alpha: 0.0),
-          ],
-          [0.0, 0.55, 1.0],
-        )
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10)
-        ..blendMode = BlendMode.plus,
-    );
-
-    // Core (white-hot)
-    canvas.drawPath(
-      corePath,
-      Paint()
-        ..shader = ui.Gradient.linear(
-          Offset(0, shipLen * 0.45),
-          Offset(0, shipLen * 0.45 + plumeLen * 0.95),
-          [
-            Colors.white.withValues(alpha: 0.95),
-            accentCool.withValues(alpha: 0.78),
-            Colors.blue.withValues(alpha: 0.0),
-          ],
-          [0.0, 0.22, 1.0],
-        )
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4)
-        ..blendMode = BlendMode.plus,
-    );
-
-    // Shock Diamonds (Mach disks) - slightly irregular to avoid "sticker" look
-    const diamondCount = 5;
-    final diamondPaint =
-        Paint()
-          ..color = Colors.white.withValues(alpha: 0.65)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.0);
-
-    for (int i = 1; i <= diamondCount; i++) {
-      final dy = shipLen * 0.45 + (plumeLen * 0.18 * i);
-      final wob = 0.85 + 0.20 * sin(timeSeconds * 7.0 + i);
-      final w = shipWidth * 0.32 * (1.0 - (i / (diamondCount + 1))) * wob;
-      canvas.drawOval(
-        Rect.fromCenter(center: Offset(0, dy), width: w, height: w * 0.6),
-        diamondPaint,
-      );
-    }
-
-    // 2. RCS Thrusters (Random firings)
-    if (rnd.nextDouble() > 0.85) {
-      _drawRCS(
-        canvas,
-        Offset(-shipWidth * 0.4, -shipLen * 0.3),
-        -pi / 2,
-        shipLen,
-      );
-    }
-    if (rnd.nextDouble() > 0.85) {
-      _drawRCS(
-        canvas,
-        Offset(shipWidth * 0.4, -shipLen * 0.3),
-        pi / 2,
-        shipLen,
-      );
-    }
-    if (rnd.nextDouble() > 0.9) {
-      _drawRCS(
-        canvas,
-        Offset(-shipWidth * 0.3, shipLen * 0.2),
-        -pi / 2,
-        shipLen,
-      );
-    }
-
-    // 3. Hull Construction
-    final hullPath = _buildRociHull(shipLen, shipWidth);
-
-    // Base Hull Shader (Metallic & Detailed)
-    final hullPaint =
-        Paint()
-          ..shader = ui.Gradient.linear(
-            Offset(-shipWidth / 2, 0),
-            Offset(shipWidth / 2, 0),
-            [
-              const Color(0xFF0D0D0D),
-              const Color(0xFF4A4A4A), // Highlight
-              const Color(0xFF1A1A1A),
-              const Color(0xFF050505),
-            ],
-            [0.0, 0.3, 0.6, 1.0],
-          );
-    canvas.drawPath(hullPath, hullPaint);
-
-    // Subtle accent edge glow (ties ship into overall app accent)
-    canvas.drawPath(
-      hullPath,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = shipLen * 0.015
-        ..color = accent.withValues(alpha: (0.14 + 0.22 * beatStrength).clamp(0.0, 1.0))
-        ..blendMode = BlendMode.plus
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.0),
-    );
-
-    // 4. MCRN Orange Markings & Details
-    canvas.save();
-    canvas.clipPath(hullPath);
-
-    final stripePaint =
-        Paint()
-          ..color = accentWarm
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = shipLen * 0.05;
-
-    canvas.drawLine(
-      Offset(-shipWidth, -shipLen * 0.3),
-      Offset(shipWidth, -shipLen * 0.3),
-      stripePaint,
-    );
-    canvas.drawLine(
-      Offset(-shipWidth, -shipLen * 0.35),
-      Offset(shipWidth, -shipLen * 0.35),
-      stripePaint..strokeWidth = shipLen * 0.02,
-    );
-
-    final blockPaint = Paint()..color = accentWarm;
-    canvas.drawRect(
-      Rect.fromCenter(
-        center: const Offset(0, 0),
-        width: shipWidth,
-        height: shipLen * 0.15,
-      ),
-      blockPaint,
-    );
-
-    // Panel Lines
-    final panelPaint =
-        Paint()
-          ..color = Colors.black.withValues(alpha: 0.3)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 0.5;
-
-    canvas.drawLine(
-      Offset(-shipWidth * 0.3, -shipLen * 0.1),
-      Offset(shipWidth * 0.3, -shipLen * 0.1),
-      panelPaint,
-    );
-    canvas.drawLine(
-      Offset(-shipWidth * 0.3, shipLen * 0.1),
-      Offset(shipWidth * 0.3, shipLen * 0.1),
-      panelPaint,
-    );
-    canvas.drawLine(
-      Offset(0, -shipLen * 0.4),
-      Offset(0, shipLen * 0.4),
-      panelPaint,
-    );
-
-    // Text / Decals
-    final textPaint =
-        Paint()
-          ..color = Colors.white.withValues(alpha: 0.9)
-          ..strokeWidth = 1.0;
-    canvas.drawLine(
-      Offset(-shipWidth * 0.2, 0),
-      Offset(shipWidth * 0.2, 0),
-      textPaint,
-    );
-
-    // Cockpit Window (Lit)
-    canvas.drawRect(
-      Rect.fromCenter(
-        center: Offset(0, -shipLen * 0.25),
-        width: shipWidth * 0.4,
-        height: shipLen * 0.05,
-      ),
-      Paint()
-        ..color = accentCool.withValues(alpha: 0.92)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1),
-    );
-
-    // Railgun Barrel (Keel mounted)
-    canvas.drawRect(
-      Rect.fromCenter(
-        center: Offset(0, -shipLen * 0.45),
-        width: shipWidth * 0.1,
-        height: shipLen * 0.1,
-      ),
-      Paint()..color = const Color(0xFF111111),
-    );
-
-    canvas.restore();
-
-    // 5. Engine Bell
-    final nozzlePath = Path();
-    nozzlePath.moveTo(-shipWidth * 0.35, shipLen * 0.45);
-    nozzlePath.lineTo(shipWidth * 0.35, shipLen * 0.45);
-    nozzlePath.lineTo(shipWidth * 0.3, shipLen * 0.4);
-    nozzlePath.lineTo(-shipWidth * 0.3, shipLen * 0.4);
-    nozzlePath.close();
-    canvas.drawPath(nozzlePath, Paint()..color = const Color(0xFF080808));
-
-    canvas.restore();
-  }
-
-  void _drawRCS(Canvas canvas, Offset pos, double angle, double shipLen) {
-    canvas.save();
-    canvas.translate(pos.dx, pos.dy);
-    canvas.rotate(angle);
-
-    final rcsPath = Path();
-    rcsPath.moveTo(0, 0);
-    rcsPath.lineTo(-2, -8);
-    rcsPath.lineTo(2, -8);
-    rcsPath.close();
-
-    canvas.drawPath(
-      rcsPath,
-      Paint()
-        ..color = Colors.white.withValues(alpha: 0.3) // SUBTLE
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
-    );
-    canvas.restore();
   }
 
   @override
@@ -1000,19 +817,4 @@ class PreciseWaveformPainter extends CustomPainter {
       playedColor != oldDelegate.playedColor ||
       unplayedColor != oldDelegate.unplayedColor ||
       waveformData != oldDelegate.waveformData;
-
-  Path _buildRociHull(double len, double width) {
-    final path = Path();
-    path.moveTo(0, -len * 0.5);
-    path.lineTo(width * 0.25, -len * 0.4);
-    path.lineTo(width * 0.35, -len * 0.15);
-    path.lineTo(width * 0.4, len * 0.1);
-    path.lineTo(width * 0.35, len * 0.45);
-    path.lineTo(-width * 0.35, len * 0.45);
-    path.lineTo(-width * 0.4, len * 0.1);
-    path.lineTo(-width * 0.35, -len * 0.15);
-    path.lineTo(-width * 0.25, -len * 0.4);
-    path.close();
-    return path;
-  }
 }

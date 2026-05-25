@@ -28,9 +28,18 @@
 - **Service**: Android `MethodChannel` implementation.
 - **UI**: `EqualizerScreen` with vertical sliders and presets.
 
+### 6. CEO/CTO Performance Iteration (Sonic DNA + Neural Mix)
+- Made full-library BPM/Key analysis **cancellable** with graceful exit (preserves partial results via signature caching).
+- Smarter yielding for large libraries (>800 tracks).
+- Added **Cancel button** in the Analysis progress dialog (settings).
+- Directly improves battery life, UI responsiveness, and Neural Mix readiness.
+- Resumable by design.
+
 ## 🎯 Next Steps
-1. **Waveforms**: Ensure waveform generation is efficient and accurate.
-2. **Testing**: Verify all features on a real device (especially Equalizer and Play History).
+1. **Waveforms**: Ensure waveform generation is efficient and accurate (currently simulated).
+2. **Smart Analysis Scheduling**: Background-only when charging/idle for ultimate perf.
+3. **Neural Mix auto-warm** after DNA scan completes.
+4. **Testing**: Verify on real device + large libraries.
 
 ## 📝 Notes
 - `PlaylistRepository` uses `uuid` for unique IDs.

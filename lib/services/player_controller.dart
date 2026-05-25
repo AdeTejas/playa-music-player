@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../repositories/song_repository.dart';
 import '../utils/replaygain_tag_reader.dart';
+import '../utils/ui_utils.dart';
 import 'analytics_service.dart';
 import 'artwork_cache_service.dart';
 import 'equalizer_service.dart';
@@ -424,7 +425,7 @@ class PlayerController {
   }
 
   bool _hasLaterAlbumItem(String album, int currentIndex) {
-    final seq = player.sequenceState.sequence;
+    final seq = player.sequenceState?.sequence ?? [];
     for (int i = currentIndex + 1; i < seq.length; i++) {
       final tag = seq[i].tag;
       if (tag is MediaItem && (tag.album ?? '') == album) return true;
@@ -433,7 +434,7 @@ class PlayerController {
   }
 
   bool _hasLaterContextItem(String type, String id, int currentIndex) {
-    final seq = player.sequenceState.sequence;
+    final seq = player.sequenceState?.sequence ?? [];
     for (int i = currentIndex + 1; i < seq.length; i++) {
       final tag = seq[i].tag;
       if (tag is! MediaItem) continue;
@@ -600,9 +601,8 @@ class PlayerController {
     final out = <oaq.SongModel>[];
     final seen = HashSet<String>();
     for (final s in songs) {
-      final data = s.data;
-      if (data.isEmpty) continue;
-      final key = Platform.isWindows ? data.toLowerCase() : data;
+      final key = songIdentity(s);
+      if (key.isEmpty) continue;
       if (seen.add(key)) out.add(s);
     }
     return out;
@@ -623,7 +623,6 @@ class PlayerController {
     if (source == null) return;
 
     final audioSource = player.audioSource;
-    // ignore: deprecated_member_use
     if (audioSource is ConcatenatingAudioSource) {
       try {
         await audioSource.add(source);
@@ -637,8 +636,6 @@ class PlayerController {
   }
 
   Future<void> playNext(oaq.SongModel song) async {
-    // Alias for insertNext to avoid confusion, or we can deprecate this.
-    // For now, let's redirect to insertNext which handles the logic.
     await insertNext(song);
   }
 
@@ -647,12 +644,12 @@ class PlayerController {
       ValueNotifier(const []);
   String currentId = '';
 
-  bool get hasQueue => player.sequenceState.sequence.isNotEmpty;
+  bool get hasQueue => player.sequenceState?.sequence.isNotEmpty ?? false;
   bool get isReady => hasQueue;
 
   MediaItem? get currentMediaItem {
     final seq = player.sequenceState;
-    if (seq.sequence.isEmpty) return null;
+    if (seq == null || seq.sequence.isEmpty) return null;
     final i = player.currentIndex ?? 0;
     final clamped = i.clamp(0, seq.sequence.length - 1);
     final src = seq.sequence[clamped];
@@ -664,7 +661,7 @@ class PlayerController {
     // Artwork cache is Android-only (MediaStore).
     if (!Platform.isAndroid) return;
     final seq = player.sequenceState;
-    if (seq.sequence.isEmpty) return;
+    if (seq == null || seq.sequence.isEmpty) return;
     final i = player.currentIndex;
     if (i == null) return;
 
@@ -672,10 +669,10 @@ class PlayerController {
       if (index < 0 || index >= seq.sequence.length) return;
       final tag = seq.sequence[index].tag;
       if (tag is! MediaItem) return;
-      final songId = tag.extras?['songId'];
-      if (songId is! int) return;
+      final mediaId = tag.extras?['mediaId'];
+      if (mediaId is! int) return;
       ArtworkCacheService.instance
-          .prefetchArtwork(id: songId, type: oaq.ArtworkType.AUDIO, size: 600)
+          .prefetchArtwork(id: mediaId, type: oaq.ArtworkType.AUDIO, size: 600)
           .catchError((_) {});
     }
 
@@ -719,10 +716,8 @@ class PlayerController {
   }
 
   Future<void> _init() async {
-    debugPrint("PlayerController: _init started");
     await _initAudioSession();
     await _loadFavorites();
-    debugPrint("PlayerController: _initAudioSession done");
 
     if (!_volumeInitialized) {
       _volumeInitialized = true;
@@ -788,7 +783,6 @@ class PlayerController {
 
     await player.setSkipSilenceEnabled(true);
     await player.setLoopMode(LoopMode.off); // Ensure stop at end
-    debugPrint("PlayerController: player configured");
 
     // Crossfade (0 = gapless). Keep in sync with settings.
     _applyCrossfadeFromSettings();
@@ -830,8 +824,9 @@ class PlayerController {
     final tag = currentMediaItem;
     if (tag == null) return;
     final prefs = await SharedPreferences.getInstance();
-    if (tag.extras != null && tag.extras!.containsKey('songId')) {
-      await prefs.setInt('last_song_original_id', tag.extras!['songId'] as int);
+    final mediaId = tag.extras?['mediaId'];
+    if (mediaId is int) {
+      await prefs.setInt('last_song_original_id', mediaId);
     }
     await prefs.setInt('last_position_ms', player.position.inMilliseconds);
   }
@@ -934,7 +929,6 @@ class PlayerController {
     if (source == null) return;
 
     final audioSource = player.audioSource;
-    // ignore: deprecated_member_use
     if (audioSource is ConcatenatingAudioSource) {
       final current = player.currentIndex ?? 0;
       final insertAt = (current + 1).clamp(0, audioSource.length);
@@ -951,14 +945,10 @@ class PlayerController {
   void _applyCrossfadeFromSettings() {
     final sec = SettingsService.instance.crossfadeSeconds.clamp(0, 12);
     try {
-      // just_audio API differs across versions; keep this best-effort.
-      // Some versions require enabling/disabling separately.
-      try {
-        (player as dynamic).setCrossFadeEnabled(sec > 0);
-      } catch (_) {}
-      try {
-        (player as dynamic).setCrossFadeDuration(Duration(seconds: sec));
-      } catch (_) {}
+      // ignore: avoid_dynamic_calls
+      (player as dynamic).setCrossFadeEnabled(sec > 0);
+      // ignore: avoid_dynamic_calls
+      (player as dynamic).setCrossFadeDuration(Duration(seconds: sec));
     } catch (_) {}
   }
 
@@ -1063,7 +1053,7 @@ class PlayerController {
     return AudioSource.uri(
       uri,
       tag: MediaItem(
-        id: s.id.toString(),
+        id: s.data, // Using data (path) as ID for background service consistency
         album: s.album ?? "Unknown Album",
         title: s.title,
         artist: s.artist ?? "Unknown Artist",
@@ -1071,7 +1061,8 @@ class PlayerController {
         artUri: artUri,
         extras: {
           'path': s.data,
-          'songId': s.id,
+          'songId': s.data, // canonical key (file path) for metadata, favorites, Neural Mix etc.
+          'mediaId': s.id, // Store original MediaStore ID as int
           if (extraExtras != null) ...extraExtras,
         },
       ),
@@ -1185,15 +1176,15 @@ class PlayerController {
       final metaMap = {for (final m in allMeta) m.id: m};
 
       final songById = <String, oaq.SongModel>{
-        for (final s in librarySongs) s.id.toString(): s,
+        for (final s in librarySongs) songIdentity(s): s,
       };
       final seedSong = songById[seedId];
       final seedArtist = seedSong?.artist?.trim().toLowerCase();
 
       final songRows = <Map<String, dynamic>>[];
       for (final song in librarySongs) {
-        final id = song.id.toString();
-        final meta = metaMap[id];
+        final id = songIdentity(song);
+        final meta = metaMap[id] ?? metaMap[song.id.toString()]; // fallback for legacy DB keys
         songRows.add({
           'id': id,
           'artist': song.artist ?? '',
@@ -1204,11 +1195,13 @@ class PlayerController {
 
       final exclude = <String>{};
       final seq = player.sequenceState;
-      for (final src in seq.sequence) {
-        final tag = src.tag;
-        if (tag is MediaItem) {
-          final id = tag.extras?['songId']?.toString();
-          if (id != null && id.isNotEmpty) exclude.add(id);
+      if (seq != null) {
+        for (final src in seq.sequence) {
+          final tag = src.tag;
+          if (tag is MediaItem) {
+            final id = tag.extras?['songId']?.toString();
+            if (id != null && id.isNotEmpty) exclude.add(id);
+          }
         }
       }
 
@@ -1238,8 +1231,8 @@ class PlayerController {
 
       final mixSources = <UriAudioSource>[];
       for (final s in mix) {
-        final id = s.id.toString();
-        final meta = metaMap[id];
+        final id = songIdentity(s);
+        final meta = metaMap[id] ?? metaMap[s.id.toString()];
         final why = _neuralMixWhy(
           seedBpm: seedBpm,
           seedKey: seedKey,
@@ -1263,7 +1256,6 @@ class PlayerController {
 
       // Prefer inserting into existing playlist to avoid disrupting playback.
       final audioSource = player.audioSource;
-      // ignore: deprecated_member_use
       if (audioSource is ConcatenatingAudioSource) {
         final insertIndex = (player.currentIndex ?? 0) + 1;
         try {
@@ -1276,7 +1268,7 @@ class PlayerController {
       } else {
         // Fallback: rebuild sources (may restart playback).
         final state = player.sequenceState;
-        final seq = state.sequence;
+        final seq = state?.sequence ?? [];
 
         _sources.clear();
         if (seq.isNotEmpty) {
@@ -1317,7 +1309,6 @@ class PlayerController {
     if (neuralMixBusy.value) return;
 
     final audioSource = player.audioSource;
-    // ignore: deprecated_member_use
     if (audioSource is! ConcatenatingAudioSource) return;
 
     final cur = player.currentIndex ?? 0;
@@ -1332,11 +1323,13 @@ class PlayerController {
     try {
       final exclude = <String>{};
       final seq = player.sequenceState;
-      for (final src in seq.sequence) {
-        final tag = src.tag;
-        if (tag is MediaItem) {
-          final id = tag.extras?['songId']?.toString();
-          if (id != null && id.isNotEmpty) exclude.add(id);
+      if (seq != null) {
+        for (final src in seq.sequence) {
+          final tag = src.tag;
+          if (tag is MediaItem) {
+            final id = tag.extras?['songId']?.toString();
+            if (id != null && id.isNotEmpty) exclude.add(id);
+          }
         }
       }
 
@@ -1402,14 +1395,14 @@ class PlayerController {
     final metaMap = {for (final m in allMeta) m.id: m};
 
     final songById = <String, oaq.SongModel>{
-      for (final s in librarySongs) s.id.toString(): s,
+      for (final s in librarySongs) songIdentity(s): s,
     };
     final seedArtist = songById[seedId]?.artist?.trim().toLowerCase();
 
     final songRows = <Map<String, dynamic>>[];
     for (final song in librarySongs) {
-      final id = song.id.toString();
-      final meta = metaMap[id];
+      final id = songIdentity(song);
+      final meta = metaMap[id] ?? metaMap[song.id.toString()]; // fallback for legacy DB keys
       songRows.add({
         'id': id,
         'artist': song.artist ?? '',
@@ -1440,8 +1433,8 @@ class PlayerController {
 
     final mixSources = <UriAudioSource>[];
     for (final s in picked) {
-      final id = s.id.toString();
-      final meta = metaMap[id];
+      final id = songIdentity(s);
+      final meta = metaMap[id] ?? metaMap[s.id.toString()];
       final why = _neuralMixWhy(
         seedBpm: seedBpm,
         seedKey: seedKey,
@@ -1463,7 +1456,6 @@ class PlayerController {
 
   Future<void> removeFromQueue(int index) async {
     final audioSource = player.audioSource;
-    // ignore: deprecated_member_use
     if (audioSource is ConcatenatingAudioSource) {
       if (index >= 0 && index < audioSource.length) {
         try {

@@ -17,6 +17,7 @@ subprojects {
     val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 }
+
 subprojects {
     afterEvaluate {
         extensions.findByType(BaseExtension::class.java)?.apply {
@@ -33,6 +34,15 @@ subprojects {
             kotlinOptions {
                 jvmTarget = "21"
             }
+        }
+    }
+
+    // Force stable versions of glance to avoid SDK 37 requirements
+    configurations.all {
+        resolutionStrategy {
+            force("androidx.glance:glance:1.1.0")
+            force("androidx.glance:glance-appwidget:1.1.0")
+            force("androidx.glance:glance-material3:1.1.0")
         }
     }
 }

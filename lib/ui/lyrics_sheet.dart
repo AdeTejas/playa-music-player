@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_lyric/lyrics_reader.dart';
 import '../services/player_controller.dart';
 import '../services/lyrics_service.dart';
+import '../design/design_system.dart';
 
 class LyricsSheet extends StatefulWidget {
   final PlayerController ctrl;
@@ -72,7 +73,7 @@ class _LyricsSheetState extends State<LyricsSheet> {
   Widget build(BuildContext context) {
     return Container(
       decoration: const BoxDecoration(
-        color: Color(0xFF14161B),
+        color: PlayaColors.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: Column(
@@ -92,7 +93,7 @@ class _LyricsSheetState extends State<LyricsSheet> {
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: Color(0xFFE8DCCA),
+              color: PlayaColors.onSurface,
             ),
           ),
           const SizedBox(height: 16),

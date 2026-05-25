@@ -5,7 +5,6 @@ import '../models/playlist.dart';
 import '../repositories/playlist_repository.dart';
 import '../services/player_controller.dart';
 import '../ui/tokens.dart';
-import '../ui/glass_panel.dart';
 import '../widgets/artwork_image.dart';
 
 class PlaylistDetailScreen extends StatefulWidget {
@@ -31,14 +30,12 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   }
 
   Future<void> _loadSongs() async {
-    // Refresh playlist data first
     final allPlaylists = await _repo.getAll();
     try {
       _currentPlaylist = allPlaylists.firstWhere(
         (p) => p.id == widget.playlist.id,
       );
     } catch (_) {
-      // Playlist might have been deleted
       if (mounted) Navigator.pop(context);
       return;
     }
@@ -53,8 +50,6 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
       return;
     }
 
-    // Fetch all songs and filter (inefficient but simple for local files)
-    // Ideally we'd query by ID list if supported
     final allSongs = await _query.querySongs(
       sortType: SongSortType.DATE_ADDED,
       orderType: OrderType.DESC_OR_GREATER,
@@ -133,7 +128,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                     SizedBox(height: 8),
                     Text(
                       'Add songs from your Library',
-                      style: TextStyle(color: Colors.white38),
+                      style: TextStyle(color: PlayaColors.onSurfaceVariant),
                     ),
                   ],
                 ),
@@ -145,9 +140,8 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                   return Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                     child: GlassPanel(
-                      useShader: false,
                       borderRadius: BorderRadius.circular(14),
-                      borderColor: Colors.white.withValues(alpha: 0.15),
+                      borderColor: PlayaColors.border,
                       child: Material(
                         color: Colors.transparent,
                         child: ListTile(
@@ -158,10 +152,10 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                               width: 48,
                               height: 48,
                               decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.06),
+                                color: PlayaColors.borderSubtle,
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.12),
+                                  color: PlayaColors.border,
                                 ),
                               ),
                               child: const Icon(

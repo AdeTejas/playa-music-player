@@ -473,12 +473,15 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
             ? (0.62 + 0.32 * sizeScale).clamp(0.55, 1.25)
             : (1.35 + 0.35 * sqrt(sizeScale)).clamp(1.3, 3.2);
     final seed = _rnd.nextInt(1 << 31);
+    // Sun direction (upper area of the screen) — ion tail points away from this.
+    final sunAngle = -pi / 2 + (_rnd.nextDouble() - 0.5) * 0.8;
 
     _shootingStars.add(
       _ShootingStar(
         x: startX / w,
         y: startY / h,
         angle: angle,
+        sunAngle: sunAngle,
         speedPxPerSec: speedPxPerSec,
         color: color,
         sizeScale: sizeScale,
@@ -618,6 +621,7 @@ class _DebrisSpec {
 class _ShootingStar {
   double x, y;
   double angle;
+  double sunAngle;
   double speedPxPerSec;
   double _elapsedSeconds = 0.0;
   double progress = 0.0;
@@ -639,6 +643,7 @@ class _ShootingStar {
     required this.x,
     required this.y,
     required this.angle,
+    required this.sunAngle,
     required this.speedPxPerSec,
     required this.color,
     this.sizeScale = 1.0,
@@ -966,6 +971,7 @@ class _StarFieldPainter extends CustomPainter {
         final start = Offset(s.x * w, s.y * h);
         final perp = Offset(cos(s.angle + pi / 2), sin(s.angle + pi / 2));
         final cinematic = s.style == _CometStyle.cinematic;
+
         final speedFactor = (s.speedPxPerSec / 800.0).clamp(0.55, 1.45);
         final baseTail =
             min(w, h) *
@@ -973,9 +979,9 @@ class _StarFieldPainter extends CustomPainter {
             (0.75 + 0.18 * s.sizeScale) *
             speedFactor *
             s.style.tailLengthMul;
-        // Keep a stable comet shape while it traverses the screen.
-        // Cinematic comets: longer dust tail.
-        final tailLen = cinematic ? (baseTail * 1.82) : baseTail;
+
+        final tailLenMul = cinematic ? 1.82 : 1.0;
+        final tailLen = baseTail * tailLenMul;
         final end =
             start - Offset(cos(s.angle) * tailLen, sin(s.angle) * tailLen);
 
@@ -1007,7 +1013,8 @@ class _StarFieldPainter extends CustomPainter {
           );
           final curvePx =
               (s.tailCurveAmp * tailLen) *
-              sin(timeSeconds * 0.55 + s.headSkew * 12);
+              (sin(timeSeconds * 0.55 + s.headSkew * 12) +
+               sin(timeSeconds * 1.9 + s.headSkew * 7) * 0.18);
           ctrl = mid + perp * curvePx;
         }
 
@@ -1033,33 +1040,30 @@ class _StarFieldPainter extends CustomPainter {
                 ..blendMode = BlendMode.plus
                 ..maskFilter = MaskFilter.blur(
                   BlurStyle.normal,
-                  (8 * s.sizeScale) * blurMul,
+                  8.0 * s.sizeScale * blurMul,
                 );
 
           final baseW =
               (1.7 + 1.15 * s.sizeScale) *
               s.style.tailWidthMul *
               s.tailWidthJitter;
+
           final segs = isWindows ? 28 : 18;
           final left = <Offset>[];
           final right = <Offset>[];
 
           for (int i = 0; i <= segs; i++) {
             final t = i / segs;
-            final c = pointOnTail(t);
-
-            // Taper so the dust tail gets thinner at the far end.
+            var c = pointOnTail(t);
+            final turb = (_hash01(seed * 0.007 + t * 17.3 + timeSeconds * 3.1) - 0.5) * baseW * 0.045 * (1.0 - t * 0.7);
+            c = c + perp * turb;
             final tailTaper = 0.25 + 0.75 * pow(1.0 - t, 0.85).toDouble();
+            final noise = 0.91 + 0.19 * _hash01(seed * 0.001 + t * 9.3 + i * 0.17);
 
-            // Wider farther from the nucleus (fan), slightly asymmetrical.
-            final noise =
-                0.92 + 0.18 * _hash01(seed * 0.001 + t * 9.3 + i * 0.17);
-            // Ice-cream-cone fan: tight at the head, flares quickly.
-            final tt = pow(t, 1.25).toDouble();
-            final spread = (0.24 + 2.25 * tt) * (1.05 - 0.28 * t);
+            final spread = (0.24 + 2.25 * pow(t, 1.25)) * (1.05 - 0.28 * t);
+
             final width = baseW * spread * noise * tailTaper;
             final skew = s.headSkew * (0.35 + 0.25 * t);
-
             left.add(c + perp * (width * (1.05 + skew)));
             right.add(c - perp * (width * (0.95 - skew)));
           }
@@ -1073,11 +1077,8 @@ class _StarFieldPainter extends CustomPainter {
           }
           dustPath.close();
 
-          final comaTint =
-              HSLColor.fromColor(
-                s.color,
-              ).withHue(140).withSaturation(0.55).withLightness(0.78).toColor();
-          final dustColor = Color.lerp(comaTint, Colors.white, 0.48)!;
+          // Warm cream color for the dust tail (reflected sunlight off dust)
+          final dustColor = Color.lerp(const Color(0xFFFFF8E1), Colors.white, 0.35)!;
           dustPaint.shader = ui.Gradient.linear(
             start,
             end,
@@ -1149,40 +1150,42 @@ class _StarFieldPainter extends CustomPainter {
             canvas.drawLine(p0, p1, streakPaint);
           }
 
-          // Ion tail (thin, straighter, cooler)
+          // Ion tail — points away from the sun (not the velocity direction)
+          // This creates the characteristic split-tail look of real comets.
+          final ionTailAngle = s.sunAngle + pi;
+          final ionTailLen = tailLen * 1.3;
+          final ionEnd = start + Offset(cos(ionTailAngle) * ionTailLen, sin(ionTailAngle) * ionTailLen);
+
           const ionTint = Color(0xFF66CFFF);
           final ionPaint =
               Paint()
                 ..style = PaintingStyle.stroke
                 ..strokeCap = StrokeCap.round
                 ..blendMode = BlendMode.plus
-                ..strokeWidth =
-                    1.1 * s.sizeScale * s.style.coreWidthMul * s.coreWidthJitter
                 ..maskFilter = MaskFilter.blur(
                   BlurStyle.normal,
                   (2.0 * s.sizeScale) * blurMul,
                 )
                 ..shader = ui.Gradient.linear(
                   start,
-                  end,
+                  ionEnd,
                   [
-                    Colors.white.withValues(alpha: alpha * 0.90),
-                    ionTint.withValues(alpha: alpha * 0.32),
+                    Colors.white.withValues(alpha: alpha * 0.85),
+                    ionTint.withValues(alpha: alpha * 0.25),
                     Colors.transparent,
                   ],
-                  const [0.0, 0.18, 1.0],
+                  const [0.0, 0.15, 1.0],
                 );
-          // Draw as tapered segments so it thins toward the tail.
-          for (int i = 0; i < segs; i++) {
-            final t0 = i / segs;
-            final t1 = (i + 1) / segs;
-            final c0 = pointOnTail(t0);
-            final c1 = pointOnTail(t1);
+          final ionSegs = isWindows ? 24 : 16;
+          final ionPerp = Offset(cos(ionTailAngle + pi / 2), sin(ionTailAngle + pi / 2));
+          for (int i = 0; i < ionSegs; i++) {
+            final t0 = i / ionSegs;
+            final t1 = (i + 1) / ionSegs;
+            final c0 = Offset.lerp(start, ionEnd, t0)! + ionPerp * (sin(t0 * 17.0 + timeSeconds * 3.1) * s.sizeScale * 0.3);
+            final c1 = Offset.lerp(start, ionEnd, t1)! + ionPerp * (sin(t1 * 17.0 + timeSeconds * 3.1) * s.sizeScale * 0.18);
             final tm = (t0 + t1) * 0.5;
-            final taper = 0.25 + 0.75 * pow(1.0 - tm, 0.85).toDouble();
-            ionPaint.strokeWidth =
-                (1.1 * s.sizeScale * s.style.coreWidthMul * s.coreWidthJitter) *
-                taper;
+            final taper = 0.15 + 0.85 * pow(1.0 - tm, 0.70).toDouble();
+            ionPaint.strokeWidth = (1.2 * s.sizeScale * s.style.coreWidthMul * s.coreWidthJitter) * taper;
             canvas.drawLine(c0, c1, ionPaint);
           }
         } else {
@@ -1230,7 +1233,8 @@ class _StarFieldPainter extends CustomPainter {
         }
 
         // 3. The Head (Coma)
-        final headBase = 8.0 * s.sizeScale * s.style.headMul;
+        final headDamp = (cinematic && s.sizeScale > 3.2) ? 0.76 : 1.0;
+        final headBase = 8.0 * s.sizeScale * s.style.headMul * headDamp;
         if (cinematic) {
           final comaTint =
               HSLColor.fromColor(
@@ -1252,7 +1256,7 @@ class _StarFieldPainter extends CustomPainter {
                            (s.speedPxPerSec.round() << 1) ^
                            ((s.sizeScale * 100).round() << 3) ^
                            (s.headSkew * 1000).round());
-          final comaShapes = 3 + (s.sizeScale * 2).round();
+            final comaShapes = 2 + (pow(s.sizeScale, 0.72) * 1.7).round().clamp(0, 4);
           for (int i = 0; i < comaShapes; i++) {
             final shapeSeed = comaSeed + i * 17;
             final offsetX = skewPx * 0.55 + (0.3 * _hash01(shapeSeed * 0.01) - 0.15) * headBase;
@@ -1310,10 +1314,13 @@ class _StarFieldPainter extends CustomPainter {
           canvas.drawOval(inner, paint);
           paint.maskFilter = null;
 
-          // Dark irregular nucleus with more realistic rocky texture
+          // Dark irregular nucleus elongated along velocity axis (potato shape)
           final nucR = 2.20 * s.sizeScale;
+          final nucElongation = 1.6;
+          final cosVel = cos(s.angle);
+          final sinVel = sin(s.angle);
           final nuc = Path();
-          const points = 12; // More points for more irregular shape
+          const points = 14;
           final nucleusSeed = ((s.angle * 100000).round() ^
                               (s.speedPxPerSec.round() << 1) ^
                               ((s.sizeScale * 100).round() << 3) ^
@@ -1321,9 +1328,14 @@ class _StarFieldPainter extends CustomPainter {
 
           for (int i = 0; i < points; i++) {
             final a = (i / points) * 2 * pi;
-            // More varied radius for rocky appearance
-            final rr = nucR * (0.65 + 0.55 * _hash01(nucleusSeed * 0.001 + i * 2.1));
-            final p = Offset(skewPx * 0.48 + cos(a) * rr, sin(a) * rr);
+            final rr = nucR * (0.62 + 0.52 * _hash01(nucleusSeed * 0.0009 + i * 1.97 + timeSeconds * 0.4));
+            final dx = cos(a) * rr;
+            final dy = sin(a) * rr;
+            final along = dx * cosVel + dy * sinVel;
+            final across = -dx * sinVel + dy * cosVel;
+            final ex = cosVel * along * nucElongation - sinVel * across;
+            final ey = sinVel * along * nucElongation + cosVel * across;
+            final p = Offset(skewPx * 0.48 + ex, ey);
             if (i == 0) {
               nuc.moveTo(p.dx, p.dy);
             } else {
@@ -1332,13 +1344,19 @@ class _StarFieldPainter extends CustomPainter {
           }
           nuc.close();
 
-          // Add surface texture/details to nucleus
+          // Add surface texture/details to nucleus (elongated to match)
           final detailPath = Path();
           for (int i = 0; i < 8; i++) {
             final a = (i / 8) * 2 * pi + _hash01(nucleusSeed * 0.01 + i) * 0.5;
             final r = nucR * (0.75 + 0.25 * _hash01(nucleusSeed * 0.02 + i));
             final detailSize = nucR * 0.15 * _hash01(nucleusSeed * 0.03 + i);
-            final p = Offset(skewPx * 0.48 + cos(a) * r, sin(a) * r);
+            final dx = cos(a) * r;
+            final dy = sin(a) * r;
+            final along = dx * cosVel + dy * sinVel;
+            final across = -dx * sinVel + dy * cosVel;
+            final ex = cosVel * along * nucElongation - sinVel * across;
+            final ey = sinVel * along * nucElongation + cosVel * across;
+            final p = Offset(skewPx * 0.48 + ex, ey);
 
             detailPath.addOval(Rect.fromCenter(
               center: p,
@@ -1360,11 +1378,11 @@ class _StarFieldPainter extends CustomPainter {
 
           // Add plasma jets emanating from the nucleus
           final jetSeed = nucleusSeed + 2000;
-          final jetCount = 2 + (s.sizeScale * 1.5).round();
+          final jetCount = (sqrt(s.sizeScale) * 1.05).round().clamp(1, 2);
           for (int i = 0; i < jetCount; i++) {
             final jetAngle = (i / jetCount) * 2 * pi + _hash01(jetSeed * 0.01 + i * 23) * 0.8;
-            final jetLength = headBase * (0.8 + 0.6 * _hash01(jetSeed * 0.02 + i * 24));
-            final jetWidth = headBase * (0.15 + 0.1 * _hash01(jetSeed * 0.03 + i * 25));
+            final jetLength = headBase * (0.8 + 0.6 * _hash01(jetSeed * 0.02 + i * 24)) * headDamp;
+            final jetWidth = headBase * (0.15 + 0.1 * _hash01(jetSeed * 0.03 + i * 25)) * headDamp;
 
             final jetStart = Offset(skewPx * 0.48, 0);
             final jetEnd = Offset(
@@ -1406,7 +1424,7 @@ class _StarFieldPainter extends CustomPainter {
 
           // Add trailing fragments that break off
           final fragmentSeed = nucleusSeed + 1000;
-          final fragmentCount = 3 + (s.sizeScale * 2).round();
+          final fragmentCount = (sqrt(s.sizeScale) * 1.4).round().clamp(0, 3);
           for (int i = 0; i < fragmentCount; i++) {
             final fragmentDist = 0.1 + 0.4 * _hash01(fragmentSeed * 0.1 + i * 3.7);
             final fragmentAngle = s.angle + (0.3 * _hash01(fragmentSeed * 0.2 + i * 4.1) - 0.15);
@@ -1461,17 +1479,19 @@ class _StarFieldPainter extends CustomPainter {
         for (final d in s.debris) {
           final dist = d.distFactor * tailLen;
           final offset = d.lateralFactor * s.sizeScale;
+          final largeDamp = (cinematic && s.sizeScale > 3.2) ? 0.65 : 1.0;
+          final eject = (0.6 + 1.8 * s.progress) * (0.4 + 0.6 * _hash01(d.distFactor * 31.7 + timeSeconds * 1.8)) * s.sizeScale * largeDamp;
 
           final debrisPos =
               start -
               Offset(cos(s.angle) * dist, sin(s.angle) * dist) +
               Offset(
-                cos(s.angle + pi / 2) * offset,
-                sin(s.angle + pi / 2) * offset,
+                cos(s.angle + pi / 2) * (offset + eject),
+                sin(s.angle + pi / 2) * (offset + eject * 0.6),
               );
 
-          paint.color = s.color.withValues(alpha: alpha * 0.35 * d.alpha);
-          canvas.drawCircle(debrisPos, d.radius, paint);
+          paint.color = s.color.withValues(alpha: alpha * 0.35 * d.alpha * (1.0 - s.progress * 0.4));
+          canvas.drawCircle(debrisPos, d.radius * largeDamp, paint);
         }
       }
     }

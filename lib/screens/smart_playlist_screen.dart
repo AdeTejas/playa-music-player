@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import '../repositories/song_repository.dart';
-import '../services/player_controller.dart';
+import '../widgets/player_provider.dart';
 import '../ui/tokens.dart';
-import '../ui/glass_panel.dart';
 import '../widgets/artwork_image.dart';
 
 enum SmartPlaylistType { heavyRotation, forgottenFavorites, recentlyAdded }
@@ -127,9 +126,8 @@ class _SmartPlaylistScreenState extends State<SmartPlaylistScreen> {
                   return Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                     child: GlassPanel(
-                      useShader: false,
                       borderRadius: BorderRadius.circular(14),
-                      borderColor: Colors.white.withValues(alpha: 0.15),
+                      borderColor: PlayaColors.border,
                       child: Material(
                         color: Colors.transparent,
                         child: ListTile(
@@ -140,10 +138,10 @@ class _SmartPlaylistScreenState extends State<SmartPlaylistScreen> {
                               width: 48,
                               height: 48,
                               decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.06),
+                                color: PlayaColors.borderSubtle,
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.12),
+                                  color: PlayaColors.border,
                                 ),
                               ),
                               child: const Icon(
@@ -165,7 +163,7 @@ class _SmartPlaylistScreenState extends State<SmartPlaylistScreen> {
                             style: const TextStyle(color: kColorOn2),
                           ),
                           onTap: () {
-                            PlayerController.ensure().replaceQueue(
+                            PlayerProvider.of(context).replaceQueue(
                               _songs,
                               initialIndex: index,
                               queueContextType: 'smartPlaylist',

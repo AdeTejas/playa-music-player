@@ -13,19 +13,24 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+// Services
 import 'services/intent_handler.dart';
 import 'services/perf_metrics_service.dart';
-
-import 'ui/tokens.dart';
-import 'ui/glass_panel.dart';
-import 'screens/equalizer_screen.dart';
-import 'screens/library_page.dart';
-import 'screens/player_screen.dart';
-import 'services/library_scan_service.dart';
 import 'services/settings_service.dart';
 import 'services/database_service.dart';
+import 'services/service_locator.dart';
 import 'services/player_controller.dart';
+import 'services/library_scan_service.dart';
+
+// UI & Screens
+import 'ui/tokens.dart';
 import 'ui/deep_space_background.dart';
+import 'screens/library_page.dart';
+import 'screens/player_screen.dart';
+import 'screens/equalizer_screen.dart';
+
+import 'design/design_system.dart'; // New Design System (Phase 1)
 import 'widgets/player_provider.dart';
 
 // Debug drawing for turntable painter (set with --dart-define=DEV_TT_GUIDES=true)
@@ -41,12 +46,6 @@ const bool kAutoPlaybackTest = bool.fromEnvironment(
 );
 
 /* ========================= THEME & TOKENS ========================= */
-
-const _bg = Color(0xFF06070A);
-const _surface = Color(0xFF14161B);
-const _card = Color(0xFF1B1F26);
-const _on = Color(0xFFE8DCCA); // Light Wood/Beige for text
-const _on2 = Color(0xFFA68B6C); // Muted Wood for secondary text
 
 Future<void> main([List<String> args = const []]) async {
   PerfMetricsService.instance.markAppStart();
@@ -145,7 +144,7 @@ String? _pendingIntentData;
 // Function to handle incoming intents
 void _handleIncomingIntent(String data) {
   // This will be handled by the PlayerController when the app is ready
-  PlayerController.ensure().playExternalFile(data);
+  ServiceLocator.instance.playerController.playExternalFile(data);
 }
 
 class PlayaApp extends StatelessWidget {
@@ -156,72 +155,31 @@ class PlayaApp extends StatelessWidget {
     return AnimatedBuilder(
       animation: SettingsService.instance,
       builder: (context, _) {
-        final base = ThemeData(
-          useMaterial3: true,
-          brightness: Brightness.dark,
-          scaffoldBackgroundColor: _bg,
-          splashFactory: InkSparkle.splashFactory,
-          visualDensity: VisualDensity.standard,
+        // Using new Design System (Phase 1)
+        final rawAccent = Color(SettingsService.instance.accentColor);
+        final resolvedAccent = SettingsService.instance.resolveAccentColor(rawAccent);
+
+        final theme = AppTheme.dark.copyWith(
+          colorScheme: ColorScheme.dark(
+            primary: resolvedAccent,
+            onSurface: PlayaColors.onSurface,
+          ),
+          textTheme: GoogleFonts.exo2TextTheme(
+            AppTheme.dark.textTheme.apply(bodyColor: PlayaColors.onSurface),
+          ),
+          sliderTheme: AppTheme.dark.sliderTheme.copyWith(
+            trackHeight: 3,
+            inactiveTrackColor: Colors.white24,
+            activeTrackColor: resolvedAccent,
+            thumbColor: resolvedAccent,
+            overlayShape: SliderComponentShape.noOverlay,
+          ),
         );
 
         return MaterialApp(
           title: 'Playa',
           debugShowCheckedModeBanner: false,
-          theme: base.copyWith(
-            colorScheme: ColorScheme.dark(
-              surface: _surface,
-              primary: Color(SettingsService.instance.accentColor),
-              onSurface: _on,
-            ),
-            textTheme: GoogleFonts.exo2TextTheme(
-              base.textTheme.apply(bodyColor: _on, displayColor: _on),
-            ),
-            iconTheme: const IconThemeData(color: _on),
-            appBarTheme: const AppBarTheme(
-              backgroundColor: Colors.transparent,
-              foregroundColor: _on,
-              elevation: 0,
-              centerTitle: true,
-              titleTextStyle: TextStyle(
-                color: _on,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            cardTheme: CardThemeData(
-              color: _card.withValues(alpha: 0.94),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(kRadius),
-              ),
-              elevation: 0,
-              margin: const EdgeInsets.all(kSp),
-            ),
-            listTileTheme: ListTileThemeData(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(kRadius),
-              ),
-              tileColor: _card.withValues(
-                alpha: 0.4,
-              ), // More transparent for glass effect
-              iconColor: _on,
-              textColor: _on,
-              dense: true,
-              visualDensity: VisualDensity.compact,
-            ),
-            bottomSheetTheme: const BottomSheetThemeData(
-              backgroundColor: _surface,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-              ),
-            ),
-            sliderTheme: base.sliderTheme.copyWith(
-              trackHeight: 3,
-              inactiveTrackColor: Colors.white24,
-              activeTrackColor: Color(SettingsService.instance.accentColor),
-              thumbColor: Color(SettingsService.instance.accentColor),
-              overlayShape: SliderComponentShape.noOverlay,
-            ),
-          ),
+          theme: theme,
           home: const _Shell(),
         );
       },
@@ -250,21 +208,18 @@ class _ShellState extends State<_Shell> {
     // Handle any pending intent data from app launch
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_pendingIntentData != null && _pendingIntentData!.trim().isNotEmpty) {
-        debugPrint('Handling pending intent data: $_pendingIntentData');
-        PlayerController.ensure().playExternalFile(_pendingIntentData!);
+        ServiceLocator.instance.playerController.playExternalFile(_pendingIntentData!);
         _pendingIntentData = null; // Clear after handling
       }
       if (kAutoPlaybackTest) {
         // Run the automated playback scenario (non-blocking)
-        Future.microtask(() => _runAutoPlaybackTest(PlayerController.ensure()));
+        Future.microtask(() => _runAutoPlaybackTest(ServiceLocator.instance.playerController));
       }
     });
   }
 
   Future<void> _runAutoPlaybackTest(PlayerController ctrl) async {
     try {
-      debugPrint('AUTO_PLAYBACK_TEST: starting sequence');
-
       // Wait for library scan to populate (max ~20s)
       int waited = 0;
       while (ctrl.librarySongs.isEmpty && waited < 20000) {
@@ -273,7 +228,6 @@ class _ShellState extends State<_Shell> {
       }
 
       if (ctrl.librarySongs.isEmpty) {
-        debugPrint('AUTO_PLAYBACK_TEST: no songs found in library, aborting');
         return;
       }
 
@@ -284,48 +238,32 @@ class _ShellState extends State<_Shell> {
 
       // Replace queue but don't auto-play yet
       await ctrl.replaceQueue(songs.cast(), autoPlay: false);
-      debugPrint(
-        'AUTO_PLAYBACK_TEST: queue replaced with ${songs.length} tracks',
-      );
 
       // Give the platform a moment to register player and load sources
-      // Increased delay to reduce race with plugin dispose/recreate.
       await Future.delayed(const Duration(milliseconds: 1500));
 
       // Start playback (guard each call individually)
       try {
         await ctrl.player.play();
-        debugPrint('AUTO_PLAYBACK_TEST: play()');
-      } catch (e) {
-        debugPrint('AUTO_PLAYBACK_TEST: play() error: $e');
-      }
+      } catch (_) {}
       await Future.delayed(const Duration(seconds: 4));
 
       // Pause
       try {
         await ctrl.player.pause();
-        debugPrint('AUTO_PLAYBACK_TEST: pause()');
-      } catch (e) {
-        debugPrint('AUTO_PLAYBACK_TEST: pause() error: $e');
-      }
+      } catch (_) {}
       await Future.delayed(const Duration(seconds: 1));
 
       // Seek to 30s
       try {
         await ctrl.player.seek(const Duration(seconds: 30));
-        debugPrint('AUTO_PLAYBACK_TEST: seek(30s)');
-      } catch (e) {
-        debugPrint('AUTO_PLAYBACK_TEST: seek(30s) error: $e');
-      }
+      } catch (_) {}
       await Future.delayed(const Duration(seconds: 1));
 
       // Resume
       try {
         await ctrl.player.play();
-        debugPrint('AUTO_PLAYBACK_TEST: resume play()');
-      } catch (e) {
-        debugPrint('AUTO_PLAYBACK_TEST: resume play() error: $e');
-      }
+      } catch (_) {}
       await Future.delayed(const Duration(seconds: 3));
 
       // Next track (if available)
@@ -334,10 +272,7 @@ class _ShellState extends State<_Shell> {
           await ctrl.player.seekToNext();
           await Future.delayed(const Duration(seconds: 1));
           await ctrl.player.play();
-          debugPrint('AUTO_PLAYBACK_TEST: next + play');
-        } catch (e) {
-          debugPrint('AUTO_PLAYBACK_TEST: next/play error: $e');
-        }
+        } catch (_) {}
         await Future.delayed(const Duration(seconds: 2));
       }
 
@@ -345,27 +280,19 @@ class _ShellState extends State<_Shell> {
       try {
         await ctrl.player.setSpeed(1.25);
         await ctrl.setUserVolume(0.7);
-        debugPrint('AUTO_PLAYBACK_TEST: setSpeed(1.25) setVolume(0.7)');
-      } catch (e) {
-        debugPrint('AUTO_PLAYBACK_TEST: setSpeed/setVolume error: $e');
-      }
+      } catch (_) {}
       await Future.delayed(const Duration(seconds: 2));
 
       // Stop
       try {
         await ctrl.player.stop();
-        debugPrint('AUTO_PLAYBACK_TEST: stop() done');
-      } catch (e) {
-        debugPrint('AUTO_PLAYBACK_TEST: stop() error: $e');
-      }
-    } catch (e, st) {
-      debugPrint('AUTO_PLAYBACK_TEST: error $e\n$st');
-    }
+      } catch (_) {}
+    } catch (_) {}
   }
 
   @override
   Widget build(BuildContext context) {
-    final ctrl = PlayerController.ensure();
+    final ctrl = ServiceLocator.instance.playerController;
     final settings = SettingsService.instance;
     final scan = LibraryScanService.instance;
 
@@ -460,19 +387,19 @@ class _ShellState extends State<_Shell> {
               bottomNavigationBar: SafeArea(
                 top: false,
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    kSp * 2,
-                    0,
-                    kSp * 2,
-                    kSp * 1.5,
-                  ),
-                  child: GlassPanel(
-                    borderRadius: BorderRadius.circular(32),
-                    borderWidth: 1.5,
-                    borderColor: Colors.white.withValues(alpha: 0.15),
-                    backgroundColor: kColorGlassClear,
-                    child: SizedBox(
-                      height: 64,
+                    padding: const EdgeInsets.fromLTRB(
+                      kSp * 2,
+                      0,
+                      kSp * 2,
+                      kSp,
+                    ),
+                    child: GlassPanel(
+                      borderRadius: BorderRadius.circular(32),
+                      borderWidth: 1.5,
+                      borderColor: PlayaColors.border,
+                      backgroundColor: kColorGlassClear,
+                      child: SizedBox(
+                        height: 48,
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
@@ -549,7 +476,7 @@ class _ShellState extends State<_Shell> {
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
-                                      color: _on2,
+                                      color: kColorOn2,
                                       fontSize: 12,
                                     ),
                                   ),
@@ -586,7 +513,9 @@ class _ShellState extends State<_Shell> {
                           child: LinearProgressIndicator(
                             value: scan.progress == 0 ? null : scan.progress,
                             backgroundColor: Colors.white10,
-                            color: Color(SettingsService.instance.accentColor),
+                            color: SettingsService.instance.resolveAccentColor(
+                              Color(SettingsService.instance.accentColor),
+                            ),
                             minHeight: 6,
                           ),
                         ),
@@ -828,7 +757,7 @@ class _NavBarItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final settings = SettingsService.instance;
+    final accent = Theme.of(context).colorScheme.primary;
     return GestureDetector(
       onTap: () {
         onTap();
@@ -847,7 +776,7 @@ class _NavBarItem extends StatelessWidget {
               child: Icon(
                 selected ? selectedIcon : icon,
                 key: ValueKey(selected),
-                color: selected ? Color(settings.accentColor) : _on2,
+                color: selected ? accent : kColorOn2,
                 size: 24,
               ),
             ),
@@ -855,7 +784,7 @@ class _NavBarItem extends StatelessWidget {
             AnimatedDefaultTextStyle(
               duration: const Duration(milliseconds: 200),
               style: TextStyle(
-                color: selected ? Color(settings.accentColor) : _on2,
+                color: selected ? accent : kColorOn2,
                 fontSize: 10,
                 fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
               ),

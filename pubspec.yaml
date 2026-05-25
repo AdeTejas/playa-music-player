@@ -66,6 +66,7 @@ dev_dependencies:
 dependency_overrides:
   media_kit_libs_windows_audio:
     path: third_party/media_kit_libs_windows_audio
+  # phosphor_flutter git override removed - using Material icons temporarily
 
 flutter_launcher_icons:
   android: "launcher_icon"

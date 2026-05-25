@@ -1,6 +1,6 @@
 # Playa - Audio Book Player
 
-A sleek, dark-themed music and audio book player built with Flutter, designed for immersive listening experiences. Perfect for audio books with advanced bookmarking to save interesting parts of your stories.
+A sleek, dark-themed music and audio book player built with Flutter, featuring an immersive hard sci-fi aesthetic and a unique animated torch ship waveform progress bar. Designed for deep listening with advanced bookmarking and library tools.
 
 ## ✨ Features
 
@@ -22,16 +22,21 @@ A sleek, dark-themed music and audio book player built with Flutter, designed fo
 - **Ratings:** Rate your favorite tracks/books
 
 ### Audio Enhancements
-- **Equalizer:** Android-native equalizer controls (bands, presets)
-- **Lyrics Sync:** Display synced lyrics (LRCLIB integration)
-- **Waveforms:** Visual audio representation
-- **Sonic DNA:** Analyze BPM and key for tracks
+- **Neural Mix:** Generate intelligent, harmonically matched playlists based on Sonic DNA (BPM, Key) and Energy modes (Up, Down, Neutral).
+- **Smart Volume:** Automatic loudness normalization and peak limiting using ReplayGain tags to ensure consistent volume and prevent clipping.
+- **Equalizer:** Android-native equalizer controls (bands, presets).
+- **Lyrics Sync:** Display synced lyrics (LRCLIB integration).
+- **Waveforms:** Visual audio representation.
+- **Sonic DNA:** Analyze BPM and key for tracks to power harmonic mixing.
+- **Signature Visual:** The torch ship progress indicator (detailed hard sci-fi vessel with reactive plasma drive effects) is the app's signature element and available as a standalone reusable painter.
 
-### User Experience
-- **Dark Theme:** Glossy aesthetic with wood/walnut accents
+### Immersive Hard Sci-Fi UI
+- **Torch Ship Waveform:** Custom animated progress bar featuring a detailed torch-drive corvette with plasma effects, engine plume, and dynamic markings
+- **Reusable Component:** The `TorchShipPainter` is self-contained and ready to drop into other Flutter projects (open-source friendly)
+- **Turntable UI:** Custom animated turntable with sci-fi detailing
+- **Deep Space Backgrounds:** Subtle drifting nebulae and starfields
 - **Battery Optimization:** Respects battery saver settings
 - **Accessibility:** Screen reader support for key controls
-- **Turntable UI:** Custom animated turntable interface
 
 ## 🚀 Getting Started
 
@@ -88,7 +93,7 @@ flutter build windows --release
 
 - **Services:** Singleton pattern for PlayerController, SettingsService, DatabaseService
 - **Persistence:** Sqflite database for metadata, playlists, and bookmarks
-- **UI:** Modular screens with custom widgets (TurntableWidget, WaveformWidget)
+- **UI:** Modular screens with custom widgets (TurntableWidget, WaveformWidget, TorchShipPainter)
 - **State Management:** InheritedWidget for player state, ChangeNotifier for settings
 
 ## 📄 License

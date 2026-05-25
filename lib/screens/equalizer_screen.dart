@@ -1,8 +1,9 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:playa_clean/ui/tokens.dart';
-import '../ui/glass_panel.dart';
+import '../ui/tokens.dart';
+// import '../ui/glass_panel.dart'; // Removed - using design_system
 import '../services/equalizer_service.dart';
+import '../design/design_system.dart';
 
 class EqualizerScreen extends StatefulWidget {
   final int sessionId;
@@ -146,11 +147,11 @@ class _EqualizerScreenState extends State<EqualizerScreen> {
             onPressed: _isInitialized && _isEnabled ? _resetFlat : null,
             icon: const Icon(Icons.refresh),
           ),
-          Switch(
-            value: _isEnabled,
-            onChanged: _isInitialized ? (_) => _toggleEnabled() : null,
-            activeThumbColor: accentColor,
-          ),
+            Switch(
+              value: _isEnabled,
+              onChanged: _isInitialized ? (_) => _toggleEnabled() : null,
+              thumbColor: WidgetStateProperty.all(accentColor),
+            ),
         ],
       ),
       body:
@@ -381,7 +382,7 @@ class _EQCurvePainter extends CustomPainter {
     // Draw grid lines behind everything
     final gridPaint =
         Paint()
-          ..color = Colors.white10
+          ..color = PlayaColors.borderSubtle
           ..strokeWidth = 1.0;
     canvas.drawLine(
       Offset(0, size.height / 2),
@@ -440,7 +441,6 @@ class _EQCurvePainter extends CustomPainter {
       }
     }
 
-    // Draw band labels
     if (centersHz.length == bands) {
       final labelStyle = TextStyle(
         color: Colors.white.withValues(alpha: 0.55),

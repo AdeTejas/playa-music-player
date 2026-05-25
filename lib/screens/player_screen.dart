@@ -13,8 +13,6 @@ import '../services/settings_service.dart';
 import '../services/database_service.dart';
 import '../models/song_metadata.dart';
 import '../ui/tokens.dart';
-import '../ui/spectrum_analyzer.dart';
-import '../ui/glass_panel.dart';
 import '../ui/turntable_widget.dart';
 import '../ui/waveform_widget.dart';
 import '../ui/lyrics_sheet.dart';
@@ -57,8 +55,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Widget build(BuildContext context) {
     final ctrl = PlayerProvider.of(context);
     final p = ctrl.player;
-
-    final topInset = MediaQuery.paddingOf(context).top;
 
     return Stack(
       children: [
@@ -126,10 +122,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                           valueListenable:
                                               ctrl.favoritesNotifier,
                                           builder: (context, favorites, _) {
-                                            final isFav =
-                                                tag != null &&
-                                                favorites.contains(tag.id);
-                                            return IconButton(
+                                             final isFav =
+                                                 tag != null &&
+                                                 favorites.contains(tag.id);
+                                             final accent =
+                                                 Theme.of(context)
+                                                     .colorScheme
+                                                     .primary;
+                                             return IconButton(
                                               onPressed:
                                                   tag == null
                                                       ? null
@@ -138,13 +138,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                                             tag.id,
                                                           ),
                                               icon: Icon(
-                                                isFav
-                                                    ? PhosphorIconsFill.heart
-                                                    : PhosphorIconsRegular
-                                                        .heart,
-                                                color:
-                                                    isFav
-                                                        ? Colors.redAccent
+                                                 isFav
+                                                     ? PhosphorIconsFill.heart
+                                                     : PhosphorIconsRegular
+                                                         .heart,
+                                                 color:
+                                                     isFav
+                                                         ? accent
                                                         : kColorOn2,
                                                 size: 28,
                                               ),
@@ -217,26 +217,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 },
               );
             },
-          ),
-        ),
-        Positioned(
-          left: 0,
-          right: 0,
-          top: 0,
-          child: IgnorePointer(
-            child: Container(
-              height: topInset + kSp * 3.0,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    kColorBg.withValues(alpha: 0.98),
-                    kColorBg.withValues(alpha: 0.10),
-                  ],
-                ),
-              ),
-            ),
           ),
         ),
       ],
@@ -702,8 +682,8 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
   @override
   Widget build(BuildContext context) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        // Reorder toggle button
         Align(
           alignment: Alignment.centerRight,
           child: GestureDetector(
@@ -737,19 +717,15 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
           ),
         ),
         const SizedBox(height: 4),
-        // Chips
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Wrap(
-            spacing: kSp,
-            runSpacing: kSp,
-            alignment: WrapAlignment.center,
-            children: _chipOrder.asMap().entries.map((entry) {
-              final index = entry.key;
-              final chipId = entry.value;
-              return _buildChip(chipId, context, index);
-            }).toList(),
-          ),
+        Wrap(
+          spacing: kSp,
+          runSpacing: kSp,
+          alignment: WrapAlignment.center,
+          children: _chipOrder.asMap().entries.map((entry) {
+            final index = entry.key;
+            final chipId = entry.value;
+            return _buildChip(chipId, context, index);
+          }).toList(),
         ),
       ],
     );
@@ -787,12 +763,12 @@ class _TrackInfoPanel extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
           style: const TextStyle(
-            fontSize: 20,
+            fontSize: 16,
             fontWeight: FontWeight.w700,
-            letterSpacing: -0.5,
+            letterSpacing: -0.3,
           ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 2),
         Text(
           item?.artist ?? 'Unknown',
           maxLines: 1,
@@ -800,22 +776,23 @@ class _TrackInfoPanel extends StatelessWidget {
           textAlign: TextAlign.center,
           style: const TextStyle(
             color: kColorOn2,
-            fontSize: 16,
+            fontSize: 13,
           ),
         ),
         if (item != null) _SonicDnaBadge(songId: item!.id),
-        const SizedBox(height: kSp),
+        const SizedBox(height: 4),
         ValueListenableBuilder<List<String>>(
           valueListenable: playerCtrl.favoritesNotifier,
           builder: (context, favorites, _) {
             final isFav = item != null && favorites.contains(item!.id);
+            final accent = Theme.of(context).colorScheme.primary;
             return IconButton(
               onPressed: item == null
                   ? null
                   : () => playerCtrl.toggleFavorite(item!.id),
               icon: Icon(
                 isFav ? PhosphorIconsFill.heart : PhosphorIconsRegular.heart,
-                color: isFav ? Colors.redAccent : kColorOn2,
+                color: isFav ? accent : kColorOn2,
                 size: 28,
               ),
             );
@@ -847,67 +824,29 @@ class _WaveformSection extends StatelessWidget {
       return const SizedBox();
     }
 
-    return StreamBuilder<Duration>(
-      stream: player.positionStream,
-      builder: (context, posSnapshot) {
-        final position = posSnapshot.data ?? Duration.zero;
-        final duration = player.duration ?? const Duration(seconds: 1);
-        final progress = duration.inMilliseconds > 0
-            ? (position.inMilliseconds / duration.inMilliseconds)
-                .clamp(0.0, 1.0)
-            : 0.0;
-
-        return StreamBuilder<PlayerState>(
-          stream: player.playerStateStream,
-          builder: (context, stateSnapshot) {
-            final isPlaying =
-                stateSnapshot.data?.playing ?? false;
-
-            return SizedBox(
-              height: height + 32,
-              child: Align(
-                alignment: Alignment.center,
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final maxW = math.min(560.0, constraints.maxWidth);
-                    return ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: maxW),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          SizedBox(
-                            height: height,
-                            child: WaveformWidget(
-                              path: path,
-                              player: player,
-                              playedColor:
-                                  Color(SettingsService.instance.accentColor),
-                              item: item,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          SizedBox(
-                            height: 28,
-                            child: SpectrumAnalyzer(
-                              height: 28,
-                              barColor: Color(
-                                SettingsService.instance.accentColor,
-                              ).withValues(alpha: 0.7),
-                              peakColor: Colors.white,
-                              playbackPosition: progress,
-                              isPlaying: isPlaying,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
+    return SizedBox(
+      height: height,
+      child: Align(
+        alignment: Alignment.center,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final maxW = math.min(560.0, constraints.maxWidth);
+            return ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: maxW),
+              child: SizedBox(
+                height: height,
+                child: WaveformWidget(
+                  path: path,
+                  player: player,
+                  playedColor:
+                      Color(SettingsService.instance.accentColor),
+                  item: item,
                 ),
               ),
             );
           },
-        );
-      },
+        ),
+      ),
     );
   }
 }
@@ -964,7 +903,7 @@ class _ReorderableChipIconState extends State<_ReorderableChipIcon> {
       child: Transform.translate(
         offset: _isDragging ? _dragOffset : Offset.zero,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
             color: widget.active
                 ? accent.withValues(alpha: 0.2)
@@ -1000,15 +939,15 @@ class _ReorderableChipIconState extends State<_ReorderableChipIcon> {
               ],
               Icon(
                 widget.icon,
-                size: 16,
+                size: 13,
                 color: widget.active ? accent : kColorOn2,
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 4),
               Text(
                 widget.label,
                 style: TextStyle(
                   color: widget.active ? accent : kColorOn2,
-                  fontSize: 12,
+                  fontSize: 11,
                   fontWeight: widget.active ? FontWeight.bold : FontWeight.normal,
                 ),
               ),

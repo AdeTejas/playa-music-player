@@ -26,9 +26,11 @@ class DatabaseService {
     if (_isInitialized) return;
 
     if (kIsWeb) {
-      debugPrint(
-        'DatabaseService: Web detected, skipping SQLite initialization.',
-      );
+      if (kDebugMode) {
+        debugPrint(
+          'DatabaseService: Web detected, skipping SQLite initialization.',
+        );
+      }
       _isInitialized = true;
       return;
     }
@@ -39,7 +41,7 @@ class DatabaseService {
 
     _db = await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -71,7 +73,8 @@ class DatabaseService {
       CREATE TABLE playlists (
         id TEXT PRIMARY KEY,
         name TEXT,
-        song_ids TEXT
+        song_ids TEXT,
+        description TEXT
       )
     ''');
   }
@@ -90,6 +93,14 @@ class DatabaseService {
     if (oldVersion < 3) {
       try {
         await db.execute('ALTER TABLE song_metadata ADD COLUMN dna_sig TEXT');
+      } catch (_) {
+        // Column may already exist.
+      }
+    }
+
+    if (oldVersion < 4) {
+      try {
+        await db.execute('ALTER TABLE playlists ADD COLUMN description TEXT');
       } catch (_) {
         // Column may already exist.
       }
@@ -392,6 +403,7 @@ class DatabaseService {
       return Playlist(
         id: map['id'] as String,
         name: map['name'] as String,
+        description: map['description'] as String?,
         songIds: songIds,
       );
     }).toList();
@@ -415,6 +427,7 @@ class DatabaseService {
     return Playlist(
       id: map['id'] as String,
       name: map['name'] as String,
+      description: map['description'] as String?,
       songIds: songIds,
     );
   }
@@ -425,6 +438,7 @@ class DatabaseService {
       'id': playlist.id,
       'name': playlist.name,
       'song_ids': json.encode(playlist.songIds),
+      'description': playlist.description,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
@@ -432,7 +446,11 @@ class DatabaseService {
     if (kIsWeb || _db == null) return;
     await _db!.update(
       'playlists',
-      {'name': playlist.name, 'song_ids': json.encode(playlist.songIds)},
+      {
+        'name': playlist.name,
+        'song_ids': json.encode(playlist.songIds),
+        'description': playlist.description,
+      },
       where: 'id = ?',
       whereArgs: [playlist.id],
     );

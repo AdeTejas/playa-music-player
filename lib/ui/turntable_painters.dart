@@ -354,8 +354,8 @@ class TurntableSpinnerPainter extends CustomPainter {
     if (strobeEnabled) {
       const dotCount = 60; // 60Hz strobe
       final dotRadius = w * 0.004;
-      // Reduced contrast to prevent dizziness
-      final dotPaint = Paint()..color = const Color(0xFF666666);
+      // Use accent for visible strobe highlights
+      final dotPaint = Paint()..color = strobeColor.withValues(alpha: 0.85);
 
       for (int i = 0; i < dotCount; i++) {
         final angle = (i / dotCount) * 2 * pi;
@@ -770,15 +770,13 @@ class TurntableSpinnerPainter extends CustomPainter {
         ..strokeCap = StrokeCap.butt,
     );
 
-    // HEADSHELL (Angled with MCRN Details)
     canvas.save();
     canvas.translate(
       stylusPos.dx + liftOffset.dx,
       stylusPos.dy + liftOffset.dy,
     );
-    canvas.rotate(armAngle + 0.4); // Offset angle for headshell
+    canvas.rotate(armAngle + 0.4);
 
-    // Headshell shape (Reverted to original angled design)
     final headshellPath =
         Path()
           ..moveTo(-w * 0.015, -w * 0.02)
@@ -787,22 +785,19 @@ class TurntableSpinnerPainter extends CustomPainter {
           ..lineTo(-w * 0.015, w * 0.02)
           ..close();
 
-    // Main Body (Dark Grey)
     canvas.drawPath(headshellPath, Paint()..color = const Color(0xFF1A1A1A));
 
-    // MCRN Orange Stripe
-    const mcrnOrange = Color(0xFFFF5722);
+    final serviceAccent = Color(0xFFFF5722);
     canvas.drawLine(
       Offset(w * 0.02, -w * 0.015),
       Offset(w * 0.02, w * 0.015),
       Paint()
-        ..color = mcrnOrange
+        ..color = serviceAccent
         ..strokeWidth = w * 0.005,
     );
 
-    // "ECF 270" Text (Tiny technical marking)
     final textSpan = TextSpan(
-      text: "ECF 270",
+      text: "SOL-04",
       style: TextStyle(
         color: Colors.white.withValues(alpha: 0.8),
         fontSize: w * 0.008,
@@ -815,7 +810,6 @@ class TurntableSpinnerPainter extends CustomPainter {
       textDirection: TextDirection.ltr,
     );
     textPainter.layout();
-    // Rotate text to align with headshell
     canvas.save();
     canvas.translate(w * 0.03, -w * 0.005);
     textPainter.paint(canvas, Offset.zero);

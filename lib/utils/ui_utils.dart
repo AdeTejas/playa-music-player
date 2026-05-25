@@ -1,4 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:on_audio_query/on_audio_query.dart' as oaq;
+
 import '../ui/tokens.dart';
 
 void showToast(BuildContext context, String msg) {
@@ -22,4 +26,11 @@ String formatDuration(Duration? duration) {
     return '$h:$m:$s';
   }
   return '$m:$s';
+}
+
+/// Stable song identifier used for metadata, favorites, Neural Mix, etc.
+/// Prefers the absolute file path (`data`). Case-insensitive on Windows.
+String songIdentity(oaq.SongModel s) {
+  final p = s.data.trim();
+  return Platform.isWindows ? p.toLowerCase() : p;
 }

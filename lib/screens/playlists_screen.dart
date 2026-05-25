@@ -2,7 +2,6 @@
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../ui/tokens.dart';
-import '../ui/glass_panel.dart';
 import '../models/playlist.dart';
 import '../repositories/playlist_repository.dart';
 import 'smart_playlist_screen.dart';
@@ -43,7 +42,7 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
             backgroundColor: Colors.transparent,
             child: GlassPanel(
               borderRadius: BorderRadius.circular(18),
-              borderColor: Colors.white.withValues(alpha: 0.15),
+              borderColor: PlayaColors.border,
               padding: const EdgeInsets.all(16),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -114,7 +113,7 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
             backgroundColor: Colors.transparent,
             child: GlassPanel(
               borderRadius: BorderRadius.circular(18),
-              borderColor: Colors.white.withValues(alpha: 0.15),
+              borderColor: PlayaColors.border,
               padding: const EdgeInsets.all(16),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -297,12 +296,12 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
                           Icon(
                             Icons.queue_music,
                             size: 48,
-                            color: Colors.white24,
+                            color: PlayaColors.onSurfaceVariant,
                           ),
                           SizedBox(height: 16),
                           Text(
                             'No custom playlists yet',
-                            style: TextStyle(color: Colors.white54),
+                            style: TextStyle(color: PlayaColors.onSurfaceVariant),
                           ),
                         ],
                       ),
@@ -314,7 +313,7 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
                         child: GlassPanel(
                           useShader: false,
                           borderRadius: BorderRadius.circular(14),
-                          borderColor: Colors.white.withValues(alpha: 0.15),
+                          borderColor: PlayaColors.border,
                           child: Material(
                             color: Colors.transparent,
                             child: ListTile(
@@ -322,10 +321,10 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
                                 width: 48,
                                 height: 48,
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.06),
+                                  color: PlayaColors.borderSubtle,
                                   borderRadius: BorderRadius.circular(8),
                                   border: Border.all(
-                                    color: Colors.white.withValues(alpha: 0.12),
+                                    color: PlayaColors.border,
                                   ),
                                 ),
                                 child: Center(

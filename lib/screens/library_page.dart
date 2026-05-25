@@ -7,11 +7,9 @@ import 'package:flutter/services.dart';
 import 'package:on_audio_query/on_audio_query.dart' as oaq;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
-
-import '../ui/tokens.dart';
-import '../services/player_controller.dart';
 import '../services/settings_service.dart';
 import '../services/library_scan_service.dart';
+import '../services/service_locator.dart';
 import '../repositories/song_repository.dart';
 import '../widgets/star_rating.dart';
 import 'settings_screen.dart';
@@ -20,7 +18,10 @@ import '../widgets/player_provider.dart';
 import '../widgets/artwork_image.dart';
 import '../utils/ui_utils.dart';
 import '../repositories/playlist_repository.dart';
-import '../ui/glass_panel.dart';
+
+// Design System (Phase 3 Migration)
+import '../design/design_system.dart';
+import '../ui/tokens.dart';
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({super.key});
@@ -29,12 +30,15 @@ class LibraryPage extends StatefulWidget {
 }
 
 class _LibraryPageState extends State<LibraryPage> {
-  final _query = oaq.OnAudioQuery();
   List<oaq.SongModel> _allSongs = [];
   List<oaq.SongModel> _songs = [];
   bool _loading = true;
   bool _showFavoritesOnly = false;
   final _searchCtrl = TextEditingController();
+
+  // Multi-select mode
+  bool _isSelectionMode = false;
+  final Set<String> _selectedIds = {};
 
   @override
   void dispose() {
@@ -56,12 +60,9 @@ class _LibraryPageState extends State<LibraryPage> {
     if (!mounted) return;
     final scan = LibraryScanService.instance;
 
-    // If a scan was started from elsewhere (e.g. Settings), refresh the view
-    // when it completes by reading the PlayerController library cache.
     if (scan.phase == LibraryScanPhase.done) {
-      final songs = PlayerController.ensure().librarySongs;
+      final songs = ServiceLocator.instance.playerController.librarySongs;
       setState(() {
-        // Safety-net dedupe in case a platform query returns duplicates.
         final seen = <String>{};
         _allSongs =
             songs.where((s) => (s.data).isNotEmpty).where((s) {
@@ -84,54 +85,23 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Future<void> _bootstrap() async {
-    debugPrint('DEBUG: _bootstrap started');
     final granted = await _requestPermissions();
-    debugPrint('DEBUG: Permissions granted: $granted');
     if (!mounted) return;
     if (granted) {
       try {
-        // Check if on_audio_query recognizes the permission
-        bool oaqStatus = true;
-        if (Platform.isAndroid) {
-          oaqStatus = await _query.permissionsStatus();
-          debugPrint('DEBUG: on_audio_query status: $oaqStatus');
-
-          if (!oaqStatus) {
-            debugPrint(
-              'DEBUG: on_audio_query needs permission update. Calling permissionsRequest()...',
-            );
-            try {
-              // Call permissionsRequest to update internal state, but with timeout
-              oaqStatus = await _query.permissionsRequest().timeout(
-                const Duration(seconds: 2),
-              );
-              debugPrint('DEBUG: permissionsRequest result: $oaqStatus');
-            } catch (e) {
-              debugPrint('DEBUG: permissionsRequest failed/timed out: $e');
-            }
-          }
-        }
-
-        debugPrint('DEBUG: Starting _loadSongs');
         await _loadSongs();
-        debugPrint('DEBUG: _loadSongs completed');
       } catch (e) {
-        debugPrint('DEBUG: _loadSongs failed: $e');
         if (mounted) {
           setState(() => _loading = false);
-          showToast(context, 'Failed to load songs: $e');
         }
       }
     } else {
-      debugPrint('DEBUG: Permissions denied, skipping song load');
       setState(() => _loading = false);
     }
   }
 
   Future<bool> _requestPermissions() async {
-    debugPrint('DEBUG: Requesting permissions...');
     if (Platform.isAndroid) {
-      // Try audio permission first (Android 13+)
       Map<Permission, PermissionStatus> statuses =
           await [
             Permission.audio,
@@ -143,25 +113,9 @@ class _LibraryPageState extends State<LibraryPage> {
         return true;
       }
 
-      // If audio permission is not granted, try storage permission (Android 12 and below)
       final storageStatus = await Permission.storage.request();
       if (storageStatus.isGranted) return true;
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text(
-              'Storage/Audio permission is required to access music files',
-            ),
-            action: SnackBarAction(
-              label: 'Settings',
-              onPressed: () {
-                openAppSettings();
-              },
-            ),
-          ),
-        );
-      }
       return false;
     }
     return true;
@@ -186,23 +140,17 @@ class _LibraryPageState extends State<LibraryPage> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
-      showToast(
-        context,
-        "Couldn't read your audio library: ${e is TimeoutException ? 'Query timed out' : 'Check permissions'}",
-      );
     }
   }
 
   List<oaq.SongModel> _computeFiltered(String query) {
     List<oaq.SongModel> filtered = _allSongs;
 
-    // 1. Filter by Favorites
     if (_showFavoritesOnly) {
-      final favs = PlayerController.ensure().favoritesNotifier.value;
+      final favs = ServiceLocator.instance.playerController.favoritesNotifier.value;
       filtered = filtered.where((s) => favs.contains(s.id.toString())).toList();
     }
 
-    // 2. Filter by Search Query
     if (query.isNotEmpty) {
       final q = query.toLowerCase();
       filtered =
@@ -217,13 +165,191 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   void _filterSongs(String query) {
+    if (_isSelectionMode) {
+      // Keep selection but only act on currently visible items when batch actions run
+    }
     setState(() {
       _songs = _computeFiltered(query);
     });
   }
 
+  // ==================== MULTI-SELECT HELPERS ====================
+
+  void _enterSelectionMode(String songId) {
+    setState(() {
+      _isSelectionMode = true;
+      _selectedIds.clear();
+      _selectedIds.add(songId);
+    });
+    HapticFeedback.selectionClick();
+  }
+
+  void _toggleSelection(String songId) {
+    setState(() {
+      if (_selectedIds.contains(songId)) {
+        _selectedIds.remove(songId);
+      } else {
+        _selectedIds.add(songId);
+      }
+      if (_selectedIds.isEmpty) {
+        _isSelectionMode = false;
+      }
+    });
+  }
+
+  void _selectAllVisible() {
+    setState(() {
+      _selectedIds.addAll(_songs.map((s) => s.id.toString()));
+    });
+  }
+
+  void _clearSelection() {
+    setState(() {
+      _selectedIds.clear();
+      _isSelectionMode = false;
+    });
+  }
+
+  void _exitSelectionMode() {
+    setState(() {
+      _selectedIds.clear();
+      _isSelectionMode = false;
+    });
+  }
+
+  List<oaq.SongModel> get _selectedSongs {
+    final idSet = _selectedIds;
+    return _songs.where((s) => idSet.contains(s.id.toString())).toList();
+  }
+
+  Future<void> _playSelected() async {
+    final selected = _selectedSongs;
+    if (selected.isEmpty) return;
+    final ctrl = ServiceLocator.instance.playerController;
+    await ctrl.replaceQueue(selected, initialIndex: 0);
+    _exitSelectionMode();
+    HapticFeedback.selectionClick();
+  }
+
+  Future<void> _playNextSelected() async {
+    final selected = _selectedSongs;
+    if (selected.isEmpty) return;
+    final ctrl = ServiceLocator.instance.playerController;
+    for (final song in selected) {
+      await ctrl.insertNext(song);
+    }
+    _exitSelectionMode();
+    if (mounted) showToast(context, 'Added ${selected.length} song(s) to queue');
+    HapticFeedback.selectionClick();
+  }
+
+  Future<void> _addSelectedToQueue() async {
+    final selected = _selectedSongs;
+    if (selected.isEmpty) return;
+    final ctrl = ServiceLocator.instance.playerController;
+    for (final song in selected) {
+      await ctrl.addToQueue(song);
+    }
+    _exitSelectionMode();
+    if (mounted) showToast(context, 'Added ${selected.length} song(s) to queue');
+    HapticFeedback.selectionClick();
+  }
+
+  Future<void> _toggleFavoriteForSelected() async {
+    final selected = _selectedSongs;
+    if (selected.isEmpty) return;
+
+    final ctrl = ServiceLocator.instance.playerController;
+    final currentFavs = ctrl.favoritesNotifier.value.toSet();
+
+    final anyNotFavorited = selected.any((s) => !currentFavs.contains(s.id.toString()));
+
+    for (final song in selected) {
+      final id = song.id.toString();
+      final isFav = currentFavs.contains(id);
+
+      if (anyNotFavorited) {
+        // Add all that aren't favorited
+        if (!isFav) await ctrl.toggleFavorite(id);
+      } else {
+        // All are favorited → remove all
+        if (isFav) await ctrl.toggleFavorite(id);
+      }
+    }
+
+    _exitSelectionMode();
+    if (mounted) {
+      final action = anyNotFavorited ? 'favorited' : 'unfavorited';
+      showToast(context, '${selected.length} song(s) $action');
+    }
+    HapticFeedback.selectionClick();
+  }
+
+  Future<void> _addSelectedToPlaylist() async {
+    final selected = _selectedSongs;
+    if (selected.isEmpty) return;
+
+    final playlists = await PlaylistRepository.instance.getAll();
+    if (!mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(PlayaSpacing.sm * 2),
+          child: PlayaCard(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Text(
+                    'Add ${selected.length} song(s) to Playlist',
+                    style: const TextStyle(
+                      color: PlayaColors.onSurface,
+                      fontSize: PlayaTypography.lg,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                if (playlists.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text('No playlists found', style: TextStyle(color: PlayaColors.onSurfaceVariant)),
+                  )
+                else
+                  ...playlists.map((p) => ListTile(
+                        leading: const Icon(Icons.queue_music, color: PlayaColors.onSurfaceVariant),
+                        title: Text(p.name, style: const TextStyle(color: PlayaColors.onSurface)),
+                        subtitle: Text('${p.songCount} songs', style: const TextStyle(color: PlayaColors.onSurfaceVariant)),
+                        onTap: () async {
+                          for (final song in selected) {
+                            await PlaylistRepository.instance.addSong(p.id, song.id.toString());
+                          }
+                          if (ctx.mounted) Navigator.pop(ctx);
+                          if (mounted) {
+                            showToast(context, 'Added ${selected.length} song(s) to "${p.name}"');
+                            _exitSelectionMode();
+                          }
+                        },
+                      )),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _playNow(oaq.SongModel s) async {
-    final ctrl = PlayerController.ensure();
+    final ctrl = ServiceLocator.instance.playerController;
     final index = _songs.indexOf(s);
     if (index != -1) {
       await ctrl.replaceQueue(_songs, initialIndex: index);
@@ -232,7 +358,7 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Future<void> _playNext(oaq.SongModel s) async {
-    final ctrl = PlayerController.ensure();
+    final ctrl = ServiceLocator.instance.playerController;
     await ctrl.insertNext(s);
     if (!mounted) return;
     showToast(context, 'Added to queue');
@@ -251,12 +377,8 @@ class _LibraryPageState extends State<LibraryPage> {
             builder:
                 (ctx, setState) => Dialog(
                   backgroundColor: Colors.transparent,
-                  child: GlassPanel(
-                    borderRadius: BorderRadius.circular(18),
-                    borderColor: Colors.white.withValues(alpha: 0.15),
-                    backdropBlurSigma: 0,
-                    backgroundColor: kColorGlassBlackTint,
-                    padding: const EdgeInsets.all(kSp * 2),
+                  child: PlayaCard(
+                    padding: const EdgeInsets.all(PlayaSpacing.lg),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -264,12 +386,12 @@ class _LibraryPageState extends State<LibraryPage> {
                         const Text(
                           'Rate Song',
                           style: TextStyle(
-                            color: kColorOn,
-                            fontSize: kTextLg,
+                            color: PlayaColors.onSurface,
+                            fontSize: PlayaTypography.lg,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        const SizedBox(height: kSp * 1.5),
+                        const SizedBox(height: PlayaSpacing.md),
                         Center(
                           child: StarRating(
                             rating: tempRating,
@@ -284,10 +406,10 @@ class _LibraryPageState extends State<LibraryPage> {
                             tempRating == 0
                                 ? 'No rating'
                                 : '$tempRating star${tempRating > 1 ? "s" : ""}',
-                            style: const TextStyle(color: kColorOn2),
+                            style: const TextStyle(color: PlayaColors.onSurfaceVariant),
                           ),
                         ),
-                        const SizedBox(height: kSp * 1.5),
+                        const SizedBox(height: PlayaSpacing.md),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.end,
                           children: [
@@ -303,7 +425,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                   tempRating,
                                 );
                                 if (ctx.mounted) Navigator.pop(ctx);
-                                if (mounted) setState(() {});
+                                if (mounted) this.setState(() {});
                               },
                               child: const Text('Save'),
                             ),
@@ -325,61 +447,64 @@ class _LibraryPageState extends State<LibraryPage> {
       builder:
           (context) => SafeArea(
             child: Padding(
-              padding: const EdgeInsets.all(kSp * 2),
+              padding: const EdgeInsets.all(PlayaSpacing.md),
               child: GlassPanel(
                 borderRadius: BorderRadius.circular(20),
-                borderColor: Colors.white.withValues(alpha: 0.15),
-                backdropBlurSigma: 0,
-                backgroundColor: kColorGlassBlackTint,
-                padding: const EdgeInsets.all(kSp * 2),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Sort Library',
-                      style: TextStyle(
-                        fontSize: kTextLg,
-                        fontWeight: FontWeight.bold,
+                color: kColorGlassBlackTint,
+                padding: const EdgeInsets.all(PlayaSpacing.sm * 2),
+                child: SingleChildScrollView(
+                  physics: const ClampingScrollPhysics(),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Sort Library',
+                        style: TextStyle(
+                          fontSize: PlayaTypography.lg,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: kSp),
-                    _buildSortOption(label: 'Date Added', value: 'DATE_ADDED'),
-                    _buildSortOption(label: 'Title', value: 'TITLE'),
-                    _buildSortOption(label: 'Artist', value: 'ARTIST'),
-                    _buildSortOption(label: 'Album', value: 'ALBUM'),
-                    const Divider(color: Colors.white10),
-                    ListTile(
-                      title: const Text('Ascending'),
-                      leading: Radio<int>(
-                        value: 0,
-                        groupValue: SettingsService.instance.librarySortOrder,
-                        onChanged: (v) {
-                          SettingsService.instance.setLibrarySort(
-                            SettingsService.instance.librarySortType,
-                            v!,
-                          );
-                          Navigator.pop(context);
-                        },
-                        activeColor: accentColor,
+                      const SizedBox(height: PlayaSpacing.sm),
+                      _buildSortOption(label: 'Date Added', value: 'DATE_ADDED'),
+                      _buildSortOption(label: 'Title', value: 'TITLE'),
+                      _buildSortOption(label: 'Artist', value: 'ARTIST'),
+                      _buildSortOption(label: 'Album', value: 'ALBUM'),
+                      const Divider(color: Colors.white10),
+                      ListTile(
+                        dense: true,
+                        title: const Text('Ascending'),
+                        leading: Radio<int>(
+                          value: 0,
+                          groupValue: SettingsService.instance.librarySortOrder,
+                          onChanged: (v) {
+                            SettingsService.instance.setLibrarySort(
+                              SettingsService.instance.librarySortType,
+                              v!,
+                            );
+                            Navigator.pop(context);
+                          },
+                          activeColor: accentColor,
+                        ),
                       ),
-                    ),
-                    ListTile(
-                      title: const Text('Descending'),
-                      leading: Radio<int>(
-                        value: 1,
-                        groupValue: SettingsService.instance.librarySortOrder,
-                        onChanged: (v) {
-                          SettingsService.instance.setLibrarySort(
-                            SettingsService.instance.librarySortType,
-                            v!,
-                          );
-                          Navigator.pop(context);
-                        },
-                        activeColor: accentColor,
+                      ListTile(
+                        dense: true,
+                        title: const Text('Descending'),
+                        leading: Radio<int>(
+                          value: 1,
+                          groupValue: SettingsService.instance.librarySortOrder,
+                          onChanged: (v) {
+                            SettingsService.instance.setLibrarySort(
+                              SettingsService.instance.librarySortType,
+                              v!,
+                            );
+                            Navigator.pop(context);
+                          },
+                          activeColor: accentColor,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -393,7 +518,7 @@ class _LibraryPageState extends State<LibraryPage> {
     return ListTile(
       title: Text(
         label,
-        style: TextStyle(color: current == value ? accentColor : kColorOn),
+        style: TextStyle(color: current == value ? accentColor : PlayaColors.onSurface),
       ),
       trailing: current == value ? Icon(Icons.check, color: accentColor) : null,
       onTap: () {
@@ -407,6 +532,166 @@ class _LibraryPageState extends State<LibraryPage> {
     );
   }
 
+  Widget _buildSongTile(oaq.SongModel s, bool isPlaying, Color accentColor) {
+    final songId = s.id.toString();
+    final isSelected = _selectedIds.contains(songId);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          if (_isSelectionMode) {
+            _toggleSelection(songId);
+          } else {
+            _playNow(s);
+          }
+        },
+        onLongPress: _isSelectionMode ? null : () => _enterSelectionMode(songId),
+        child: Container(
+          decoration: BoxDecoration(
+            color: isSelected
+                ? accentColor.withValues(alpha: 0.15)
+                : (isPlaying ? accentColor.withValues(alpha: 0.10) : null),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+          child: Row(
+            children: [
+              // Playing indicator bar or selection checkbox
+              if (_isSelectionMode)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8, left: 4),
+                  child: Checkbox(
+                    value: isSelected,
+                    onChanged: (_) => _toggleSelection(songId),
+                    activeColor: accentColor,
+                    side: BorderSide(color: PlayaColors.onSurfaceVariant),
+                  ),
+                )
+              else if (isPlaying)
+                Container(
+                  width: 3,
+                  height: 36,
+                  margin: const EdgeInsets.only(right: 6),
+                  decoration: BoxDecoration(
+                    color: accentColor,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                )
+              else
+                const SizedBox(width: 9),
+
+              ClipRRect(
+                borderRadius: BorderRadius.circular(PlayaRadii.sm),
+                child: SizedBox(
+                  width: 44,
+                  height: 44,
+                  child: DecoratedBox(
+                    decoration: const BoxDecoration(
+                      color: PlayaColors.glassLight,
+                    ),
+                    child: ArtworkImage(
+                      id: s.id,
+                      type: oaq.ArtworkType.AUDIO,
+                      nullArtworkWidget: const Icon(
+                        Icons.music_note,
+                        color: PlayaColors.onSurfaceVariant,
+                      ),
+                      artworkBorder: BorderRadius.circular(PlayaRadii.sm),
+                      artworkFit: BoxFit.cover,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      s.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: (isPlaying || isSelected) ? accentColor : PlayaColors.onSurface,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      s.artist ?? '<unknown>',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: PlayaColors.onSurfaceVariant,
+                        fontSize: PlayaTypography.xs,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              if (!_isSelectionMode)
+                PopupMenuButton<String>(
+                  icon: const Icon(
+                    Icons.more_vert,
+                    color: PlayaColors.onSurfaceVariant,
+                  ),
+                  color: PlayaColors.card,
+                  onSelected: (value) {
+                    switch (value) {
+                      case 'play_next':
+                        _playNext(s);
+                        break;
+                      case 'add_playlist':
+                        _addToPlaylist(s);
+                        break;
+                      case 'rate':
+                        _showRatingDialog(s.id.toString());
+                        break;
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: 'play_next',
+                      child: Row(
+                        children: [
+                          Icon(Icons.playlist_add, color: PlayaColors.onSurfaceVariant),
+                          SizedBox(width: 12),
+                          Text('Play Next', style: TextStyle(color: PlayaColors.onSurface)),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'add_playlist',
+                      child: Row(
+                        children: [
+                          Icon(Icons.queue_music, color: PlayaColors.onSurfaceVariant),
+                          SizedBox(width: 12),
+                          Text('Add to Playlist', style: TextStyle(color: PlayaColors.onSurface)),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'rate',
+                      child: Row(
+                        children: [
+                          Icon(Icons.star_outline, color: PlayaColors.onSurfaceVariant),
+                          SizedBox(width: 12),
+                          Text('Rate Song', style: TextStyle(color: PlayaColors.onSurface)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _addToPlaylist(oaq.SongModel song) async {
     final playlists = await PlaylistRepository.instance.getAll();
     if (!mounted) return;
@@ -417,12 +702,8 @@ class _LibraryPageState extends State<LibraryPage> {
       builder:
           (context) => SafeArea(
             child: Padding(
-              padding: const EdgeInsets.all(kSp * 2),
-              child: GlassPanel(
-                borderRadius: BorderRadius.circular(20),
-                borderColor: Colors.white.withValues(alpha: 0.15),
-                backdropBlurSigma: 0,
-                backgroundColor: kColorGlassBlackTint,
+              padding: const EdgeInsets.all(PlayaSpacing.sm * 2),
+              child: PlayaCard(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -431,11 +712,11 @@ class _LibraryPageState extends State<LibraryPage> {
                       padding: EdgeInsets.only(bottom: 16),
                       child: Text(
                         'Add to Playlist',
-                        style: TextStyle(
-                          color: kColorOn,
-                          fontSize: kTextLg,
-                          fontWeight: FontWeight.bold,
-                        ),
+                         style: TextStyle(
+                           color: PlayaColors.onSurface,
+                           fontSize: PlayaTypography.lg,
+                           fontWeight: FontWeight.bold,
+                         ),
                       ),
                     ),
                     if (playlists.isEmpty)
@@ -443,7 +724,7 @@ class _LibraryPageState extends State<LibraryPage> {
                         padding: EdgeInsets.all(16),
                         child: Text(
                           'No playlists found',
-                          style: TextStyle(color: kColorOn2),
+                           style: TextStyle(color: PlayaColors.onSurfaceVariant),
                         ),
                       )
                     else
@@ -451,15 +732,15 @@ class _LibraryPageState extends State<LibraryPage> {
                         (p) => ListTile(
                           leading: const Icon(
                             Icons.queue_music,
-                            color: kColorOn2,
+                            color: PlayaColors.onSurfaceVariant,
                           ),
                           title: Text(
                             p.name,
-                            style: const TextStyle(color: kColorOn),
+                            style: const TextStyle(color: PlayaColors.onSurface),
                           ),
                           subtitle: Text(
                             '${p.songCount} songs',
-                            style: const TextStyle(color: kColorOn2),
+                            style: const TextStyle(color: PlayaColors.onSurfaceVariant),
                           ),
                           onTap: () async {
                             await PlaylistRepository.instance.addSong(
@@ -491,105 +772,178 @@ class _LibraryPageState extends State<LibraryPage> {
     return AnimatedBuilder(
       animation: scan,
       builder: (context, _) {
-        // NOTE: LibraryPage is already hosted inside the app-wide Scaffold
-        // in `main.dart`, so we avoid a nested Scaffold here to keep it
-        // visually consistent with Now Playing.
         return SafeArea(
           top: true,
           bottom: false,
           child: Column(
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(kSp * 2, kSp, kSp * 2, 0),
+                padding: const EdgeInsets.fromLTRB(PlayaSpacing.sm * 2, PlayaSpacing.sm, PlayaSpacing.sm * 2, 0),
                 child: SizedBox(
                   height: 44,
                   child: NavigationToolbar(
                     centerMiddle: true,
                     middleSpacing: 0,
                     leading: const SizedBox.shrink(),
-                    middle: const Text(
-                      'Library',
+                    middle: Text(
+                      _isSelectionMode
+                          ? '${_selectedIds.length} selected'
+                          : 'Library',
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
+                        color: _isSelectionMode ? accentColor : null,
                       ),
                     ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Favorites Toggle
-                        ValueListenableBuilder<List<String>>(
-                          valueListenable:
-                              PlayerController.ensure().favoritesNotifier,
-                          builder: (context, favs, _) {
-                            return IconButton(
-                              tooltip:
-                                  _showFavoritesOnly
-                                      ? 'Show All'
-                                      : 'Show Favorites',
-                              icon: Icon(
-                                _showFavoritesOnly
-                                    ? PhosphorIconsFill.heart
-                                    : PhosphorIconsRegular.heart,
-                                color:
-                                    _showFavoritesOnly
-                                        ? Colors.redAccent
-                                        : kColorOn,
+                    trailing: _isSelectionMode
+                        ? SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                              // Selection controls
+                              IconButton(
+                                tooltip: 'Select all visible',
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(PhosphorIconsRegular.checks, size: 20),
+                                onPressed: _selectAllVisible,
                               ),
-                              onPressed:
-                                  scan.isScanning
-                                      ? null
-                                      : () {
-                                        setState(() {
-                                          _showFavoritesOnly =
-                                              !_showFavoritesOnly;
-                                          _songs = _computeFiltered(
-                                            _searchCtrl.text,
-                                          );
-                                        });
-                                      },
-                            );
-                          },
-                        ),
-                        IconButton(
-                          tooltip: 'Playlists',
-                          icon: const Icon(PhosphorIconsBold.playlist),
-                          onPressed:
-                              scan.isScanning
-                                  ? null
-                                  : () => Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => const PlaylistsScreen(),
-                                    ),
-                                  ),
-                        ),
-                        IconButton(
-                          tooltip: 'Sort',
-                          icon: const Icon(
-                            PhosphorIconsRegular.slidersHorizontal,
+                              IconButton(
+                                tooltip: 'Clear selection',
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(PhosphorIconsRegular.x, size: 20),
+                                onPressed: _clearSelection,
+                              ),
+
+                              const SizedBox(width: 6),
+
+                              // Playback actions
+                              IconButton(
+                                tooltip: 'Play',
+                                visualDensity: VisualDensity.compact,
+                                icon: Icon(PhosphorIconsBold.play, color: accentColor, size: 20),
+                                onPressed: _selectedIds.isEmpty ? null : _playSelected,
+                              ),
+                              IconButton(
+                                tooltip: 'Play Next',
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(PhosphorIconsRegular.playlist, size: 20),
+                                onPressed: _selectedIds.isEmpty ? null : _playNextSelected,
+                              ),
+                              IconButton(
+                                tooltip: 'Add to Queue',
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(PhosphorIconsRegular.queue, size: 20),
+                                onPressed: _selectedIds.isEmpty ? null : _addSelectedToQueue,
+                              ),
+
+                              const SizedBox(width: 4),
+
+                              // Organization
+                              IconButton(
+                                tooltip: 'Add to Playlist',
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(PhosphorIconsBold.playlist, size: 20),
+                                onPressed: _selectedIds.isEmpty ? null : _addSelectedToPlaylist,
+                              ),
+                              IconButton(
+                                tooltip: 'Toggle favorite',
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(PhosphorIconsRegular.heart, size: 20),
+                                onPressed: _selectedIds.isEmpty ? null : _toggleFavoriteForSelected,
+                              ),
+
+                              const SizedBox(width: 6),
+
+                              // Exit
+                              IconButton(
+                                tooltip: 'Done',
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(PhosphorIconsRegular.check, size: 20),
+                                onPressed: _exitSelectionMode,
+                              ),
+                            ],
                           ),
-                          onPressed: scan.isScanning ? null : _showSortMenu,
-                        ),
-                        IconButton(
-                          tooltip: 'Settings',
-                          icon: const Icon(PhosphorIconsBold.gear),
-                          onPressed:
-                              () => Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const SettingsScreen(),
-                                ),
+                        )
+                        : Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              ValueListenableBuilder<List<String>>(
+                                valueListenable:
+                                    ServiceLocator.instance.playerController.favoritesNotifier,
+                                builder: (context, favs, _) {
+                                  return IconButton(
+                                    tooltip:
+                                        _showFavoritesOnly
+                                            ? 'Show All'
+                                            : 'Show Favorites',
+                                    icon: Icon(
+                                      _showFavoritesOnly
+                                          ? PhosphorIconsFill.heart
+                                          : PhosphorIconsRegular.heart,
+                                       color:
+                                           _showFavoritesOnly
+                                               ? Theme.of(context).colorScheme.primary
+                                               : PlayaColors.onSurface,
+                                    ),
+                                    onPressed:
+                                        scan.isScanning
+                                            ? null
+                                       : () {
+                                         _exitSelectionMode();
+                                         setState(() {
+                                           _showFavoritesOnly =
+                                               !_showFavoritesOnly;
+                                           _songs = _computeFiltered(
+                                             _searchCtrl.text,
+                                           );
+                                         });
+                                       },
+                                  );
+                                },
                               ),
-                        ),
-                      ],
-                    ),
+                              IconButton(
+                                tooltip: 'Playlists',
+                                icon: const Icon(PhosphorIconsBold.playlist),
+                                onPressed:
+                                    scan.isScanning
+                                        ? null
+                                        : () => Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => const PlaylistsScreen(),
+                                          ),
+                                        ),
+                              ),
+                              IconButton(
+                                tooltip: 'Sort',
+                                icon: const Icon(
+                                  PhosphorIconsRegular.slidersHorizontal,
+                                ),
+                                onPressed: scan.isScanning ? null : () {
+                            _exitSelectionMode();
+                            _showSortMenu();
+                          },
+                              ),
+                              IconButton(
+                                tooltip: 'Settings',
+                                icon: const Icon(PhosphorIconsBold.gear),
+                                onPressed:
+                                    () => Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => const SettingsScreen(),
+                                      ),
+                                    ),
+                              ),
+                            ],
+                          ),
                   ),
                 ),
               ),
               if (scan.isScanning)
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(kSp * 2, kSp, kSp * 2, 0),
+                  padding: const EdgeInsets.fromLTRB(PlayaSpacing.sm * 2, PlayaSpacing.sm, PlayaSpacing.sm * 2, 0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -603,11 +957,11 @@ class _LibraryPageState extends State<LibraryPage> {
                               color: accentColor,
                             ),
                           ),
-                          const SizedBox(width: kSp),
+                          const SizedBox(width: PlayaSpacing.sm),
                           Text(
                             'Scanning… ${scan.phase.name}',
                             style: const TextStyle(
-                              color: kColorOn2,
+                              color: PlayaColors.onSurfaceVariant,
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
                             ),
@@ -630,12 +984,10 @@ class _LibraryPageState extends State<LibraryPage> {
               if (scan.phase == LibraryScanPhase.error &&
                   scan.lastError != null)
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(kSp * 2, kSp, kSp * 2, 0),
+                  padding: const EdgeInsets.fromLTRB(PlayaSpacing.sm * 2, PlayaSpacing.sm, PlayaSpacing.sm * 2, 0),
                   child: GlassPanel(
-                    useShader: false,
                     borderRadius: BorderRadius.circular(kRadius),
-                    borderColor: Colors.redAccent.withValues(alpha: 0.35),
-                    padding: const EdgeInsets.all(kSp),
+                    padding: const EdgeInsets.all(PlayaSpacing.sm),
                     child: Row(
                       children: [
                         const Icon(
@@ -643,14 +995,14 @@ class _LibraryPageState extends State<LibraryPage> {
                           color: Colors.redAccent,
                           size: 18,
                         ),
-                        const SizedBox(width: kSp),
+                        const SizedBox(width: PlayaSpacing.sm),
                         Expanded(
                           child: Text(
                             'Scan failed. ${scan.lastError}',
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              color: kColorOn2,
+                              color: PlayaColors.onSurfaceVariant,
                               fontSize: 12,
                             ),
                           ),
@@ -664,37 +1016,31 @@ class _LibraryPageState extends State<LibraryPage> {
                   ),
                 ),
 
-              // Main Glass Surface (Search + List)
               Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(kSp * 2, 0, kSp * 2, 0),
+                  padding: const EdgeInsets.fromLTRB(PlayaSpacing.sm * 2, 0, PlayaSpacing.sm * 2, 0),
                   child: GlassPanel(
-                    useShader: false,
                     borderRadius: BorderRadius.circular(18),
-                    borderColor: Colors.white.withValues(alpha: 0.15),
-                    backgroundColor: const Color(0x04FFFFFF),
+                    color: PlayaColors.glassLight,
                     boxShadow: const [],
-                    padding: const EdgeInsets.all(kSp),
+                    padding: const EdgeInsets.all(PlayaSpacing.sm),
                     child: Column(
                       children: [
-                        // Search Bar (match Now Playing chip-glass)
                         GlassPanel(
-                          useShader: false,
                           borderRadius: BorderRadius.circular(999),
-                          borderColor: Colors.white.withValues(alpha: 0.15),
-                          backgroundColor: const Color(0x04FFFFFF),
+                          color: PlayaColors.glassLight,
                           boxShadow: const [],
                           padding: const EdgeInsets.symmetric(horizontal: 6),
                           child: TextField(
                             controller: _searchCtrl,
                             onChanged: _filterSongs,
-                            style: const TextStyle(color: kColorOn),
+                            style: const TextStyle(color: PlayaColors.onSurface),
                             decoration: const InputDecoration(
                               hintText: 'Search songs, artists…',
-                              hintStyle: TextStyle(color: kColorOn2),
+                              hintStyle: TextStyle(color: PlayaColors.onSurfaceVariant),
                               prefixIcon: Icon(
                                 PhosphorIconsRegular.magnifyingGlass,
-                                color: kColorOn2,
+                                color: PlayaColors.onSurfaceVariant,
                               ),
                               filled: false,
                               border: OutlineInputBorder(
@@ -709,10 +1055,9 @@ class _LibraryPageState extends State<LibraryPage> {
                         ),
                         const SizedBox(height: 10),
 
-                        // Hairline divider under search
                         Container(
                           height: 1,
-                          color: Colors.white.withValues(alpha: 0.08),
+                          color: PlayaColors.borderSubtle,
                         ),
                         const SizedBox(height: 6),
 
@@ -735,7 +1080,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                               ? PhosphorIconsRegular.heartBreak
                                               : PhosphorIconsRegular.musicNotes,
                                           size: 54,
-                                          color: kColorOn2,
+                                          color: PlayaColors.onSurfaceVariant,
                                         ),
                                         const SizedBox(height: 12),
                                         Text(
@@ -745,7 +1090,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                                   ? 'No songs found'
                                                   : 'No matches'),
                                           style: const TextStyle(
-                                            color: kColorOn2,
+                                            color: PlayaColors.onSurfaceVariant,
                                             fontSize: 14,
                                             fontWeight: FontWeight.w600,
                                           ),
@@ -771,7 +1116,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                   )
                                   : ListView.separated(
                                     padding: const EdgeInsets.only(
-                                      bottom: kNavHeight + kSp,
+                                      bottom: 72, 
                                     ),
                                     itemCount: _songs.length,
                                     separatorBuilder: (context, index) {
@@ -787,220 +1132,13 @@ class _LibraryPageState extends State<LibraryPage> {
                                         ),
                                       );
                                     },
-                                    itemBuilder: (context, index) {
-                                      final s = _songs[index];
-                                      final isPlaying =
-                                          currentSongId == s.id.toString();
+                                     itemBuilder: (context, index) {
+                                       final s = _songs[index];
+                                       final isPlaying =
+                                           currentSongId == s.id.toString();
 
-                                      return Material(
-                                        color: Colors.transparent,
-                                        child: InkWell(
-                                          onTap: () => _playNow(s),
-                                          child: Padding(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 4,
-                                              vertical: 6,
-                                            ),
-                                            child: Row(
-                                              children: [
-                                                // Tiny selection accent
-                                                SizedBox(
-                                                  width: 4,
-                                                  child: Align(
-                                                    alignment:
-                                                        Alignment.centerLeft,
-                                                    child: AnimatedContainer(
-                                                      duration: const Duration(
-                                                        milliseconds: 160,
-                                                      ),
-                                                      width: 3,
-                                                      height:
-                                                          isPlaying ? 22 : 0,
-                                                      decoration: BoxDecoration(
-                                                        color: accentColor,
-                                                        borderRadius:
-                                                            BorderRadius.circular(
-                                                              99,
-                                                            ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 8),
-                                                // Artwork (minimal chrome)
-                                                ClipRRect(
-                                                  borderRadius:
-                                                      BorderRadius.circular(8),
-                                                  child: SizedBox(
-                                                    width: 44,
-                                                    height: 44,
-                                                    child: DecoratedBox(
-                                                      decoration:
-                                                          const BoxDecoration(
-                                                            color: Color(
-                                                              0x04FFFFFF,
-                                                            ),
-                                                          ),
-                                                      child: ArtworkImage(
-                                                        id: s.id,
-                                                        type:
-                                                            oaq
-                                                                .ArtworkType
-                                                                .AUDIO,
-                                                        nullArtworkWidget:
-                                                            const Icon(
-                                                              Icons.music_note,
-                                                              color: kColorOn2,
-                                                            ),
-                                                        artworkBorder:
-                                                            BorderRadius.circular(
-                                                              8,
-                                                            ),
-                                                        artworkFit:
-                                                            BoxFit.cover,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 10),
-
-                                                Expanded(
-                                                  child: Column(
-                                                    crossAxisAlignment:
-                                                        CrossAxisAlignment
-                                                            .start,
-                                                    children: [
-                                                      Text(
-                                                        s.title,
-                                                        maxLines: 1,
-                                                        overflow:
-                                                            TextOverflow
-                                                                .ellipsis,
-                                                        style: TextStyle(
-                                                          color:
-                                                              isPlaying
-                                                                  ? accentColor
-                                                                  : kColorOn,
-                                                          fontWeight:
-                                                              FontWeight.w600,
-                                                        ),
-                                                      ),
-                                                      const SizedBox(height: 2),
-                                                      Text(
-                                                        s.artist ?? '<unknown>',
-                                                        maxLines: 1,
-                                                        overflow:
-                                                            TextOverflow
-                                                                .ellipsis,
-                                                        style: const TextStyle(
-                                                          color: kColorOn2,
-                                                          fontSize: 12,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-
-                                                PopupMenuButton<String>(
-                                                  icon: const Icon(
-                                                    Icons.more_vert,
-                                                    color: kColorOn2,
-                                                  ),
-                                                  color: kColorCard,
-                                                  onSelected: (value) {
-                                                    switch (value) {
-                                                      case 'play_next':
-                                                        _playNext(s);
-                                                        break;
-                                                      case 'add_playlist':
-                                                        _addToPlaylist(s);
-                                                        break;
-                                                      case 'rate':
-                                                        _showRatingDialog(
-                                                          s.id.toString(),
-                                                        );
-                                                        break;
-                                                    }
-                                                  },
-                                                  itemBuilder:
-                                                      (context) => [
-                                                        const PopupMenuItem(
-                                                          value: 'play_next',
-                                                          child: Row(
-                                                            children: [
-                                                              Icon(
-                                                                Icons
-                                                                    .playlist_add,
-                                                                color:
-                                                                    kColorOn2,
-                                                              ),
-                                                              SizedBox(
-                                                                width: 12,
-                                                              ),
-                                                              Text(
-                                                                'Play Next',
-                                                                style: TextStyle(
-                                                                  color:
-                                                                      kColorOn,
-                                                                ),
-                                                              ),
-                                                            ],
-                                                          ),
-                                                        ),
-                                                        const PopupMenuItem(
-                                                          value: 'add_playlist',
-                                                          child: Row(
-                                                            children: [
-                                                              Icon(
-                                                                Icons
-                                                                    .queue_music,
-                                                                color:
-                                                                    kColorOn2,
-                                                              ),
-                                                              SizedBox(
-                                                                width: 12,
-                                                              ),
-                                                              Text(
-                                                                'Add to Playlist',
-                                                                style: TextStyle(
-                                                                  color:
-                                                                      kColorOn,
-                                                                ),
-                                                              ),
-                                                            ],
-                                                          ),
-                                                        ),
-                                                        const PopupMenuItem(
-                                                          value: 'rate',
-                                                          child: Row(
-                                                            children: [
-                                                              Icon(
-                                                                Icons
-                                                                    .star_outline,
-                                                                color:
-                                                                    kColorOn2,
-                                                              ),
-                                                              SizedBox(
-                                                                width: 12,
-                                                              ),
-                                                              Text(
-                                                                'Rate Song',
-                                                                style: TextStyle(
-                                                                  color:
-                                                                      kColorOn,
-                                                                ),
-                                                              ),
-                                                            ],
-                                                          ),
-                                                        ),
-                                                      ],
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                      );
-                                    },
+                                        return _buildSongTile(s, isPlaying, accentColor);
+                                      },
                                   ),
                         ),
                       ],

@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import '../services/settings_service.dart';
 
 class HighTechSpeaker extends StatefulWidget {
   final bool isPlaying;
@@ -160,7 +161,10 @@ class _HypnoSpeakerPainter extends CustomPainter {
   final double highBand;
   final Color accentColor;
 
-  static const double _kRibbonIntensityMul = 1.45;
+  double get _intensityMul {
+    final isNeon = SettingsService.instance.themeMode == SettingsService.themeNeon;
+    return isNeon ? 2.1 : 1.45;
+  }
 
   _HypnoSpeakerPainter({
     required this.t,
@@ -284,13 +288,14 @@ class _HypnoSpeakerPainter extends CustomPainter {
     );
 
     // Outer halo (wide, soft) - feels like charged phosphor.
+    final intensity = _intensityMul;
     canvas.drawRRect(
       rimNeon,
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = r * 0.060
         ..color = accentColor.withValues(
-          alpha: (neonAlpha * 0.35).clamp(0.0, 0.40),
+          alpha: (neonAlpha * 0.35 * intensity).clamp(0.0, 0.75),
         )
         ..blendMode = BlendMode.plus
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.28),
@@ -300,7 +305,7 @@ class _HypnoSpeakerPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = r * 0.030
-        ..color = accentColor.withValues(alpha: neonAlpha)
+        ..color = accentColor.withValues(alpha: (neonAlpha * intensity).clamp(0.0, 1.0))
         ..blendMode = BlendMode.plus
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.11),
     );
@@ -396,8 +401,8 @@ class _HypnoSpeakerPainter extends CustomPainter {
 
       final alpha = ((isPlaying ? 0.88 : 0.0) *
               (0.65 + 0.35 * wobble) *
-              (0.55 + 0.45 * e) *
-              _kRibbonIntensityMul)
+               (0.55 + 0.45 * e) *
+               _intensityMul)
           .clamp(0.0, 1.0);
       final strokeW = ribbonArea.height * (0.10 - fi * 0.010);
       final bounds = path.getBounds();
@@ -427,7 +432,7 @@ class _HypnoSpeakerPainter extends CustomPainter {
           ..blendMode = BlendMode.plus
           ..maskFilter = MaskFilter.blur(
             BlurStyle.normal,
-            r * (0.165 + 0.070 * highBand) * _kRibbonIntensityMul,
+            r * (0.165 + 0.070 * highBand) * _intensityMul,
           ),
       );
       // Highlight pass (thin and crisp)

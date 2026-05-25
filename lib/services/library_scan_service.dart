@@ -8,7 +8,8 @@ import 'package:on_audio_query/on_audio_query.dart' as oaq;
 import '../services/android_audio_query.dart';
 import '../services/windows_audio_query.dart';
 import '../services/settings_service.dart';
-import '../services/player_controller.dart';
+import '../utils/ui_utils.dart';
+import 'service_locator.dart';
 
 enum LibraryScanPhase {
   idle,
@@ -97,12 +98,45 @@ class LibraryScanService extends ChangeNotifier {
     final out = <oaq.SongModel>[];
     final seen = HashSet<String>();
     for (final s in songs) {
-      final data = s.data;
-      if (data.isEmpty) continue;
-      final key = Platform.isWindows ? data.toLowerCase() : data;
+      final key = songIdentity(s);
+      if (key.isEmpty) continue;
       if (seen.add(key)) out.add(s);
     }
     return out;
+  }
+
+  /// Client-side sort that respects current library sort settings.
+  /// This is essential for Windows (native sort not supported) and acts as
+  /// a safety net for other platforms.
+  List<oaq.SongModel> _sortSongs(List<oaq.SongModel> songs) {
+    if (songs.length < 2) return songs;
+
+    final sortType = SettingsService.instance.librarySortType;
+    final descending = SettingsService.instance.librarySortOrder == 1;
+
+    int compare(oaq.SongModel a, oaq.SongModel b) {
+      int result;
+      switch (sortType) {
+        case 'TITLE':
+          result = a.title.toLowerCase().compareTo(b.title.toLowerCase());
+          break;
+        case 'ARTIST':
+          result = (a.artist ?? '').toLowerCase().compareTo((b.artist ?? '').toLowerCase());
+          break;
+        case 'ALBUM':
+          result = (a.album ?? '').toLowerCase().compareTo((b.album ?? '').toLowerCase());
+          break;
+        case 'DATE_ADDED':
+        default:
+          result = (a.dateAdded ?? 0).compareTo(b.dateAdded ?? 0);
+          break;
+      }
+      return descending ? -result : result;
+    }
+
+    final sorted = List<oaq.SongModel>.from(songs);
+    sorted.sort(compare);
+    return sorted;
   }
 
   void _setPhase(LibraryScanPhase phase, {double? progress, String? error}) {
@@ -188,20 +222,23 @@ class LibraryScanService extends ChangeNotifier {
       // Guard against duplicate results (some devices/scans can return duplicates).
       final dedupedSongs = _dedupeByData(filteredSongs);
 
+      // Apply current sort settings (critical for Windows where native sort is not used).
+      final sortedSongs = _sortSongs(dedupedSongs);
+
       if (myScanId != _scanId) return const <oaq.SongModel>[];
 
       _setPhase(LibraryScanPhase.updating, progress: 0.9);
       _lastScanAt = DateTime.now();
-      _lastSongCount = dedupedSongs.length;
+      _lastSongCount = sortedSongs.length;
 
       // Keep PlayerController's library cache in sync.
-      final ctrl = PlayerController.ensure();
-      final unchanged = _sameSongList(ctrl.librarySongs, dedupedSongs);
+      final ctrl = ServiceLocator.instance.playerController;
+      final unchanged = _sameSongList(ctrl.librarySongs, sortedSongs);
       if (!unchanged) {
-        ctrl.updateLibrary(dedupedSongs);
+        ctrl.updateLibrary(sortedSongs);
         if (restorePlayerState) {
           // Safe: replaceQueue drops missing files via _buildSource.
-          await ctrl.restoreState(dedupedSongs);
+          await ctrl.restoreState(sortedSongs);
         }
       }
 
@@ -209,7 +246,7 @@ class LibraryScanService extends ChangeNotifier {
       _windowsCancelToken = null;
       sw.stop();
       _lastScanDuration = sw.elapsed;
-      return dedupedSongs;
+      return sortedSongs;
     } catch (e) {
       sw.stop();
       _lastScanDuration = sw.elapsed;

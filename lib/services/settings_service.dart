@@ -1,5 +1,8 @@
 import 'dart:io';
+import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -12,16 +15,17 @@ class SettingsService extends ChangeNotifier {
   static const String themeNeon = 'neon';
   static const String themeAlbumArt = 'albumArt';
 
-  // Color Palette - Expanse/Sci-Fi Inspired with Vibrant Accents
   static const Map<String, int> colorPresets = {
-    'Coruscant Cyan': 0xFF00E5FF, // Bright cyan metallic
-    'Eros Gold': 0xFFFFD700, // Rich warm gold
-    'Ceres Purple': 0xFF9D4EDD, // Deep mystic purple
-    'Tycho Station Blue': 0xFF0095FF, // Electric blue
-    'Ganymede Magenta': 0xFFFF00FF, // Hot magenta
-    'Vesta Red': 0xFFFF4444, // Vibrant red
-    'Ilus Green': 0xFF00FF88, // Neon green
-    'Laconia Violet': 0xFF7B68EE, // Medium blue-violet
+    'Ember Red':      0xFFEF4444,    // Strong red
+    'Blaze Orange':   0xFFF97316,    // Energetic orange
+    'Solar Gold':     0xFFFACC15,    // Warm gold
+    'Acid Green':     0xFF22C55E,    // Sharp green
+    'Arctic Teal':    0xFF14B8A6,    // Cool teal
+    'Stellar Cyan':   0xFF00E5FF,    // Bright cyan (default)
+    'Ocean Blue':     0xFF0EA5E9,    // Clean sky blue
+    'Electric Indigo':0xFF6366F1,    // Strong indigo
+    'Nebula Purple':  0xFFA855F7,    // Vibrant purple
+    'Neon Pink':      0xFFF472B6,    // Bright pink
   };
 
   SettingsService._();
@@ -40,11 +44,12 @@ class SettingsService extends ChangeNotifier {
   String _audioFocusMode = 'pause'; // 'pause', 'duck', 'none'
 
   // Playback audio processing settings
+  bool _gaplessPlayback = true;
   int _crossfadeSeconds = 0;
   int _sleepFadeSeconds = 10;
   bool _replayGainEnabled = false;
   bool _smartVolumeLimiterEnabled = false;
-  int _accentColor = 0xFF00E5FF; // Default Coruscant-inspired (cyan metallic)
+  int _accentColor = 0xFF00E5FF; // Default (Stellar Cyan)
   String _themeMode = themeClassic;
 
   // Turntable settings
@@ -96,6 +101,7 @@ class SettingsService extends ChangeNotifier {
   int get screensaverIdleSeconds => _screensaverIdleSeconds;
   bool get keepScreenOn => _keepScreenOn;
   String get audioFocusMode => _audioFocusMode;
+  bool get gaplessPlayback => _gaplessPlayback;
   int get crossfadeSeconds => _crossfadeSeconds;
   int get sleepFadeSeconds => _sleepFadeSeconds;
   bool get replayGainEnabled => _replayGainEnabled;
@@ -144,6 +150,7 @@ class SettingsService extends ChangeNotifier {
     }
     _audioFocusMode = _prefs.getString('audioFocusMode') ?? 'pause';
 
+    _gaplessPlayback = _prefs.getBool('gaplessPlayback') ?? true;
     _crossfadeSeconds = _prefs.getInt('crossfadeSeconds') ?? 0;
     _sleepFadeSeconds = (_prefs.getInt('sleepFadeSeconds') ?? 10).clamp(0, 30);
     _replayGainEnabled = _prefs.getBool('replayGainEnabled') ?? false;
@@ -192,6 +199,12 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setGaplessPlayback(bool value) async {
+    _gaplessPlayback = value;
+    await _prefs.setBool('gaplessPlayback', value);
+    notifyListeners();
+  }
+
   Future<void> setCrossfadeSeconds(int seconds) async {
     final v = seconds.clamp(0, 12);
     _crossfadeSeconds = v;
@@ -228,9 +241,11 @@ class SettingsService extends ChangeNotifier {
         final isOldAndroid = androidInfo.version.sdkInt < 29;
 
         if (isOldAndroid) {
-          debugPrint(
-            'Low performance device detected (SDK: ${androidInfo.version.sdkInt})',
-          );
+          if (kDebugMode) {
+            debugPrint(
+              'Low performance device detected (SDK: ${androidInfo.version.sdkInt})',
+            );
+          }
           await setLowPerformanceMode(true);
         }
       }
@@ -244,27 +259,31 @@ class SettingsService extends ChangeNotifier {
     await _prefs.setBool('lowPerformanceMode', value);
 
     if (value) {
-      // Auto-disable heavy features
-      _showSpaceBackground = false;
-      _highQualityBlur = false;
-      _showWaveforms = false;
-      _screensaverEnabled = false;
-      await _prefs.setBool('showSpaceBackground', false);
-      await _prefs.setBool('highQualityBlur', false);
-      await _prefs.setBool('showWaveforms', false);
-      await _prefs.setBool('screensaverEnabled', false);
+      await _disableHeavyVisualEffects();
     } else {
-      // Restore features when disabling low performance mode
-      // We default to true for a better experience, or we could store previous state
-      // For now, let's re-enable them as that's the expected behavior
-      _showSpaceBackground = true;
-      _highQualityBlur = true;
-      _showWaveforms = true;
-      await _prefs.setBool('showSpaceBackground', true);
-      await _prefs.setBool('highQualityBlur', true);
-      await _prefs.setBool('showWaveforms', true);
+      await _restoreDefaultVisualEffects();
     }
     notifyListeners();
+  }
+
+  Future<void> _disableHeavyVisualEffects() async {
+    _showSpaceBackground = false;
+    _highQualityBlur = false;
+    _showWaveforms = false;
+    _screensaverEnabled = false;
+    await _prefs.setBool('showSpaceBackground', false);
+    await _prefs.setBool('highQualityBlur', false);
+    await _prefs.setBool('showWaveforms', false);
+    await _prefs.setBool('screensaverEnabled', false);
+  }
+
+  Future<void> _restoreDefaultVisualEffects() async {
+    _showSpaceBackground = true;
+    _highQualityBlur = true;
+    _showWaveforms = true;
+    await _prefs.setBool('showSpaceBackground', true);
+    await _prefs.setBool('highQualityBlur', true);
+    await _prefs.setBool('showWaveforms', true);
   }
 
   Future<void> setKeepScreenOn(bool value) async {
@@ -316,27 +335,14 @@ class SettingsService extends ChangeNotifier {
   Future<void> setBatterySaver(bool value) async {
     _batterySaver = value;
     await _prefs.setBool('batterySaver', value);
-    // Auto-disable high quality stuff if battery saver is on
+
     if (value) {
-      _showSpaceBackground = false;
-      _highQualityBlur = false;
-      _showWaveforms = false;
-      _screensaverEnabled = false;
-      _keepScreenOn = false; // Disable wakelock for battery saving
-      await _prefs.setBool('showSpaceBackground', false);
-      await _prefs.setBool('highQualityBlur', false);
-      await _prefs.setBool('showWaveforms', false);
-      await _prefs.setBool('screensaverEnabled', false);
+      await _disableHeavyVisualEffects();
+      _keepScreenOn = false;
       await _prefs.setBool('keepScreenOn', false);
-      WakelockPlus.disable(); // Immediately disable if active
+      WakelockPlus.disable();
     } else {
-      // Restore defaults or keep as is? Let's restore defaults for convenience
-      _showSpaceBackground = true;
-      _highQualityBlur = true;
-      _showWaveforms = true;
-      await _prefs.setBool('showSpaceBackground', true);
-      await _prefs.setBool('highQualityBlur', true);
-      await _prefs.setBool('showWaveforms', true);
+      await _restoreDefaultVisualEffects();
     }
     notifyListeners();
   }
@@ -425,6 +431,84 @@ class SettingsService extends ChangeNotifier {
   Future<void> setPlinthColor(int color) async {
     _plinthColor = color;
     await _prefs.setInt('plinthColor', color);
+    notifyListeners();
+  }
+
+  /// Resolves the final display accent color based on the current theme mode.
+  /// This is the recommended way to get the accent color for UI elements.
+  Color resolveAccentColor(Color baseAccent, {MediaItem? item}) {
+    switch (_themeMode) {
+      case themeNeon:
+        final hsl = HSLColor.fromColor(baseAccent);
+        return hsl
+            .withHue((hsl.hue + 265) % 360)                    // Even stronger, more "electric" shift
+            .withSaturation(1.0)
+            .withLightness((hsl.lightness * 0.93).clamp(0.48, 0.92)) // Brighter + more pop
+            .toColor();
+
+      case themeAlbumArt:
+        final key = item?.id ?? item?.title ?? item?.artUri?.toString() ?? baseAccent.toString();
+        final rnd = Random(key.hashCode);
+        return HSLColor.fromAHSL(
+          1.0,
+          rnd.nextDouble() * 360,
+          0.70 + rnd.nextDouble() * 0.18,
+          0.42 + rnd.nextDouble() * 0.12,
+        ).toColor();
+
+      default:
+        return baseAccent;
+    }
+  }
+
+  /// Resets all settings to sensible defaults.
+  /// Useful for debugging or giving users a fresh start.
+  Future<void> resetToDefaults() async {
+    // Performance & Visuals
+    await setLowPerformanceMode(false);
+    await setBatterySaver(false);
+    await setHighQualityBlur(true);
+    await setShowSpaceBackground(true);
+    await setShowWaveforms(true);
+    await setScreensaverEnabled(false);
+    await setScreensaverIdleSeconds(60);
+    await setKeepScreenOn(false);
+
+    // Playback
+    await setGaplessPlayback(true);
+    await setCrossfadeSeconds(0);
+    await setSleepFadeSeconds(10);
+    await setReplayGainEnabled(false);
+    await setSmartVolumeLimiterEnabled(false);
+    await setAudioFocusMode('pause');
+
+    // Appearance
+    await setAccentColor(0xFF00E5FF);
+    await setThemeMode(themeClassic);
+    await setGlowColor(0xFF00E5FF);
+    await setVinylColor(0xFF1A1A1A);
+    await setPlinthColor(0xFF2A2A2A);
+
+    // Turntable
+    await setTurntablePerfTier(2);
+    await setTurntableSlipmatEnabled(true);
+    await setTurntableNeedleDropEnabled(true);
+
+    // Library
+    await setLibrarySort('DATE_ADDED', 1);
+
+    // Reset Windows scan defaults
+    await setWindowsScanRecursive(true);
+    await setWindowsScanExtensions([
+      'mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus', 'wma', 'aiff', 'alac'
+    ]);
+    await setWindowsScanFolders([]);
+
+    // Control chips
+    await setControlChipOrder([
+      'shuffle', 'repeat', 'neural_mix', 'speed', 'screensaver', 'bookmark', 'lyrics'
+    ]);
+
     notifyListeners();
   }
 }
