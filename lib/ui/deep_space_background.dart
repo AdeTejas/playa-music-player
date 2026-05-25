@@ -353,18 +353,10 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
     if (widget.mode == DeepSpaceMode.overlay) {
       // Manage Shooting Stars / Comets
       if (!widget.subtle && dt.isFinite && dt > 0) {
-        // Two-style mix:
-        // - Frequent but subtle streaks
-        // - Rare but bigger cinematic events
-        const subtleRatePerSecond = 0.22; // ~1 every 4.5s
-        const cinematicRatePerSecond =
-            0.0165; // 45% rarer than 0.03 (~1 every 60s)
+        const subtleRatePerSecond = 0.22;
 
         if (_rnd.nextDouble() < subtleRatePerSecond * dt) {
-          _spawnShootingStar(style: _CometStyle.subtle);
-        }
-        if (_rnd.nextDouble() < cinematicRatePerSecond * dt) {
-          _spawnShootingStar(style: _CometStyle.cinematic);
+          _spawnShootingStar();
         }
       }
 
@@ -381,7 +373,7 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
     _repaint.value = _timeSeconds;
   }
 
-  void _spawnShootingStar({required _CometStyle style}) {
+  void _spawnShootingStar() {
     final w = _lastSize?.width ?? 1000;
     final h = _lastSize?.height ?? 1000;
 
@@ -416,62 +408,28 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
     }
 
     // Base speed (px/s)
-    // Subtle comets skew slower so they stay visible longer.
-    // Cinematic comets keep a wider speed range but are rarer.
-    late final double baseSpeedPxPerSec;
-    if (style == _CometStyle.subtle) {
-      const minSpeed = 260.0;
-      const maxSpeed = 820.0;
-      final t = pow(_rnd.nextDouble(), 2.25).toDouble();
-      baseSpeedPxPerSec = minSpeed + (maxSpeed - minSpeed) * t;
-    } else {
-      baseSpeedPxPerSec = 420.0 + _rnd.nextDouble() * 720.0;
-    }
+    const minSpeed = 260.0;
+    const maxSpeed = 820.0;
+    final t = pow(_rnd.nextDouble(), 2.25).toDouble();
+    final baseSpeedPxPerSec = minSpeed + (maxSpeed - minSpeed) * t;
 
     // Random Color (More realistic meteor colors)
-    final Color color;
-    if (style == _CometStyle.cinematic) {
-      // Match the reference look: green head + cool/blue trail.
-      const cinematicColors = [
-        Color(0xFF7CFFB0), // green-cyan
-        Color(0xFFB3E5FC), // cool blue
-        Color(0xFFE1F5FE), // white-blue
-      ];
-      color = cinematicColors[_rnd.nextInt(cinematicColors.length)];
-    } else {
-      final colors = [
-        const Color(0xFFB3E5FC), // Light Blue (Ice/Magnesium)
-        const Color(0xFFE1F5FE), // White-Blue
-        const Color(0xFFFFF9C4), // Pale Yellow (Dust/Sodium)
-        const Color(0xFFFFCCBC), // Pale Orange
-        const Color(0xFFB2DFDB), // Teal (Iron)
-        Colors.white,
-      ];
-      color = colors[_rnd.nextInt(colors.length)];
-    }
+    final colors = [
+      const Color(0xFFB3E5FC), // Light Blue (Ice/Magnesium)
+      const Color(0xFFE1F5FE), // White-Blue
+      const Color(0xFFFFF9C4), // Pale Yellow (Dust/Sodium)
+      const Color(0xFFFFCCBC), // Pale Orange
+      const Color(0xFFB2DFDB), // Teal (Iron)
+      Colors.white,
+    ];
+    final color = colors[_rnd.nextInt(colors.length)];
 
     // Random Size Scale
-    double sizeScale = 1.0;
-    if (style == _CometStyle.subtle) {
-      sizeScale = 0.35 + _rnd.nextDouble() * 0.55;
-    } else {
-      sizeScale = 2.2 + _rnd.nextDouble() * 2.2;
-    }
+    final sizeScale = 0.35 + _rnd.nextDouble() * 0.55;
 
-    // Speed scaling by size:
-    // - Subtle: smaller = slower (so tiny streaks don't zip by)
-    // - Cinematic: larger = slower
-    late final double speedPxPerSec;
-    if (style == _CometStyle.subtle) {
-      speedPxPerSec = baseSpeedPxPerSec * pow(sizeScale, 0.8);
-    } else {
-      speedPxPerSec =
-          baseSpeedPxPerSec / pow(sizeScale, style.speedSizeExponent);
-    }
+    final speedPxPerSec = baseSpeedPxPerSec * pow(sizeScale, 0.8);
     final lifetimeSeconds =
-        style == _CometStyle.subtle
-            ? (0.62 + 0.32 * sizeScale).clamp(0.55, 1.25)
-            : (1.35 + 0.35 * sqrt(sizeScale)).clamp(1.3, 3.2);
+        (0.62 + 0.32 * sizeScale).clamp(0.55, 1.25);
     final seed = _rnd.nextInt(1 << 31);
     // Sun direction (upper area of the screen) — ion tail points away from this.
     final sunAngle = -pi / 2 + (_rnd.nextDouble() - 0.5) * 0.8;
@@ -486,7 +444,7 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
         color: color,
         sizeScale: sizeScale,
         lifetimeSeconds: lifetimeSeconds,
-        style: style,
+        style: _CometStyle.subtle,
         debrisSeed: seed,
       ),
     );
@@ -520,16 +478,6 @@ class _CometStyle {
     alphaMul: 0.55,
     debrisCount: 3,
     speedSizeExponent: 0.75,
-  );
-
-  static const cinematic = _CometStyle._(
-    tailLengthMul: 0.95,
-    tailWidthMul: 0.57,
-    coreWidthMul: 0.57,
-    headMul: 1.45,
-    alphaMul: 1.0,
-    debrisCount: 6,
-    speedSizeExponent: 0.95,
   );
 }
 
@@ -632,7 +580,7 @@ class _ShootingStar {
   final _CometStyle style;
   final List<_DebrisSpec> debris;
 
-  // Shape variance (primarily for cinematic comets)
+  // Shape variance
   final double tailCurveAmp;
   final double tailWidthJitter;
   final double coreWidthJitter;
@@ -651,37 +599,11 @@ class _ShootingStar {
     required this.style,
     required int debrisSeed,
   }) : debris = _buildDebris(debrisSeed, style.debrisCount),
-       tailCurveAmp = _buildTailCurveAmp(debrisSeed, style),
-       tailWidthJitter = _buildWidthJitter(debrisSeed ^ 0x51f3a, style),
-       coreWidthJitter = _buildWidthJitter(debrisSeed ^ 0x9b77d, style),
-       headStretch = _buildHeadStretch(debrisSeed ^ 0x3311, style),
-       headSkew = _buildHeadSkew(debrisSeed ^ 0x77aa, style);
-
-  static double _buildTailCurveAmp(int seed, _CometStyle style) {
-    if (style != _CometStyle.cinematic) return 0.0;
-    final r = Random(seed);
-    // Straighter trail like the reference (still slight natural variation).
-    return 0.03 + r.nextDouble() * 0.09; // fraction of tail length
-  }
-
-  static double _buildWidthJitter(int seed, _CometStyle style) {
-    if (style != _CometStyle.cinematic) return 1.0;
-    final r = Random(seed);
-    return 0.78 + r.nextDouble() * 0.55;
-  }
-
-  static double _buildHeadStretch(int seed, _CometStyle style) {
-    if (style != _CometStyle.cinematic) return 1.0;
-    final r = Random(seed);
-    return 0.85 + r.nextDouble() * 0.70;
-  }
-
-  static double _buildHeadSkew(int seed, _CometStyle style) {
-    if (style != _CometStyle.cinematic) return 0.0;
-    final r = Random(seed);
-    return (r.nextDouble() - 0.5) *
-        0.5; // ellipse offset along flight direction
-  }
+       tailCurveAmp = 0.0,
+       tailWidthJitter = 1.0,
+       coreWidthJitter = 1.0,
+       headStretch = 1.0,
+       headSkew = 0.0;
 
   static List<_DebrisSpec> _buildDebris(int seed, int count) {
     final r = Random(seed);
@@ -969,9 +891,6 @@ class _StarFieldPainter extends CustomPainter {
 
       for (final s in shootingStars) {
         final start = Offset(s.x * w, s.y * h);
-        final perp = Offset(cos(s.angle + pi / 2), sin(s.angle + pi / 2));
-        final cinematic = s.style == _CometStyle.cinematic;
-
         final speedFactor = (s.speedPxPerSec / 800.0).clamp(0.55, 1.45);
         final baseTail =
             min(w, h) *
@@ -980,8 +899,7 @@ class _StarFieldPainter extends CustomPainter {
             speedFactor *
             s.style.tailLengthMul;
 
-        final tailLenMul = cinematic ? 1.82 : 1.0;
-        final tailLen = baseTail * tailLenMul;
+        final tailLen = baseTail;
         final end =
             start - Offset(cos(s.angle) * tailLen, sin(s.angle) * tailLen);
 
@@ -1005,482 +923,83 @@ class _StarFieldPainter extends CustomPainter {
               ..strokeCap = StrokeCap.round
               ..style = PaintingStyle.stroke;
 
-        Offset? ctrl;
-        if (cinematic && s.tailCurveAmp > 0) {
-          final mid = Offset(
-            (start.dx + end.dx) * 0.5,
-            (start.dy + end.dy) * 0.5,
-          );
-          final curvePx =
-              (s.tailCurveAmp * tailLen) *
-              (sin(timeSeconds * 0.55 + s.headSkew * 12) +
-               sin(timeSeconds * 1.9 + s.headSkew * 7) * 0.18);
-          ctrl = mid + perp * curvePx;
-        }
-
         Offset pointOnTail(double t) {
-          if (ctrl == null) {
-            return Offset.lerp(start, end, t) ?? start;
-          }
-          final it = 1.0 - t;
-          return start * (it * it) + ctrl * (2.0 * it * t) + end * (t * t);
+          return Offset.lerp(start, end, t) ?? start;
         }
 
-        if (cinematic) {
-          // Fan-shaped dust tail (broader + more opaque, with irregular edges)
-          final int seed =
-              ((s.angle * 100000).round() ^
-                  (s.speedPxPerSec.round() << 1) ^
-                  ((s.sizeScale * 100).round() << 3) ^
-                  (s.headSkew * 1000).round());
-
-          final dustPaint =
-              Paint()
-                ..style = PaintingStyle.fill
-                ..blendMode = BlendMode.plus
-                ..maskFilter = MaskFilter.blur(
-                  BlurStyle.normal,
-                  8.0 * s.sizeScale * blurMul,
-                );
-
-          final baseW =
-              (1.7 + 1.15 * s.sizeScale) *
-              s.style.tailWidthMul *
-              s.tailWidthJitter;
-
-          final segs = isWindows ? 28 : 18;
-          final left = <Offset>[];
-          final right = <Offset>[];
-
-          for (int i = 0; i <= segs; i++) {
-            final t = i / segs;
-            var c = pointOnTail(t);
-            final turb = (_hash01(seed * 0.007 + t * 17.3 + timeSeconds * 3.1) - 0.5) * baseW * 0.045 * (1.0 - t * 0.7);
-            c = c + perp * turb;
-            final tailTaper = 0.25 + 0.75 * pow(1.0 - t, 0.85).toDouble();
-            final noise = 0.91 + 0.19 * _hash01(seed * 0.001 + t * 9.3 + i * 0.17);
-
-            final spread = (0.24 + 2.25 * pow(t, 1.25)) * (1.05 - 0.28 * t);
-
-            final width = baseW * spread * noise * tailTaper;
-            final skew = s.headSkew * (0.35 + 0.25 * t);
-            left.add(c + perp * (width * (1.05 + skew)));
-            right.add(c - perp * (width * (0.95 - skew)));
-          }
-
-          final dustPath = Path()..moveTo(left.first.dx, left.first.dy);
-          for (int i = 1; i < left.length; i++) {
-            dustPath.lineTo(left[i].dx, left[i].dy);
-          }
-          for (int i = right.length - 1; i >= 0; i--) {
-            dustPath.lineTo(right[i].dx, right[i].dy);
-          }
-          dustPath.close();
-
-          // Warm cream color for the dust tail (reflected sunlight off dust)
-          final dustColor = Color.lerp(const Color(0xFFFFF8E1), Colors.white, 0.35)!;
-          dustPaint.shader = ui.Gradient.linear(
-            start,
-            end,
-            [
-              dustColor.withValues(alpha: alpha * 0.62),
-              s.color.withValues(alpha: alpha * 0.24),
-              Colors.transparent,
-            ],
-            const [0.0, 0.55, 1.0],
-          );
-          canvas.drawPath(dustPath, dustPaint);
-
-          final spinePaint = Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeCap = StrokeCap.round
-            ..blendMode = BlendMode.plus
-            ..strokeWidth = 1.1 * s.sizeScale
-            ..shader = ui.Gradient.linear(
-              start,
-              end,
-              [
-                Colors.white.withValues(alpha: alpha * 0.42),
-                Colors.transparent,
-              ],
-            );
-          canvas.drawPath(dustPath, spinePaint);
-
-          // Dust streaks inside the cone (fine trails)
-          final streakPaint =
-              Paint()
-                ..isAntiAlias = true
-                ..style = PaintingStyle.stroke
-                ..strokeCap = StrokeCap.round
-                ..strokeJoin = StrokeJoin.round
-                ..blendMode = BlendMode.plus
-                ..strokeWidth =
-                    1.15 *
-                    s.sizeScale *
-                    s.style.coreWidthMul *
-                    s.coreWidthJitter
-                ..maskFilter = MaskFilter.blur(
-                  BlurStyle.normal,
-                  (3.2 * s.sizeScale) * blurMul,
-                );
-          final streakEnd =
-              start -
-              Offset(
-                cos(s.angle) * (tailLen * 1.55),
-                sin(s.angle) * (tailLen * 1.55),
-              );
-          for (int k = 0; k < (isWindows ? 7 : 5); k++) {
-            final drift =
-                (_hash01(seed * 0.11 + k * 7.3) - 0.5) *
-                baseW *
-                (0.65 + 0.35 * k);
-            final skewDrift = drift + (s.headSkew * baseW * 0.55);
-            final p0 = start + perp * skewDrift;
-            final p1 = streakEnd + perp * (skewDrift * (1.15 + 0.12 * k));
-            streakPaint.shader = ui.Gradient.linear(
-              p0,
-              p1,
-              [
-                Colors.white.withValues(alpha: alpha * 0.22),
-                dustColor.withValues(alpha: alpha * 0.14),
-                Colors.transparent,
-              ],
-              const [0.0, 0.55, 1.0],
-            );
-            canvas.drawLine(p0, p1, streakPaint);
-          }
-
-          // Ion tail — points away from the sun (not the velocity direction)
-          // This creates the characteristic split-tail look of real comets.
-          final ionTailAngle = s.sunAngle + pi;
-          final ionTailLen = tailLen * 1.3;
-          final ionEnd = start + Offset(cos(ionTailAngle) * ionTailLen, sin(ionTailAngle) * ionTailLen);
-
-          const ionTint = Color(0xFF66CFFF);
-          final ionPaint =
-              Paint()
-                ..style = PaintingStyle.stroke
-                ..strokeCap = StrokeCap.round
-                ..blendMode = BlendMode.plus
-                ..maskFilter = MaskFilter.blur(
-                  BlurStyle.normal,
-                  (2.0 * s.sizeScale) * blurMul,
-                )
-                ..shader = ui.Gradient.linear(
-                  start,
-                  ionEnd,
-                  [
-                    Colors.white.withValues(alpha: alpha * 0.85),
-                    ionTint.withValues(alpha: alpha * 0.25),
-                    Colors.transparent,
-                  ],
-                  const [0.0, 0.15, 1.0],
-                );
-          final ionSegs = isWindows ? 24 : 16;
-          final ionPerp = Offset(cos(ionTailAngle + pi / 2), sin(ionTailAngle + pi / 2));
-          for (int i = 0; i < ionSegs; i++) {
-            final t0 = i / ionSegs;
-            final t1 = (i + 1) / ionSegs;
-            final c0 = Offset.lerp(start, ionEnd, t0)! + ionPerp * (sin(t0 * 17.0 + timeSeconds * 3.1) * s.sizeScale * 0.3);
-            final c1 = Offset.lerp(start, ionEnd, t1)! + ionPerp * (sin(t1 * 17.0 + timeSeconds * 3.1) * s.sizeScale * 0.18);
-            final tm = (t0 + t1) * 0.5;
-            final taper = 0.15 + 0.85 * pow(1.0 - tm, 0.70).toDouble();
-            ionPaint.strokeWidth = (1.2 * s.sizeScale * s.style.coreWidthMul * s.coreWidthJitter) * taper;
-            canvas.drawLine(c0, c1, ionPaint);
-          }
-        } else {
-          // Subtle streak, tapered toward the tail.
-          final segs = isWindows ? 16 : 10;
-          final baseW =
-              3.0 * s.sizeScale * s.style.tailWidthMul * s.tailWidthJitter;
-          for (int i = 0; i < segs; i++) {
-            final t0 = i / segs;
-            final t1 = (i + 1) / segs;
-            final p0 = pointOnTail(t0);
-            final p1 = pointOnTail(t1);
-            final tm = (t0 + t1) * 0.5;
-            final taper = 0.25 + 0.75 * pow(1.0 - tm, 0.85).toDouble();
-            tailPaint.strokeWidth = baseW * taper;
-            canvas.drawLine(p0, p1, tailPaint);
-          }
+        // Subtle streak, tapered toward the tail.
+        final segs = isWindows ? 16 : 10;
+        final baseW =
+            3.0 * s.sizeScale * s.style.tailWidthMul * s.tailWidthJitter;
+        for (int i = 0; i < segs; i++) {
+          final t0 = i / segs;
+          final t1 = (i + 1) / segs;
+          final p0 = pointOnTail(t0);
+          final p1 = pointOnTail(t1);
+          final tm = (t0 + t1) * 0.5;
+          final taper = 0.25 + 0.75 * pow(1.0 - tm, 0.85).toDouble();
+          tailPaint.strokeWidth = baseW * taper;
+          canvas.drawLine(p0, p1, tailPaint);
         }
 
         // 2. The Core Trail (Hotter, thinner)
-        if (!cinematic) {
-          tailPaint.shader = ui.Gradient.linear(
-            start,
-            end,
-            [
-              Colors.white.withValues(alpha: alpha * 0.9),
-              s.color.withValues(alpha: alpha * 0.4),
-              Colors.transparent,
-            ],
-            [0.0, 0.2, 1.0],
-          );
-          final segs = isWindows ? 16 : 10;
-          final baseW =
-              1.0 * s.sizeScale * s.style.coreWidthMul * s.coreWidthJitter;
-          for (int i = 0; i < segs; i++) {
-            final t0 = i / segs;
-            final t1 = (i + 1) / segs;
-            final p0 = pointOnTail(t0);
-            final p1 = pointOnTail(t1);
-            final tm = (t0 + t1) * 0.5;
-            final taper = 0.25 + 0.75 * pow(1.0 - tm, 0.85).toDouble();
-            tailPaint.strokeWidth = baseW * taper;
-            canvas.drawLine(p0, p1, tailPaint);
-          }
+        tailPaint.shader = ui.Gradient.linear(
+          start,
+          end,
+          [
+            Colors.white.withValues(alpha: alpha * 0.9),
+            s.color.withValues(alpha: alpha * 0.4),
+            Colors.transparent,
+          ],
+          [0.0, 0.2, 1.0],
+        );
+        final coreSegs = isWindows ? 16 : 10;
+        final coreW =
+            1.0 * s.sizeScale * s.style.coreWidthMul * s.coreWidthJitter;
+        for (int i = 0; i < coreSegs; i++) {
+          final t0 = i / coreSegs;
+          final t1 = (i + 1) / coreSegs;
+          final p0 = pointOnTail(t0);
+          final p1 = pointOnTail(t1);
+          final tm = (t0 + t1) * 0.5;
+          final taper = 0.25 + 0.75 * pow(1.0 - tm, 0.85).toDouble();
+          tailPaint.strokeWidth = coreW * taper;
+          canvas.drawLine(p0, p1, tailPaint);
         }
 
         // 3. The Head (Coma)
-        final headDamp = (cinematic && s.sizeScale > 3.2) ? 0.76 : 1.0;
-        final headBase = 8.0 * s.sizeScale * s.style.headMul * headDamp;
-        if (cinematic) {
-          final comaTint =
-              HSLColor.fromColor(
-                s.color,
-              ).withHue(140).withSaturation(0.55).withLightness(0.78).toColor();
-          final comaColor = Color.lerp(comaTint, Colors.white, 0.35)!;
+        final headBase = 8.0 * s.sizeScale * s.style.headMul;
 
-          canvas.save();
-          canvas.translate(start.dx, start.dy);
-          canvas.rotate(s.angle);
-          final skewPx = headBase * 0.5 * s.headSkew;
+        // Outer Glow
+        paint.color = s.color.withValues(alpha: alpha * 0.25);
+        paint.maskFilter = MaskFilter.blur(
+          BlurStyle.normal,
+          (10 * s.sizeScale * s.style.headMul) * blurMul,
+        );
+        canvas.drawCircle(start, headBase, paint);
 
-          // Big diffuse coma cloud (white-green) with irregular shape
-          const flareMul = 0.10;
-          const comaGlowWidthMul = 0.66;
+        // Inner Glow
+        paint.color = s.color.withValues(alpha: alpha * 0.6);
+        paint.maskFilter = MaskFilter.blur(
+          BlurStyle.normal,
+          (4 * s.sizeScale * s.style.headMul) * blurMul,
+        );
+        canvas.drawCircle(start, headBase * 0.5, paint);
+        paint.maskFilter = null;
 
-          // Create irregular coma shape using multiple overlapping ovals
-          final comaSeed = ((s.angle * 100000).round() ^
-                           (s.speedPxPerSec.round() << 1) ^
-                           ((s.sizeScale * 100).round() << 3) ^
-                           (s.headSkew * 1000).round());
-            final comaShapes = 2 + (pow(s.sizeScale, 0.72) * 1.7).round().clamp(0, 4);
-          for (int i = 0; i < comaShapes; i++) {
-            final shapeSeed = comaSeed + i * 17;
-            final offsetX = skewPx * 0.55 + (0.3 * _hash01(shapeSeed * 0.01) - 0.15) * headBase;
-            final offsetY = (0.2 * _hash01(shapeSeed * 0.02) - 0.1) * headBase;
-            final shapeWidth = headBase * (4.5 + 1.6 * _hash01(shapeSeed * 0.03)) * s.headStretch * comaGlowWidthMul;
-            final shapeHeight = headBase * (2.8 + 0.9 * _hash01(shapeSeed * 0.04)) * comaGlowWidthMul;
-
-            final comaRect = Rect.fromCenter(
-              center: Offset(offsetX, offsetY),
-              width: shapeWidth,
-              height: shapeHeight,
-            );
-
-            final shapeAlpha = alpha * (0.25 + 0.15 * _hash01(shapeSeed * 0.05)) * flareMul;
-            paint.shader = ui.Gradient.radial(
-              Offset(offsetX, offsetY),
-              shapeWidth * 0.4,
-              [
-                comaColor.withValues(alpha: shapeAlpha),
-                comaTint.withValues(alpha: shapeAlpha * 0.7),
-                Colors.transparent,
-              ],
-              const [0.0, 0.6, 1.0],
-            );
-            paint.maskFilter = MaskFilter.blur(
-              BlurStyle.normal,
-              (18 + 8 * _hash01(shapeSeed * 0.06)) * s.sizeScale * flareMul * comaGlowWidthMul * blurMul,
-            );
-            canvas.drawOval(comaRect, paint);
-          }
-          paint.shader = null;
-
-          final outer = Rect.fromCenter(
-            center: Offset(skewPx, 0),
-            width: headBase * 2.2 * s.headStretch * comaGlowWidthMul,
-            height: headBase * 1.4 * comaGlowWidthMul,
-          );
-          paint.color = comaTint.withValues(alpha: alpha * 0.22 * flareMul);
-          paint.maskFilter = MaskFilter.blur(
-            BlurStyle.normal,
-            (12 * s.sizeScale * flareMul * comaGlowWidthMul) * blurMul,
-          );
-          canvas.drawOval(outer, paint);
-
-          final inner = Rect.fromCenter(
-            center: Offset(skewPx * 0.6, 0),
-            width: headBase * 1.15 * s.headStretch * comaGlowWidthMul,
-            height: headBase * 0.9 * comaGlowWidthMul,
-          );
-          paint.color = comaColor.withValues(alpha: alpha * 0.55 * flareMul);
-          paint.maskFilter = MaskFilter.blur(
-            BlurStyle.normal,
-            (5 * s.sizeScale * flareMul * comaGlowWidthMul) * blurMul,
-          );
-          canvas.drawOval(inner, paint);
-          paint.maskFilter = null;
-
-          // Dark irregular nucleus elongated along velocity axis (potato shape)
-          final nucR = 2.20 * s.sizeScale;
-          final nucElongation = 1.6;
-          final cosVel = cos(s.angle);
-          final sinVel = sin(s.angle);
-          final nuc = Path();
-          const points = 14;
-          final nucleusSeed = ((s.angle * 100000).round() ^
-                              (s.speedPxPerSec.round() << 1) ^
-                              ((s.sizeScale * 100).round() << 3) ^
-                              (s.headSkew * 1000).round());
-
-          for (int i = 0; i < points; i++) {
-            final a = (i / points) * 2 * pi;
-            final rr = nucR * (0.62 + 0.52 * _hash01(nucleusSeed * 0.0009 + i * 1.97 + timeSeconds * 0.4));
-            final dx = cos(a) * rr;
-            final dy = sin(a) * rr;
-            final along = dx * cosVel + dy * sinVel;
-            final across = -dx * sinVel + dy * cosVel;
-            final ex = cosVel * along * nucElongation - sinVel * across;
-            final ey = sinVel * along * nucElongation + cosVel * across;
-            final p = Offset(skewPx * 0.48 + ex, ey);
-            if (i == 0) {
-              nuc.moveTo(p.dx, p.dy);
-            } else {
-              nuc.lineTo(p.dx, p.dy);
-            }
-          }
-          nuc.close();
-
-          // Add surface texture/details to nucleus (elongated to match)
-          final detailPath = Path();
-          for (int i = 0; i < 8; i++) {
-            final a = (i / 8) * 2 * pi + _hash01(nucleusSeed * 0.01 + i) * 0.5;
-            final r = nucR * (0.75 + 0.25 * _hash01(nucleusSeed * 0.02 + i));
-            final detailSize = nucR * 0.15 * _hash01(nucleusSeed * 0.03 + i);
-            final dx = cos(a) * r;
-            final dy = sin(a) * r;
-            final along = dx * cosVel + dy * sinVel;
-            final across = -dx * sinVel + dy * cosVel;
-            final ex = cosVel * along * nucElongation - sinVel * across;
-            final ey = sinVel * along * nucElongation + cosVel * across;
-            final p = Offset(skewPx * 0.48 + ex, ey);
-
-            detailPath.addOval(Rect.fromCenter(
-              center: p,
-              width: detailSize,
-              height: detailSize * 0.6,
-            ));
-          }
-
-          paint
-            ..shader = null
-            ..maskFilter = null
-            ..blendMode = BlendMode.srcOver
-            ..color = Colors.black.withValues(alpha: alpha * 0.95);
-          canvas.drawPath(nuc, paint);
-
-          // Add surface details
-          paint.color = Color(0xFF2A2A2A).withValues(alpha: alpha * 0.7);
-          canvas.drawPath(detailPath, paint);
-
-          // Add plasma jets emanating from the nucleus
-          final jetSeed = nucleusSeed + 2000;
-          final jetCount = (sqrt(s.sizeScale) * 1.05).round().clamp(1, 2);
-          for (int i = 0; i < jetCount; i++) {
-            final jetAngle = (i / jetCount) * 2 * pi + _hash01(jetSeed * 0.01 + i * 23) * 0.8;
-            final jetLength = headBase * (0.8 + 0.6 * _hash01(jetSeed * 0.02 + i * 24)) * headDamp;
-            final jetWidth = headBase * (0.15 + 0.1 * _hash01(jetSeed * 0.03 + i * 25)) * headDamp;
-
-            final jetStart = Offset(skewPx * 0.48, 0);
-            final jetEnd = Offset(
-              jetStart.dx + cos(jetAngle) * jetLength,
-              jetStart.dy + sin(jetAngle) * jetLength,
-            );
-
-            // Jet glow
-            paint.blendMode = BlendMode.plus;
-            paint.color = Color(0xFF66DDFF).withValues(alpha: alpha * 0.4);
-            paint.maskFilter = MaskFilter.blur(BlurStyle.normal, jetWidth * 3 * blurMul);
-
-            final jetPath = Path()
-              ..moveTo(jetStart.dx, jetStart.dy)
-              ..lineTo(jetEnd.dx, jetEnd.dy)
-              ..lineTo(jetEnd.dx + sin(jetAngle) * jetWidth, jetEnd.dy - cos(jetAngle) * jetWidth)
-              ..lineTo(jetStart.dx + sin(jetAngle) * jetWidth * 0.3, jetStart.dy - cos(jetAngle) * jetWidth * 0.3)
-              ..close();
-
-            canvas.drawPath(jetPath, paint);
-
-            // Jet core
-            paint.color = Colors.white.withValues(alpha: alpha * 0.6);
-            paint.maskFilter = MaskFilter.blur(BlurStyle.normal, jetWidth * blurMul);
-            canvas.drawLine(jetStart, jetEnd, paint);
-          }
-          paint.blendMode = BlendMode.srcOver;
-          paint.maskFilter = null;
-
-          // Tiny bright core sparkle inside coma
-          paint
-            ..blendMode = BlendMode.plus
-            ..color = Colors.white.withValues(alpha: alpha * 0.85);
-          canvas.drawCircle(
-            Offset(skewPx * 0.52, -0.2),
-            1.15 * s.sizeScale,
-            paint,
-          );
-
-          // Add trailing fragments that break off
-          final fragmentSeed = nucleusSeed + 1000;
-          final fragmentCount = (sqrt(s.sizeScale) * 1.4).round().clamp(0, 3);
-          for (int i = 0; i < fragmentCount; i++) {
-            final fragmentDist = 0.1 + 0.4 * _hash01(fragmentSeed * 0.1 + i * 3.7);
-            final fragmentAngle = s.angle + (0.3 * _hash01(fragmentSeed * 0.2 + i * 4.1) - 0.15);
-            final fragmentPos = Offset(
-              start.dx - cos(fragmentAngle) * (tailLen * fragmentDist),
-              start.dy - sin(fragmentAngle) * (tailLen * fragmentDist),
-            );
-
-            final fragmentSize = 0.8 + 1.2 * _hash01(fragmentSeed * 0.3 + i * 5.3);
-            final fragmentAlpha = alpha * (0.3 + 0.4 * _hash01(fragmentSeed * 0.4 + i * 6.1));
-
-            // Fragment glow
-            paint.color = s.color.withValues(alpha: fragmentAlpha * 0.4);
-            paint.maskFilter = MaskFilter.blur(BlurStyle.normal, fragmentSize * 2 * blurMul);
-            canvas.drawCircle(fragmentPos, fragmentSize * 3, paint);
-
-            // Fragment core
-            paint.color = Colors.white.withValues(alpha: fragmentAlpha * 0.8);
-            paint.maskFilter = null;
-            canvas.drawCircle(fragmentPos, fragmentSize, paint);
-          }
-
-          canvas.restore();
-        } else {
-          // Outer Glow
-          paint.color = s.color.withValues(alpha: alpha * 0.25);
-          paint.maskFilter = MaskFilter.blur(
-            BlurStyle.normal,
-            (10 * s.sizeScale * s.style.headMul) * blurMul,
-          );
-          canvas.drawCircle(start, headBase, paint);
-
-          // Inner Glow
-          paint.color = s.color.withValues(alpha: alpha * 0.6);
-          paint.maskFilter = MaskFilter.blur(
-            BlurStyle.normal,
-            (4 * s.sizeScale * s.style.headMul) * blurMul,
-          );
-          canvas.drawCircle(start, headBase * 0.5, paint);
-          paint.maskFilter = null;
-
-          // Solid Core
-          paint.color = Colors.white.withValues(alpha: alpha);
-          canvas.drawCircle(
-            start,
-            1.5 * s.sizeScale * (0.9 + 0.15 * s.style.headMul),
-            paint,
-          );
-        }
+        // Solid Core
+        paint.color = Colors.white.withValues(alpha: alpha);
+        canvas.drawCircle(
+          start,
+          1.5 * s.sizeScale * (0.9 + 0.15 * s.style.headMul),
+          paint,
+        );
 
         // 4. Sparkles / Debris (Simple simulation)
         for (final d in s.debris) {
           final dist = d.distFactor * tailLen;
           final offset = d.lateralFactor * s.sizeScale;
-          final largeDamp = (cinematic && s.sizeScale > 3.2) ? 0.65 : 1.0;
-          final eject = (0.6 + 1.8 * s.progress) * (0.4 + 0.6 * _hash01(d.distFactor * 31.7 + timeSeconds * 1.8)) * s.sizeScale * largeDamp;
+          final eject = (0.6 + 1.8 * s.progress) * (0.4 + 0.6 * _hash01(d.distFactor * 31.7 + timeSeconds * 1.8)) * s.sizeScale;
 
           final debrisPos =
               start -
@@ -1491,7 +1010,7 @@ class _StarFieldPainter extends CustomPainter {
               );
 
           paint.color = s.color.withValues(alpha: alpha * 0.35 * d.alpha * (1.0 - s.progress * 0.4));
-          canvas.drawCircle(debrisPos, d.radius * largeDamp, paint);
+          canvas.drawCircle(debrisPos, d.radius, paint);
         }
       }
     }
