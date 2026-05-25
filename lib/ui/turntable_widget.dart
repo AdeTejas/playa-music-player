@@ -1131,7 +1131,6 @@ class _TurntableDeckState extends State<TurntableDeck>
     final highlightAccent = resolvedAccent; // stronger for rim, strobe, pitch knob
     final disableAnimations = SchedulerBinding.instance.platformDispatcher.accessibilityFeatures.disableAnimations;
     final perfTier = disableAnimations ? 0 : (settings.lowPerformanceMode ? min(settings.turntablePerfTier, 1) : settings.turntablePerfTier);
-    final trackColor = HSVColor.fromAHSV(1.0, ( (widget.item != null ? widget.item!.title.hashCode % 360 : 120.0) + (_discAngle * 180 / pi) ) % 360, 0.85, 1.0).toColor();
 
     return LayoutBuilder(
       builder: (context, constraints) {
