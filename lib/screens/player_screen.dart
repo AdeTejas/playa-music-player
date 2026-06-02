@@ -1395,7 +1395,7 @@ class _SonicDnaBadge extends StatelessWidget {
           margin: const EdgeInsets.only(top: 8),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           decoration: BoxDecoration(
-            color: const Color(0xFF1B1F26),
+            color: PlayaColors.surfaceVariant,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: Colors.white10),
           ),
@@ -1405,13 +1405,13 @@ class _SonicDnaBadge extends StatelessWidget {
               const Icon(
                 PhosphorIconsBold.waveform,
                 size: 14,
-                color: Color(0xFF8D5524),
+                color: PlayaColors.sonic,
               ),
               const SizedBox(width: 6),
               Text(
                 '${meta.bpm!.toInt()} BPM',
                 style: const TextStyle(
-                  color: Color(0xFFE8DCCA),
+                  color: PlayaColors.onSurface,
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
                 ),
@@ -1423,7 +1423,7 @@ class _SonicDnaBadge extends StatelessWidget {
                 Text(
                   meta.key!,
                   style: const TextStyle(
-                    color: Color(0xFFA68B6C),
+                    color: PlayaColors.onSurfaceVariant,
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
                   ),

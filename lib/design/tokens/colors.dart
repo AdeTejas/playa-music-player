@@ -49,6 +49,9 @@ class PlayaColors {
   static const Color error = Color(0xFFEF5350);
   static const Color info = Color(0xFF29B6F6);
 
+  /// Specific accent for sonic/DNA visuals (brass/wood tone)
+  static const Color sonic = Color(0xFF8D5524);
+
   // ==================== OVERLAYS ====================
   static const Color overlay = Color(0x80000000);
   static const Color scrim = Color(0xB3000000);

@@ -15,7 +15,7 @@ class HighTechSpeaker extends StatefulWidget {
     this.bpm,
     this.position,
     this.volume = 1.0,
-    this.accentColor = const Color(0xFFFFB300),
+    this.accentColor = const Color(0xFF00E5FF), // default to main accent (Stellar Cyan)
   });
 
   @override

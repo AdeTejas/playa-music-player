@@ -77,10 +77,10 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
       ).toColor();
     }
 
-    // Default palette (kept closer to previous look)
+    // Default palette (kept closer to previous look) - broader for variety
     return HSVColor.fromAHSV(
       0.30,
-      195.0 + _rnd.nextDouble() * 90,
+      170.0 + _rnd.nextDouble() * 140,  // more spread teal -> purple
       0.68,
       0.55,
     ).toColor();

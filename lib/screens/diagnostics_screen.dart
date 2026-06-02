@@ -9,7 +9,6 @@ import '../services/library_scan_service.dart';
 import '../services/perf_metrics_service.dart';
 import '../ui/tokens.dart';
 import '../widgets/player_provider.dart';
-import '../design/design_system.dart';
 
 class DiagnosticsScreen extends StatefulWidget {
   const DiagnosticsScreen({super.key});
@@ -185,7 +184,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                         child: LinearProgressIndicator(
                           value: scan.progress,
                           backgroundColor: Colors.white10,
-                          color: const Color(0xFF8D5524),
+                          color: PlayaColors.sonic,
                         ),
                       ),
                     if (scan.lastError != null)
@@ -304,7 +303,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
           fontSize: 12,
           fontWeight: FontWeight.bold,
           letterSpacing: 1.5,
-          color: Color(0xFFA68B6C),
+          color: PlayaColors.onSurfaceVariant,
         ),
       ),
     );

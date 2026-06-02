@@ -16,23 +16,22 @@ class SettingsService extends ChangeNotifier {
   static const String themeAlbumArt = 'albumArt';
 
   static const Map<String, int> colorPresets = {
-    'Ruby Red':       0xFFDC2626,    // Deep red
-    'Ember Red':      0xFFEF4444,    // Strong red
-    'Blaze Orange':   0xFFF97316,    // Energetic orange
-    'Solar Gold':     0xFFFACC15,    // Warm gold
-    'Lime Shock':     0xFFA3E635,    // Electric lime
-    'Acid Green':     0xFF22C55E,    // Sharp green
-    'Jade':           0xFF10B981,    // Rich jade
-    'Arctic Teal':    0xFF14B8A6,    // Cool teal
-    'Stellar Cyan':   0xFF00E5FF,    // Bright cyan (default)
-    'Ocean Blue':     0xFF0EA5E9,    // Clean sky blue
-    'Electric Indigo':0xFF6366F1,    // Strong indigo
-    'Lavender':       0xFF818CF8,    // Soft lavender
-    'Nebula Purple':  0xFFA855F7,    // Vibrant purple
-    'Magenta':        0xFFD946EF,    // Bold magenta
-    'Neon Pink':      0xFFF472B6,    // Bright pink
-    'Rose':           0xFFFB7185,    // Soft rose
-    'Crimson':        0xFFBE123C,    // Dark crimson
+    // Curated for better hue spread (culled near-duplicates from original set)
+    'Ruby Red':       0xFFDC2626,    // ~0° deep red
+    'Blaze Orange':   0xFFF97316,    // ~25° orange
+    'Solar Gold':     0xFFFACC15,    // ~48° gold
+    'Lime Shock':     0xFFA3E635,    // ~83° lime
+    'Acid Green':     0xFF22C55E,    // ~142° green
+    'Jade':           0xFF10B981,    // ~160° jade (kept for green spread)
+    'Arctic Teal':    0xFF14B8A6,    // ~173° teal
+    'Stellar Cyan':   0xFF00E5FF,    // ~186° cyan (default)
+    'Ocean Blue':     0xFF0EA5E9,    // ~199° blue
+    'Electric Indigo':0xFF6366F1,    // ~239° indigo
+    'Nebula Purple':  0xFFA855F7,    // ~271° purple
+    'Magenta':        0xFFD946EF,    // ~292° magenta
+    'Neon Pink':      0xFFF472B6,    // ~329° pink
+    'Rose':           0xFFFB7185,    // ~351° rose
+    'Crimson':        0xFFBE123C,    // ~345° crimson
   };
 
   SettingsService._();
