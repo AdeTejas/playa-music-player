@@ -266,9 +266,9 @@ class _TransportBar extends StatelessWidget {
           onPressed: () async {
             if (!ctrl.isReady) return;
             if (p.playing) {
-              await p.pause();
+              await ctrl.pause();
             } else {
-              await p.play();
+              await ctrl.play();
             }
             HapticFeedback.selectionClick();
           },
@@ -1061,9 +1061,9 @@ class _QueueSheetState extends State<QueueSheet>
         return ReorderableListView.builder(
           scrollController: widget.scrollController,
           itemCount: sequence.length,
-          onReorder: (oldIndex, newIndex) {
+          onReorder: (oldIndex, newIndex) async {
             if (oldIndex < newIndex) newIndex--;
-            showToast(context, 'Reordering not implemented in this demo');
+            await widget.ctrl.reorderQueue(oldIndex, newIndex);
           },
           itemBuilder: (context, index) {
             final item = sequence[index];

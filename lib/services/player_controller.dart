@@ -1123,7 +1123,18 @@ class PlayerController {
   }
 
   Future<void> play() async {
+    // After natural end of last track (completed, no more queued), reset to start
+    // so that the main play button reliably replays the current track.
+    if (player.processingState == ProcessingState.completed) {
+      try {
+        await player.seek(Duration.zero);
+      } catch (_) {}
+    }
     await player.play();
+  }
+
+  Future<void> pause() async {
+    await player.pause();
   }
 
   Future<void> stop() async {
@@ -1462,6 +1473,28 @@ class PlayerController {
           debugPrint("Error removing from queue: $e");
         }
       }
+    }
+  }
+
+  /// Reorder the current playback queue (supports drag-to-reorder in Now Playing list).
+  /// Keeps both the ConcatenatingAudioSource and our _sources list in sync.
+  Future<void> reorderQueue(int oldIndex, int newIndex) async {
+    if (oldIndex == newIndex) return;
+    final audioSource = player.audioSource;
+    if (audioSource is! ConcatenatingAudioSource) return;
+    if (oldIndex < 0 || oldIndex >= audioSource.length) return;
+    // Caller (ReorderableListView) conventionally does: if (old < new) new--;
+    // Clamp newIndex just in case.
+    newIndex = newIndex.clamp(0, audioSource.length - 1);
+    if (oldIndex == newIndex) return;
+    try {
+      await audioSource.move(oldIndex, newIndex);
+      if (oldIndex < _sources.length && newIndex < _sources.length) {
+        final item = _sources.removeAt(oldIndex);
+        _sources.insert(newIndex, item);
+      }
+    } catch (e) {
+      debugPrint("Error reordering queue: $e");
     }
   }
 
