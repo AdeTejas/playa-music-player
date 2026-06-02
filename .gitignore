@@ -49,3 +49,67 @@ app.*.map.json
 /android/key.properties
 *.jks
 *.keystore
+
+# Additional Flutter / build / IDE clutter (hardened)
+# Generated Flutter plugin registration
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata
+
+# Build outputs (ensure all variants ignored)
+**/build/
+build/
+*.apk
+*.aab
+*.app
+*.dSYM/
+*.xcarchive/
+
+# Logs and diagnostic dumps
+*.log
+logcat*.txt
+logcat_*.txt
+*.hprof
+
+# Temp / reference screenshots and large junk in root
+Screenshot*
+*Screenshot*
+roci.*
+wood.jpg
+reference_turntable.jpg
+test.txt
+*BACKUP*
+*bckup*
+
+# IDE / editor backups and project files we don't want
+*.iml
+*.ipr
+*.iws
+*.code-workspaceBACKUP*
+*.code-workspacebckup*
+playa_clean.code-workspaceBACKUP*
+playa_clean.code-workspacebckup*
+
+# Large media that shouldn't be in source (move to LFS or docs/ if needed)
+*.psd
+*.ai
+large_assets/
+
+# OS / editor
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.swp
+*.swo
+*~
+
+# Dart / pub specific extras
+.dart_tool/
+.pub-cache/
+.pub/
+.packages
+pubspec.lock  # usually commit lock, but uncomment if you want to ignore (not recommended)
+
+# Keep pubspec.lock committed for reproducible builds - comment above if needed
+# (pubspec.lock is intentionally committed)
