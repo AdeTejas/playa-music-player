@@ -109,7 +109,4 @@ $RECYCLE.BIN/
 .pub-cache/
 .pub/
 .packages
-pubspec.lock  # usually commit lock, but uncomment if you want to ignore (not recommended)
-
-# Keep pubspec.lock committed for reproducible builds - comment above if needed
-# (pubspec.lock is intentionally committed)
+# pubspec.lock is intentionally committed (for reproducible builds across team/CI)
