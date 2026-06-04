@@ -32,6 +32,7 @@ class SettingsService extends ChangeNotifier {
     'Neon Pink':      0xFFF472B6,    // ~329° pink
     'Rose':           0xFFFB7185,    // ~351° rose
     'Crimson':        0xFFBE123C,    // ~345° crimson
+    'Coruscant Paint': 0xFFFF9F40,   // Jedi Survivor BD-1 / weapon material - warm neon city light (Coruscant underworld)
   };
 
   SettingsService._();
@@ -55,7 +56,7 @@ class SettingsService extends ChangeNotifier {
   int _sleepFadeSeconds = 10;
   bool _replayGainEnabled = false;
   bool _smartVolumeLimiterEnabled = false;
-  int _accentColor = 0xFF00E5FF; // Default (Stellar Cyan)
+  int _accentColor = 0xFFFF9F40; // Default (Jedi Survivor Coruscant Paint)
   String _themeMode = themeClassic;
 
   // Turntable settings
@@ -485,9 +486,9 @@ class SettingsService extends ChangeNotifier {
     await setAudioFocusMode('pause');
 
     // Appearance
-    await setAccentColor(0xFF00E5FF);
+    await setAccentColor(0xFFFF9F40); // Jedi Survivor Coruscant Paint
     await setThemeMode(themeClassic);
-    await setGlowColor(0xFF00E5FF);
+    await setGlowColor(0xFFFF9F40);
     await setVinylColor(0xFF1A1A1A);
     await setPlinthColor(0xFF2A2A2A);
 

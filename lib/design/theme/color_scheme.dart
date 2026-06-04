@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../tokens/colors.dart';
 
 ColorScheme playaColorScheme(Color primary) {
+  // Jedi Survivor Coruscant Paint inspired: primary is the warm neon city light.
+  // Derives holo (secondary) and structure (tertiary) accents.
   final primaryHsl = HSLColor.fromColor(primary);
 
   final secondaryHue = (primaryHsl.hue + 30) % 360;

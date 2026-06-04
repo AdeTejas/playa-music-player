@@ -15,7 +15,7 @@ class HighTechSpeaker extends StatefulWidget {
     this.bpm,
     this.position,
     this.volume = 1.0,
-    this.accentColor = const Color(0xFF00E5FF), // default to main accent (Stellar Cyan)
+    this.accentColor = const Color(0xFFFF9F40), // default Jedi Survivor Coruscant Paint accent
   });
 
   @override

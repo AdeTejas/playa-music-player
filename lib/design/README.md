@@ -10,7 +10,7 @@
 ```
 lib/design/
 ├── tokens/
-│   ├── colors.dart          # Semantic color system (single source of truth)
+│   ├── colors.dart          # Semantic color system (Jedi Survivor Coruscant Paint inspired)
 │   ├── spacing.dart
 │   ├── radii.dart
 │   ├── effects.dart         # Glass variants, shadows

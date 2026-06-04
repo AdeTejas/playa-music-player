@@ -4,6 +4,10 @@ import 'package:flutter/material.dart';
 ///
 /// This is the single source of truth for all colors in the app.
 /// Never use raw Color(0xFF...) values outside of this file.
+///
+/// Inspired by Star Wars Jedi: Survivor Coruscant "paint" material and environment:
+/// dark metallic architecture with vibrant warm orange/amber neon city lights,
+/// cool cyan holo accents, rainy night atmosphere, reflective surfaces.
 class PlayaColors {
   const PlayaColors._();
 
@@ -22,8 +26,8 @@ class PlayaColors {
   static const Color onSurface2 = onSurfaceVariant;
 
   // ==================== ACCENT ====================
-  // Default accent (can be overridden at runtime via ThemeExtension)
-  static const Color accent = Color(0xFF00E5FF);
+  // Default accent (Jedi Survivor "Coruscant Paint" material - warm neon for city lights)
+  static const Color accent = Color(0xFFFF9F40);
 
   // ==================== GLASS SYSTEM ====================
   /// Light glass overlay (used for subtle highlights)
