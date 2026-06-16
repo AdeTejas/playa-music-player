@@ -405,7 +405,7 @@ class _ShellState extends State<_Shell> {
               body: IndexedStack(
                 index: _tab,
                 children: [
-                  const LibraryPage(),
+                  LibraryPage(isVisible: _tab == 0),
                   PlayerScreen(isVisible: _tab == 1),
                 ],
               ),

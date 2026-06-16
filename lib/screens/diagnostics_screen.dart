@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../services/database_service.dart';
+import '../services/settings_service.dart';
 import '../services/library_scan_service.dart';
 import '../services/perf_metrics_service.dart';
 import '../ui/tokens.dart';
@@ -76,6 +77,8 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
       '  bookmarkKey: ${player.activeBookmarkKey.isEmpty ? '-' : player.activeBookmarkKey}',
       '  bookmarkCount: ${player.bookmarks.length}',
       '  lastBookmarkError: ${player.lastBookmarkError.isEmpty ? '-' : player.lastBookmarkError}',
+      '  contentMode: ${player.currentContentMode.name}',
+      '  libraryBrowseFilter: ${SettingsService.instance.libraryBrowseFilter.label}',
       '  androidAudioSessionId: ${Platform.isAndroid ? (player.player.androidAudioSessionId ?? 0) : 'N/A'}',
       '  lastPlaybackErrorAt: ${player.lastPlaybackErrorAt?.toIso8601String() ?? '-'}',
       '  lastPlaybackError: ${player.lastPlaybackError ?? '-'}',

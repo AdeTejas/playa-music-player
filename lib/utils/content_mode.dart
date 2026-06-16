@@ -44,6 +44,16 @@ class ContentModeDetector {
     'opus',
   };
 
+  static const Set<String> audiobookMetadataHints = {
+    'audiobook',
+    'unabridged',
+    'spoken word',
+    'podcast',
+    'podcasts',
+    'podcasting',
+    'episode',
+  };
+
   static const Set<String> musicGenreHints = {
     'rock',
     'pop',
@@ -74,15 +84,16 @@ class ContentModeDetector {
     final artist = (item.artist ?? '').trim().toLowerCase();
     final genre = (item.genre ?? '').trim().toLowerCase();
 
-    if (_extensionOf(path) == 'm4b') return ContentMode.audiobook;
-    if (durationMs >= audiobookMinDurationMs) return ContentMode.audiobook;
-
-    if (album.contains('audiobook') ||
-        album.contains('unabridged') ||
-        album.contains('spoken word') ||
-        artist.contains('narrator')) {
+    if (_metadataSuggestsAudiobook(
+      album: album,
+      artist: artist,
+      title: item.title.trim().toLowerCase(),
+      path: path,
+    )) {
       return ContentMode.audiobook;
     }
+
+    if (durationMs >= audiobookMinDurationMs) return ContentMode.audiobook;
 
     if (genre.isNotEmpty && musicGenreHints.any(genre.contains)) {
       return ContentMode.music;
@@ -115,15 +126,16 @@ class ContentModeDetector {
     final album = (song.album ?? '').trim().toLowerCase();
     final artist = (song.artist ?? '').trim().toLowerCase();
 
-    if (_extensionOf(path) == 'm4b') return ContentMode.audiobook;
-    if (durationMs >= audiobookMinDurationMs) return ContentMode.audiobook;
-
-    if (album.contains('audiobook') ||
-        album.contains('unabridged') ||
-        album.contains('spoken word') ||
-        artist.contains('narrator')) {
+    if (_metadataSuggestsAudiobook(
+      album: album,
+      artist: artist,
+      title: song.title.trim().toLowerCase(),
+      path: path,
+    )) {
       return ContentMode.audiobook;
     }
+
+    if (durationMs >= audiobookMinDurationMs) return ContentMode.audiobook;
 
     if (durationMs > 0 && durationMs < 8 * 60 * 1000) {
       return ContentMode.music;
@@ -132,6 +144,27 @@ class ContentModeDetector {
     if (durationMs >= 20 * 60 * 1000) return ContentMode.audiobook;
 
     return ContentMode.music;
+  }
+
+  static bool _metadataSuggestsAudiobook({
+    required String album,
+    required String artist,
+    required String title,
+    required String path,
+  }) {
+    if (_extensionOf(path) == 'm4b') return true;
+
+    if (artist.contains('narrator')) return true;
+
+    for (final hint in audiobookMetadataHints) {
+      if (album.contains(hint) ||
+          artist.contains(hint) ||
+          title.contains(hint)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /// Stable key for multi-file books / series resume.

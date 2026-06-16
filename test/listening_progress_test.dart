@@ -134,6 +134,26 @@ void main() {
     expect(key1, 'james s. a. corey::leviathan wakes');
   });
 
+  test('delete removes series from recent listening', () async {
+    const seriesKey = 'host::weekly show';
+    await ListeningProgressRepository.instance.recordFromPlayback(
+      seriesKey: seriesKey,
+      title: 'Weekly Show',
+      artist: 'Host',
+      songPath: '/podcasts/weekly/ep01.mp3',
+      positionMs: 60000,
+      contentMode: ContentMode.audiobook,
+    );
+
+    var recent = await ListeningProgressRepository.instance.getRecent();
+    expect(recent.any((p) => p.seriesKey == seriesKey), isTrue);
+
+    await ListeningProgressRepository.instance.delete(seriesKey);
+
+    recent = await ListeningProgressRepository.instance.getRecent();
+    expect(recent.any((p) => p.seriesKey == seriesKey), isFalse);
+  });
+
   test('library browse filter separates long-form from short tracks', () {
     final audiobook = _song(
       id: 10,

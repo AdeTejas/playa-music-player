@@ -27,7 +27,10 @@ import '../design/design_system.dart';
 import '../ui/tokens.dart';
 
 class LibraryPage extends StatefulWidget {
-  const LibraryPage({super.key});
+  final bool isVisible;
+
+  const LibraryPage({super.key, this.isVisible = true});
+
   @override
   State<LibraryPage> createState() => _LibraryPageState();
 }
@@ -61,6 +64,14 @@ class _LibraryPageState extends State<LibraryPage> {
     _bootstrap();
   }
 
+  @override
+  void didUpdateWidget(LibraryPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isVisible && !oldWidget.isVisible) {
+      _loadContinueListening();
+    }
+  }
+
   void _onScanChanged() {
     if (!mounted) return;
     final scan = LibraryScanService.instance;
@@ -85,8 +96,13 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   void _onSettingsChanged() {
-    if (mounted) setState(() {});
-    _loadSongs();
+    if (!mounted) return;
+    final resorted = LibraryScanService.instance.sortSongs(_allSongs);
+    setState(() {
+      _allSongs = resorted;
+      _songs = _computeFiltered(_searchCtrl.text);
+    });
+    _loadContinueListening();
   }
 
   Future<void> _bootstrap() async {
@@ -155,13 +171,31 @@ class _LibraryPageState extends State<LibraryPage> {
           await ServiceLocator.instance.playerController.getRecentListening();
       if (!mounted) return;
       setState(() {
-        _continueListening =
-            items
-                .where((p) => p.positionMs >= 30 * 1000)
-                .take(6)
-                .toList();
+        _continueListening = _filterContinueListening(items);
       });
     } catch (_) {}
+  }
+
+  List<ListeningProgress> _filterContinueListening(List<ListeningProgress> items) {
+    final browseFilter = SettingsService.instance.libraryBrowseFilter;
+
+    return items
+        .where((p) => p.positionMs >= 30 * 1000)
+        .where((p) {
+          if (browseFilter == LibraryBrowseFilter.all) return true;
+          if (browseFilter == LibraryBrowseFilter.audiobook) {
+            return p.contentMode == ContentMode.audiobook;
+          }
+          return p.contentMode == ContentMode.music;
+        })
+        .take(6)
+        .toList();
+  }
+
+  Future<void> _dismissContinueListening(String seriesKey) async {
+    await ServiceLocator.instance.playerController
+        .dismissListeningProgress(seriesKey);
+    await _loadContinueListening();
   }
 
   String _emptyLibraryMessage() {
@@ -1073,6 +1107,7 @@ class _LibraryPageState extends State<LibraryPage> {
                       showToast(context, 'Resuming where you left off');
                     }
                   },
+                  onDismiss: (seriesKey) => _dismissContinueListening(seriesKey),
                 ),
 
               Expanded(

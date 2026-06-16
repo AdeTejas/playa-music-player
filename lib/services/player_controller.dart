@@ -784,6 +784,11 @@ class PlayerController {
   Future<List<ListeningProgress>> getRecentListening() =>
       ListeningProgressRepository.instance.getRecent();
 
+  Future<void> dismissListeningProgress(String seriesKey) async {
+    if (seriesKey.isEmpty) return;
+    await ListeningProgressRepository.instance.delete(seriesKey);
+  }
+
   void _prefetchNeighborArtwork() {
     // Artwork cache is Android-only (MediaStore).
     if (!Platform.isAndroid) return;

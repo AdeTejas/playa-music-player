@@ -106,6 +106,9 @@ class LibraryScanService extends ChangeNotifier {
   }
 
   /// Client-side sort that respects current library sort settings.
+  List<oaq.SongModel> sortSongs(List<oaq.SongModel> songs) =>
+      _sortSongs(songs);
+
   /// This is essential for Windows (native sort not supported) and acts as
   /// a safety net for other platforms.
   List<oaq.SongModel> _sortSongs(List<oaq.SongModel> songs) {

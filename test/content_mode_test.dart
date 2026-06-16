@@ -36,6 +36,22 @@ void main() {
       );
     });
 
+    test('detects podcast metadata as audiobook', () {
+      final item = MediaItem(
+        id: '/podcasts/show/ep12.mp3',
+        title: 'Episode 12: Deep Dive',
+        album: 'My Favorite Podcast',
+        artist: 'Host Name',
+        duration: const Duration(minutes: 35),
+        extras: {'path': '/podcasts/show/ep12.mp3'},
+      );
+
+      expect(
+        ContentModeDetector.detectFromMediaItem(item),
+        ContentMode.audiobook,
+      );
+    });
+
     test('detects short tracks as music', () {
       final item = MediaItem(
         id: '/music/song.mp3',

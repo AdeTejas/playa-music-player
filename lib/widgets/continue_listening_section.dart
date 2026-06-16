@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
+import '../design/design_system.dart';
 import '../models/listening_progress.dart';
 import '../services/player_controller.dart';
-import '../ui/tokens.dart';
+import '../utils/content_mode.dart';
 
 class ContinueListeningSection extends StatelessWidget {
   final List<ListeningProgress> items;
   final PlayerController ctrl;
   final List<dynamic> librarySongs;
   final VoidCallback? onResume;
+  final Future<void> Function(String seriesKey)? onDismiss;
 
   const ContinueListeningSection({
     super.key,
@@ -17,6 +19,7 @@ class ContinueListeningSection extends StatelessWidget {
     required this.ctrl,
     required this.librarySongs,
     this.onResume,
+    this.onDismiss,
   });
 
   @override
@@ -73,6 +76,9 @@ class ContinueListeningSection extends StatelessWidget {
                   );
                   onResume?.call();
                 },
+                onDismiss: onDismiss == null
+                    ? null
+                    : () => onDismiss!(item.seriesKey),
               );
             },
           ),
@@ -87,18 +93,22 @@ class _ContinueCard extends StatelessWidget {
   final ListeningProgress progress;
   final Color accent;
   final VoidCallback onTap;
+  final Future<void> Function()? onDismiss;
 
   const _ContinueCard({
     required this.progress,
     required this.accent,
     required this.onTap,
+    this.onDismiss,
   });
 
   @override
   Widget build(BuildContext context) {
     final subtitle = progress.artist?.trim().isNotEmpty == true
         ? progress.artist!
-        : _formatResumeTime(progress.positionMs);
+        : (progress.contentMode == ContentMode.audiobook
+            ? 'Audiobook'
+            : 'Music');
 
     return SizedBox(
       width: 220,
@@ -110,7 +120,7 @@ class _ContinueCard extends StatelessWidget {
           child: GlassPanel(
             borderRadius: BorderRadius.circular(PlayaRadii.md),
             borderColor: accent.withValues(alpha: 0.25),
-            backgroundColor: kColorGlassBlackTint,
+            backgroundColor: PlayaColors.glass,
             child: Padding(
               padding: const EdgeInsets.all(PlayaSpacing.sm * 1.5),
               child: Column(
@@ -124,6 +134,22 @@ class _ContinueCard extends StatelessWidget {
                         size: 28,
                       ),
                       const Spacer(),
+                      if (onDismiss != null)
+                        IconButton(
+                          tooltip: 'Remove',
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 28,
+                            minHeight: 28,
+                          ),
+                          icon: Icon(
+                            Icons.close,
+                            size: 16,
+                            color: PlayaColors.onSurfaceVariant,
+                          ),
+                          onPressed: () => onDismiss!(),
+                        ),
                       Text(
                         _formatResumeTime(progress.positionMs),
                         style: TextStyle(

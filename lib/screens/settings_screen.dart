@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../services/settings_service.dart';
 import '../services/library_scan_service.dart';
+import '../utils/content_mode.dart';
 import 'diagnostics_screen.dart';
 import '../ui/tokens.dart';
 import '../design/design_system.dart';
@@ -245,6 +246,36 @@ class SettingsScreen extends StatelessWidget {
               const SizedBox(height: PlayaSpacing.lg),
 
               _buildSectionHeader('Library'),
+              AnimatedBuilder(
+                animation: settings,
+                builder: (context, _) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: PlayaSpacing.sm),
+                    child: PlayaSettingsTile(
+                      leading: const Icon(PhosphorIconsBold.funnel),
+                      title: const Text('Default Browse Filter'),
+                      subtitle: Text(settings.libraryBrowseFilter.label),
+                      trailing: DropdownButton<LibraryBrowseFilter>(
+                        value: settings.libraryBrowseFilter,
+                        dropdownColor: PlayaColors.surface,
+                        underline: const SizedBox(),
+                        items: LibraryBrowseFilter.values
+                            .map(
+                              (f) => DropdownMenuItem(
+                                value: f,
+                                child: Text(f.label),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (v) {
+                          if (v != null) settings.setLibraryBrowseFilter(v);
+                        },
+                      ),
+                      showDivider: false,
+                    ),
+                  );
+                },
+              ),
               ListTile(
                 leading: const Icon(PhosphorIconsBold.arrowsClockwise),
                 title: const Text('Rescan Library'),
