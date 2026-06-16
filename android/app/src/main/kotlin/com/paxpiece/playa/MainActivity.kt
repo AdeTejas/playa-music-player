@@ -1,7 +1,6 @@
 package com.paxpiece.playa
 
 import android.media.audiofx.Equalizer
-import androidx.annotation.NonNull
 import com.ryanheise.audioservice.AudioServiceActivity
 import com.paxpiece.playa.sonic.PcmDecode
 import com.paxpiece.playa.sonic.SonicDnaAnalyzer
@@ -13,7 +12,7 @@ class MainActivity : AudioServiceActivity() {
     private val SONIC_CHANNEL = "com.paxpiece.playa/sonic_dna"
     private var equalizer: Equalizer? = null
 
-    override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             try {

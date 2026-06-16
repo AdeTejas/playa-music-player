@@ -63,6 +63,31 @@ class SettingsScreen extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(bottom: PlayaSpacing.sm),
                 child: PlayaSettingsTile(
+                  leading: const Icon(PhosphorIconsBold.arrowsClockwise),
+                  title: 'Seek Skip',
+                  subtitle: '±${settings.seekSkipSeconds}s on skip buttons',
+                  trailing: DropdownButton<int>(
+                    value: settings.seekSkipSeconds,
+                    dropdownColor: PlayaColors.surface,
+                    underline: const SizedBox(),
+                    items: SettingsService.seekSkipOptions
+                        .map(
+                          (v) => DropdownMenuItem(
+                            value: v,
+                            child: Text('${v}s'),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null) settings.setSeekSkipSeconds(v);
+                    },
+                  ),
+                  showDivider: false,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: PlayaSpacing.sm),
+                child: PlayaSettingsTile(
                   leading: const Icon(PhosphorIconsBold.waveSine),
                   title: 'Crossfade',
                   subtitle: settings.crossfadeSeconds == 0
@@ -208,7 +233,7 @@ class SettingsScreen extends StatelessWidget {
                           settings: settings,
                           value: SettingsService.themeAlbumArt,
                           label: 'Album Art',
-                          description: 'Colors from cover',
+                          description: 'Dominant cover color',
                           icon: PhosphorIconsBold.imageSquare,
                         ),
                       ],
@@ -323,8 +348,7 @@ class SettingsScreen extends StatelessWidget {
     required IconData icon,
   }) {
     final isSelected = settings.themeMode == value;
-    final rawAccent = Color(settings.accentColor);
-    final accent = settings.resolveAccentColor(rawAccent);
+    final accent = settings.accentFor();
 
     return Expanded(
       child: GestureDetector(

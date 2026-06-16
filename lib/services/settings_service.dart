@@ -1,11 +1,14 @@
 import 'dart:io';
-import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+
+import '../utils/accent_hue.dart';
+import '../utils/content_mode.dart';
+import 'album_art_accent_service.dart';
 
 class SettingsService extends ChangeNotifier {
   static final SettingsService _instance = SettingsService._();
@@ -15,25 +18,26 @@ class SettingsService extends ChangeNotifier {
   static const String themeNeon = 'neon';
   static const String themeAlbumArt = 'albumArt';
 
+  /// Accent presets — each hue separated by ≥22° on the color wheel.
   static const Map<String, int> colorPresets = {
-    // Curated for better hue spread (culled near-duplicates from original set)
-    'Ruby Red':       0xFFDC2626,    // ~0° deep red
-    'Blaze Orange':   0xFFF97316,    // ~25° orange
-    'Solar Gold':     0xFFFACC15,    // ~48° gold
-    'Lime Shock':     0xFFA3E635,    // ~83° lime
-    'Acid Green':     0xFF22C55E,    // ~142° green
-    'Jade':           0xFF10B981,    // ~160° jade (kept for green spread)
-    'Arctic Teal':    0xFF14B8A6,    // ~173° teal
-    'Stellar Cyan':   0xFF00E5FF,    // ~186° cyan (default)
-    'Ocean Blue':     0xFF0EA5E9,    // ~199° blue
-    'Electric Indigo':0xFF6366F1,    // ~239° indigo
-    'Nebula Purple':  0xFFA855F7,    // ~271° purple
-    'Magenta':        0xFFD946EF,    // ~292° magenta
-    'Neon Pink':      0xFFF472B6,    // ~329° pink
-    'Rose':           0xFFFB7185,    // ~351° rose
-    'Crimson':        0xFFBE123C,    // ~345° crimson
-    'Coruscant Paint': 0xFFFF9F40,   // Jedi Survivor BD-1 / weapon material - warm neon city light (Coruscant underworld)
+    'Ruby Red':        0xFFDC2626, // ~0°
+    'Coruscant Paint': 0xFFFF9F40, // ~33° default
+    'Lime Shock':      0xFF84CC16, // ~84°
+    'Acid Green':      0xFF22C55E, // ~142°
+    'Arctic Teal':     0xFF14B8A6, // ~174°
+    'Ocean Blue':      0xFF0EA5E9, // ~199°
+    'Electric Indigo': 0xFF6366F1, // ~239°
+    'Nebula Purple':   0xFFA855F7, // ~271°
+    'Magenta':         0xFFC026D3, // ~305°
+    'Neon Pink':       0xFFF472B6, // ~330°
   };
+
+  static void _validatePresetHues() {
+    assert(() {
+      AccentHue.assertDistinctPresets(colorPresets);
+      return true;
+    }());
+  }
 
   SettingsService._();
 
@@ -54,6 +58,7 @@ class SettingsService extends ChangeNotifier {
   bool _gaplessPlayback = true;
   int _crossfadeSeconds = 0;
   int _sleepFadeSeconds = 10;
+  int _seekSkipSeconds = 10;
   bool _replayGainEnabled = false;
   bool _smartVolumeLimiterEnabled = false;
   int _accentColor = 0xFFFF9F40; // Default (Jedi Survivor Coruscant Paint)
@@ -66,6 +71,7 @@ class SettingsService extends ChangeNotifier {
   String _librarySortType =
       'DATE_ADDED'; // 'TITLE', 'ARTIST', 'ALBUM', 'DATE_ADDED'
   int _librarySortOrder = 0; // 0: ASC, 1: DESC
+  LibraryBrowseFilter _libraryBrowseFilter = LibraryBrowseFilter.all;
 
   // Windows scan settings
   List<String> _windowsScanFolders = const <String>[];
@@ -85,13 +91,13 @@ class SettingsService extends ChangeNotifier {
 
   // Control chips ordering
   List<String> _controlChipOrder = const <String>[
+    'speed',
+    'bookmark',
     'shuffle',
     'repeat',
     'neural_mix',
-    'speed',
-    'screensaver',
-    'bookmark',
     'lyrics',
+    'screensaver',
   ];
 
   // Theme customization colors
@@ -111,6 +117,9 @@ class SettingsService extends ChangeNotifier {
   bool get gaplessPlayback => _gaplessPlayback;
   int get crossfadeSeconds => _crossfadeSeconds;
   int get sleepFadeSeconds => _sleepFadeSeconds;
+  int get seekSkipSeconds => _seekSkipSeconds;
+
+  static const List<int> seekSkipOptions = [5, 10, 15, 20, 30, 45, 60];
   bool get replayGainEnabled => _replayGainEnabled;
   bool get smartVolumeLimiterEnabled => _smartVolumeLimiterEnabled;
   int get accentColor => _accentColor;
@@ -123,6 +132,7 @@ class SettingsService extends ChangeNotifier {
   bool get turntableNeedleDropEnabled => _turntableNeedleDropEnabled;
   String get librarySortType => _librarySortType;
   int get librarySortOrder => _librarySortOrder;
+  LibraryBrowseFilter get libraryBrowseFilter => _libraryBrowseFilter;
   List<String> get windowsScanFolders => List.unmodifiable(_windowsScanFolders);
   bool get windowsScanRecursive => _windowsScanRecursive;
   List<String> get windowsScanExtensions =>
@@ -160,11 +170,17 @@ class SettingsService extends ChangeNotifier {
     _gaplessPlayback = _prefs.getBool('gaplessPlayback') ?? true;
     _crossfadeSeconds = _prefs.getInt('crossfadeSeconds') ?? 0;
     _sleepFadeSeconds = (_prefs.getInt('sleepFadeSeconds') ?? 10).clamp(0, 30);
+    _seekSkipSeconds = _prefs.getInt('seekSkipSeconds') ?? 10;
+    if (!seekSkipOptions.contains(_seekSkipSeconds)) {
+      _seekSkipSeconds = 10;
+    }
     _replayGainEnabled = _prefs.getBool('replayGainEnabled') ?? false;
     _smartVolumeLimiterEnabled =
         _prefs.getBool('smartVolumeLimiterEnabled') ?? false;
-    _accentColor = _prefs.getInt('accentColor') ?? 0xFF00E5FF;
+    _accentColor = _prefs.getInt('accentColor') ?? 0xFFFF9F40;
     _themeMode = _prefs.getString('themeMode') ?? themeClassic;
+    _validatePresetHues();
+    AlbumArtAccentService.instance.addListener(notifyListeners);
 
     _turntablePerfTier = (_prefs.getInt('turntablePerfTier') ?? 2).clamp(0, 2);
     _turntableSlipmatEnabled =
@@ -174,6 +190,9 @@ class SettingsService extends ChangeNotifier {
     _librarySortType = _prefs.getString('librarySortType') ?? 'DATE_ADDED';
     _librarySortOrder =
         _prefs.getInt('librarySortOrder') ?? 1; // Default DESC for Date Added
+    _libraryBrowseFilter = LibraryBrowseFilter.fromName(
+      _prefs.getString('libraryBrowseFilter'),
+    );
 
     _windowsScanFolders =
         _prefs.getStringList('windowsScanFolders') ?? const <String>[];
@@ -191,7 +210,7 @@ class SettingsService extends ChangeNotifier {
           'bookmark',
           'lyrics',
         ];
-    _glowColor = _prefs.getInt('glowColor') ?? 0xFF00E5FF;
+    _glowColor = _prefs.getInt('glowColor') ?? 0xFFFF9F40;
     _vinylColor = _prefs.getInt('vinylColor') ?? 0xFF1A1A1A;
     _plinthColor = _prefs.getInt('plinthColor') ?? 0xFF2A2A2A;
 
@@ -223,6 +242,13 @@ class SettingsService extends ChangeNotifier {
     final v = seconds.clamp(0, 30);
     _sleepFadeSeconds = v;
     await _prefs.setInt('sleepFadeSeconds', v);
+    notifyListeners();
+  }
+
+  Future<void> setSeekSkipSeconds(int seconds) async {
+    if (!seekSkipOptions.contains(seconds)) return;
+    _seekSkipSeconds = seconds;
+    await _prefs.setInt('seekSkipSeconds', seconds);
     notifyListeners();
   }
 
@@ -306,8 +332,13 @@ class SettingsService extends ChangeNotifier {
   }
 
   Future<void> setAccentColor(int value) async {
-    _accentColor = value;
-    await _prefs.setInt('accentColor', value);
+    final picked = Color(value);
+    final others = colorPresets.values
+        .where((v) => v != value)
+        .map((v) => Color(v));
+    final distinct = AccentHue.ensureDistinct(picked, avoid: others);
+    _accentColor = distinct.toARGB32();
+    await _prefs.setInt('accentColor', _accentColor);
     notifyListeners();
   }
 
@@ -393,6 +424,12 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setLibraryBrowseFilter(LibraryBrowseFilter filter) async {
+    _libraryBrowseFilter = filter;
+    await _prefs.setString('libraryBrowseFilter', filter.name);
+    notifyListeners();
+  }
+
   Future<void> setWindowsScanFolders(List<String> folders) async {
     _windowsScanFolders = folders
         .where((p) => p.trim().isNotEmpty)
@@ -441,8 +478,12 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Resolves the final display accent color based on the current theme mode.
-  /// This is the recommended way to get the accent color for UI elements.
+  /// Raw picker accent — prefer [resolveAccentColor] for display.
+  Color get rawAccent => Color(_accentColor);
+
+  void notifyAccentCacheChanged() => notifyListeners();
+
+  /// Theme-aware accent for general UI (sliders, library via [MaterialApp] theme).
   Color resolveAccentColor(Color baseAccent, {MediaItem? item}) {
     switch (_themeMode) {
       case themeNeon:
@@ -450,18 +491,33 @@ class SettingsService extends ChangeNotifier {
         return hsv.withSaturation(1.0).withValue(1.0).toColor();
 
       case themeAlbumArt:
-        final key = item?.id ?? item?.title ?? item?.artUri?.toString() ?? baseAccent.toString();
-        final rnd = Random(key.hashCode);
-        return HSLColor.fromAHSL(
-          1.0,
-          rnd.nextDouble() * 360,
-          0.70 + rnd.nextDouble() * 0.18,
-          0.42 + rnd.nextDouble() * 0.12,
-        ).toColor();
+        if (item != null) {
+          final cached =
+              AlbumArtAccentService.instance.cachedColorFor(item.id);
+          if (cached != null) return cached;
+          AlbumArtAccentService.instance.prefetch(item);
+          return AccentHue.fallbackForItem(
+            item.id,
+            baseAccent,
+            avoid: colorPresets.values.map((v) => Color(v)),
+          );
+        }
+        return baseAccent;
 
       default:
         return baseAccent;
     }
+  }
+
+  /// Single accent path for Now Playing visuals (waveform + turntable + glow).
+  Color resolveNowPlayingAccent({MediaItem? item}) {
+    return resolveAccentColor(rawAccent, item: item);
+  }
+
+  /// Convenience: resolved accent from the stored picker value.
+  Color accentFor({MediaItem? item, bool nowPlaying = false}) {
+    if (nowPlaying) return resolveNowPlayingAccent(item: item);
+    return resolveAccentColor(rawAccent, item: item);
   }
 
   /// Resets all settings to sensible defaults.
@@ -481,6 +537,7 @@ class SettingsService extends ChangeNotifier {
     await setGaplessPlayback(true);
     await setCrossfadeSeconds(0);
     await setSleepFadeSeconds(10);
+    await setSeekSkipSeconds(10);
     await setReplayGainEnabled(false);
     await setSmartVolumeLimiterEnabled(false);
     await setAudioFocusMode('pause');

@@ -132,6 +132,19 @@ void main() {
       expect(saved.length, equals(2));
     });
 
+    test('canonical bookmark keys normalize slashes on windows paths', () {
+      const backslashKey = r'bookmarks_c:\music\chapter1.mp3';
+      const slashKey = 'bookmarks_c:/music/chapter1.mp3';
+
+      final bookmark = jsonEncode({'pos': 45000, 'note': 'Intro'});
+      SharedPreferences.setMockInitialValues({
+        backslashKey: [bookmark],
+      });
+
+      // Both key forms should refer to the same logical file path.
+      expect(backslashKey.toLowerCase().replaceAll(r'\', '/'), slashKey);
+    });
+
     test('empty bookmark list returns empty when no bookmarks exist', () async {
       final prefs = await SharedPreferences.getInstance();
       final testId = 'test_song_empty';

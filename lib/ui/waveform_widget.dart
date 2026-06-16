@@ -5,9 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 
-import '../services/settings_service.dart';
 import '../design/design_system.dart';
-
+import '../services/settings_service.dart';
+import 'torch_plume_engine.dart';
 import 'torch_ship_painter.dart';
 
 class WaveformWidget extends StatefulWidget {
@@ -197,17 +197,12 @@ class _WaveformWidgetState extends State<WaveformWidget> {
                             waveformData: _waveformData,
                             progress: currentProgress.clamp(0.0, 1.0),
                             timeSeconds: timeSeconds,
-                            playedColor: SettingsService.instance.resolveAccentColor(
-                              widget.playedColor,
-                              item: widget.item,
-                            ),
+                            playedColor: SettingsService.instance
+                                .resolveNowPlayingAccent(item: widget.item),
                             unplayedColor: widget.unplayedColor == Colors.transparent
-                                ? _resolveUnplayedColor(
-                                    widget.playedColor,
-                                    SettingsService.instance.themeMode,
-                                    widget.path,
-                                    widget.item,
-                                  )
+                                ? SettingsService.instance
+                                    .resolveNowPlayingAccent(item: widget.item)
+                                    .withValues(alpha: 0.18)
                                 : widget.unplayedColor,
                             bpm: _extractBpm(widget.item),
                             cachedPath: _cachedPath,
@@ -222,7 +217,8 @@ class _WaveformWidgetState extends State<WaveformWidget> {
                         child: Text(
                           _fmt(posSnapshot.data ?? Duration.zero),
                           style: TextStyle(
-                            color: widget.playedColor,
+                            color: SettingsService.instance
+                                .resolveNowPlayingAccent(item: widget.item),
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
                             shadows: const [
@@ -300,26 +296,6 @@ class _WaveformWidgetState extends State<WaveformWidget> {
     _pendingSeek = null;
     _lastSeekAtMs = DateTime.now().millisecondsSinceEpoch;
     widget.player.seek(pending);
-  }
-
-  Color _resolveWaveformAccent(
-    Color accent,
-    String themeMode,
-    String path,
-    MediaItem? item,
-  ) {
-    // Delegate to central resolver for consistency
-    return SettingsService.instance.resolveAccentColor(accent, item: item);
-  }
-
-  Color _resolveUnplayedColor(
-    Color accent,
-    String themeMode,
-    String path,
-    MediaItem? item,
-  ) {
-    final base = _resolveWaveformAccent(accent, themeMode, path, item);
-    return base.withValues(alpha: 0.18);
   }
 
   double? _extractBpm(MediaItem? item) {
@@ -424,7 +400,7 @@ class PreciseWaveformPainter extends CustomPainter {
     // Clip cleanly at the nozzle so the waveform appears to emerge from the thrusters
     canvas.clipRect(Rect.fromLTWH(0, 0, tailX, size.height));
 
-    // Engine plume behind the ship — amplitude-modulated by the waveform
+    // Engine plume behind the ship ÔÇö amplitude-modulated by the waveform
     _drawEnginePlume(
       canvas: canvas,
       nozzleX: tailX,
@@ -442,7 +418,7 @@ class PreciseWaveformPainter extends CustomPainter {
     final gradStartX = tailX.clamp(0.0, width);
     final gradEndX = (tailX - transitionWidth).clamp(0.0, width);
 
-    // Hotter gradient when amplitude is high — more white/cyan at the nozzle
+    // Hotter gradient when amplitude is high ÔÇö more white/cyan at the nozzle
     final hotStop = 0.25 * (1.0 - waveformAmplitude);
     final coolStop = 0.2 + 0.15 * (1.0 - waveformAmplitude);
 
@@ -508,7 +484,7 @@ class PreciseWaveformPainter extends CustomPainter {
         ..blendMode = BlendMode.plus,
     );
 
-    // 3. Turbulence / Heat Haze — intensity follows amplitude
+    // 3. Turbulence / Heat Haze ÔÇö intensity follows amplitude
     final turbulenceAlpha = (0.1 * waveformAmplitude).clamp(0.0, 1.0);
     final turbulenceShader = ui.Gradient.linear(
       Offset(tailX, 0),
@@ -530,7 +506,7 @@ class PreciseWaveformPainter extends CustomPainter {
         ..blendMode = BlendMode.overlay,
     );
 
-    // Subtle outline/stroke — brighter when loud
+    // Subtle outline/stroke ÔÇö brighter when loud
     canvas.drawPath(
       path,
       Paint()
@@ -638,10 +614,12 @@ class PreciseWaveformPainter extends CustomPainter {
     TorchShipPainter(
       height: size.height * 0.8,
       progress: progress,
-      timeSeconds: timeSeconds,
+      playbackTimeSeconds: timeSeconds,
+      animTimeSeconds: timeSeconds,
       color: playedColor,
       bpm: bpm,
       drawPlume: false,
+      budget: TorchEffectBudget.resolve(profile: TorchContentProfile.music),
     ).paint(canvas, Size(size.height * 0.8, size.height * 0.8));
     canvas.restore();
   }
@@ -708,7 +686,7 @@ class PreciseWaveformPainter extends CustomPainter {
     final haloPath = buildDrivePlume(halfWidth: haloHalfWidth, lenScale: 1.18);
     final corePath = buildDrivePlume(halfWidth: coreHalfWidth, lenScale: 0.98);
 
-    // Enhanced Nozzle Flare + Energy Burst — modulated by waveform amplitude
+    // Enhanced Nozzle Flare + Energy Burst ÔÇö modulated by waveform amplitude
     final flareIntensity = (0.9 + 0.6 * beatStrength) * ampFactor;
     final flareRadius = height * (0.09 + 0.04 * beatStrength) * ampFactor;
 

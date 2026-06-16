@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 
 import '../ui/deep_space_background.dart';
+import '../ui/screensaver_torch_cruiser.dart';
 import '../ui/tokens.dart';
 
 class ScreensaverScreen extends StatelessWidget {
@@ -22,13 +23,20 @@ class ScreensaverScreen extends StatelessWidget {
             const Positioned.fill(
               child: DeepSpaceBackground(
                 subtle: false,
+                starDensity: 0.54,
                 mode: DeepSpaceMode.background,
               ),
             ),
             const Positioned.fill(
               child: DeepSpaceBackground(
                 subtle: false,
+                starDensity: 0.54,
                 mode: DeepSpaceMode.overlay,
+              ),
+            ),
+            const Positioned.fill(
+              child: IgnorePointer(
+                child: ScreensaverTorchCruiser(),
               ),
             ),
             Positioned(

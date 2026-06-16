@@ -3,6 +3,8 @@
 *.log
 *.pyc
 *.swp
+*.swo
+*~
 .DS_Store
 .atom/
 .build/
@@ -11,67 +13,59 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
 
-# IntelliJ related
+# IntelliJ / Android Studio
 *.iml
 *.ipr
 *.iws
 .idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
+# VS Code (uncomment to ignore)
 #.vscode/
 
-# Flutter/Dart/Pub related
+# Flutter/Dart/Pub
 **/doc/api/
 **/ios/Flutter/.last_build_id
 .dart_tool/
 .flutter-plugins
 .flutter-plugins-dependencies
+.metadata
 .pub-cache/
 .pub/
+.packages
 /build/
+**/build/
 
-# Symbolication related
+# Symbolication / obfuscation
 app.*.symbols
-
-# Obfuscation related
 app.*.map.json
 
-# Android Studio will place build artifacts here
+# Android
 /android/app/debug
 /android/app/profile
 /android/app/release
-
-# Android local config / signing (never commit)
 /android/local.properties
 /android/key.properties
 *.jks
 *.keystore
-
-# Additional Flutter / build / IDE clutter (hardened)
-# Generated Flutter plugin registration
-.flutter-plugins
-.flutter-plugins-dependencies
-.metadata
-
-# Build outputs (ensure all variants ignored)
-**/build/
-build/
 *.apk
 *.aab
+
+# iOS / macOS
 *.app
 *.dSYM/
 *.xcarchive/
 
-# Logs and diagnostic dumps
-*.log
+# Logs and diagnostics
 logcat*.txt
 logcat_*.txt
 *.hprof
 
-# Temp / reference screenshots and large junk in root
+# Temp / local junk
 Screenshot*
 *Screenshot*
 roci.*
@@ -80,33 +74,17 @@ reference_turntable.jpg
 test.txt
 *BACKUP*
 *bckup*
-
-# IDE / editor backups and project files we don't want
-*.iml
-*.ipr
-*.iws
 *.code-workspaceBACKUP*
 *.code-workspacebckup*
 playa_clean.code-workspaceBACKUP*
 playa_clean.code-workspacebckup*
 
-# Large media that shouldn't be in source (move to LFS or docs/ if needed)
+# Large design assets
 *.psd
 *.ai
 large_assets/
 
-# OS / editor
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-$RECYCLE.BIN/
-*.swp
-*.swo
-*~
-
-# Dart / pub specific extras
-.dart_tool/
-.pub-cache/
-.pub/
-.packages
-# pubspec.lock is intentionally committed (for reproducible builds across team/CI)
+# Local agent / IDE tooling (not part of the app)
+agent-tools/
+mcps/
+terminals/

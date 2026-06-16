@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_album_art_description">Album art</string>
+    <string name="widget_play_pause_description">Play or pause</string>
+    <string name="widget_track_title_placeholder">Track Title</string>
+    <string name="widget_artist_placeholder">Artist Name</string>
+</resources>

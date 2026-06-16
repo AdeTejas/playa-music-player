@@ -12,8 +12,14 @@ import 'package:just_audio_background/just_audio_background.dart';
 import 'package:on_audio_query/on_audio_query.dart' as oaq;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/listening_progress.dart';
+import '../repositories/bookmark_repository.dart';
+import '../repositories/listening_progress_repository.dart';
 import '../repositories/song_repository.dart';
+import '../utils/bookmark_key.dart';
+import '../utils/content_mode.dart';
 import '../utils/replaygain_tag_reader.dart';
+import 'database_service.dart';
 import '../utils/ui_utils.dart';
 import 'analytics_service.dart';
 import 'artwork_cache_service.dart';
@@ -208,7 +214,26 @@ enum NeuralMixEnergyMode { neutral, up, down }
 class PlayerController {
   PlayerController._();
   static PlayerController? _i;
+
+  /// Returns the singleton, initializing it if necessary.
+  /// Call [ensureInitialized] in main() to guarantee _init() completes
+  /// before any playback or bookmark operations.
   static PlayerController ensure() => _i ??= PlayerController._().._init();
+
+  /// Creates (or returns) the singleton and waits for full initialisation
+  /// (audio session, stream listeners, etc.) so that bookmark operations
+  /// and playback commands are safe.
+  static Future<PlayerController> ensureInitialized() async {
+    final ctrl = ensure();
+    if (!ctrl._initCompleter.isCompleted) {
+      await ctrl._initCompleter.future;
+    }
+    return ctrl;
+  }
+
+  /// Whether [ensure] / [_init] has completed.
+  bool get isControllerInit => _initCompleter.isCompleted;
+  final _initCompleter = Completer<void>();
 
   int _lastSessionId = 0;
 
@@ -425,7 +450,8 @@ class PlayerController {
   }
 
   bool _hasLaterAlbumItem(String album, int currentIndex) {
-    final seq = player.sequenceState.sequence;
+    final seq = player.sequenceState?.sequence;
+    if (seq == null) return false;
     for (int i = currentIndex + 1; i < seq.length; i++) {
       final tag = seq[i].tag;
       if (tag is MediaItem && (tag.album ?? '') == album) return true;
@@ -434,7 +460,8 @@ class PlayerController {
   }
 
   bool _hasLaterContextItem(String type, String id, int currentIndex) {
-    final seq = player.sequenceState.sequence;
+    final seq = player.sequenceState?.sequence;
+    if (seq == null) return false;
     for (int i = currentIndex + 1; i < seq.length; i++) {
       final tag = seq[i].tag;
       if (tag is! MediaItem) continue;
@@ -644,12 +671,31 @@ class PlayerController {
       ValueNotifier(const []);
   String currentId = '';
 
-  bool get hasQueue => player.sequenceState.sequence.isNotEmpty;
+  // === Simplified bookmark key management ===
+  // We maintain ONE stable key for the currently playing track.
+  // It is set once when the track is loaded (from the MediaItem we created ourselves
+  // which already contains the planted 'bookmarkKey'). This eliminates the previous
+  // fragile re-resolution from sequenceState / _sources on every add/load, which
+  // was the root cause of "save succeeds but bookmark never appears".
+  String _currentBookmarkKey = '';
+  bool _bookmarksPrefsMigrated = false;
+  String _lastBookmarkLogKey = '';
+  int _lastBookmarkLogCount = -1;
+  String _lastBookmarkError = '';
+
+  String get activeBookmarkKey => _currentBookmarkKey;
+  String get lastBookmarkError => _lastBookmarkError;
+
+  // Back-compat alias for any external code that was reading the old name
+  @Deprecated('Use activeBookmarkKey')
+  String get _activeBookmarkKey => _currentBookmarkKey;
+
+  bool get hasQueue => player.sequenceState?.sequence.isNotEmpty ?? false;
   bool get isReady => hasQueue;
 
   MediaItem? get currentMediaItem {
     final seq = player.sequenceState;
-    if (seq.sequence.isEmpty) return null;
+    if (seq == null || seq.sequence.isEmpty) return null;
     final i = player.currentIndex ?? 0;
     final clamped = i.clamp(0, seq.sequence.length - 1);
     final src = seq.sequence[clamped];
@@ -657,11 +703,92 @@ class PlayerController {
     return tag is MediaItem ? tag : null;
   }
 
+  ContentMode get currentContentMode =>
+      ContentModeDetector.detectFromMediaItem(currentMediaItem);
+
+  String get currentSeriesKey =>
+      ContentModeDetector.seriesKeyForMediaItem(currentMediaItem);
+
+  int get skipIntervalSeconds => SettingsService.instance.seekSkipSeconds;
+
+  Future<void> skipBackward() async {
+    if (!isReady) return;
+    final pos = player.position;
+    final delta = Duration(seconds: skipIntervalSeconds);
+    final newPos = pos - delta;
+    await player.seek(newPos.isNegative ? Duration.zero : newPos);
+  }
+
+  Future<void> skipForward() async {
+    if (!isReady) return;
+    await player.seek(player.position + Duration(seconds: skipIntervalSeconds));
+  }
+
+  Future<void> setPlaybackSpeed(double speed) async {
+    await setSpeed(speed.clamp(0.5, 3.0));
+  }
+
+  List<oaq.SongModel> songsInSeries(
+    String seriesKey,
+    List<oaq.SongModel> library,
+  ) {
+    if (seriesKey.isEmpty) return const [];
+    final matches =
+        library
+            .where(
+              (s) => ContentModeDetector.seriesKeyForSong(s) == seriesKey,
+            )
+            .toList();
+    matches.sort((a, b) {
+      final ta = a.track ?? 0;
+      final tb = b.track ?? 0;
+      if (ta != tb) return ta.compareTo(tb);
+      return a.title.compareTo(b.title);
+    });
+    return matches;
+  }
+
+  Future<void> resumeListeningProgress(
+    ListeningProgress progress,
+    List<oaq.SongModel> library, {
+    bool autoPlay = true,
+  }) async {
+    final seriesSongs = songsInSeries(progress.seriesKey, library);
+    oaq.SongModel? target;
+
+    if (seriesSongs.length > 1) {
+      var index = seriesSongs.indexWhere(
+        (s) => s.data == progress.lastSongPath,
+      );
+      if (index < 0) index = 0;
+      await replaceQueue(seriesSongs, initialIndex: index, autoPlay: autoPlay);
+    } else {
+      try {
+        target = library.firstWhere((s) => s.data == progress.lastSongPath);
+      } catch (_) {
+        if (progress.lastMediaId != null) {
+          try {
+            target = library.firstWhere((s) => s.id == progress.lastMediaId);
+          } catch (_) {}
+        }
+      }
+      if (target == null) return;
+      await replaceQueue([target], autoPlay: autoPlay);
+    }
+
+    if (progress.positionMs > 0) {
+      await player.seek(Duration(milliseconds: progress.positionMs));
+    }
+  }
+
+  Future<List<ListeningProgress>> getRecentListening() =>
+      ListeningProgressRepository.instance.getRecent();
+
   void _prefetchNeighborArtwork() {
     // Artwork cache is Android-only (MediaStore).
     if (!Platform.isAndroid) return;
     final seq = player.sequenceState;
-    if (seq.sequence.isEmpty) return;
+    if (seq == null || seq.sequence.isEmpty) return;
     final i = player.currentIndex;
     if (i == null) return;
 
@@ -748,20 +875,38 @@ class PlayerController {
       }
     });
 
-    player.currentIndexStream.listen((_) async {
+    player.currentIndexStream.listen((index) async {
       final tag = currentMediaItem;
-      if (tag == null) return;
-      currentId = tag.id;
+      final idx = index ?? player.currentIndex ?? 0;
+
+      // Only update the bookmark key when we have a real MediaItem.
+      // We set a stable key once per track instead of re-resolving constantly.
+      var keyResolved = false;
+      if (tag != null) {
+        _setCurrentBookmarkKey(tag);
+        keyResolved = true;
+      } else if (idx >= 0 && idx < _sources.length) {
+        final src = _sources[idx];
+        if (src.tag is MediaItem) {
+          _setCurrentBookmarkKey(src.tag as MediaItem);
+          keyResolved = true;
+        } else if (src.uri.scheme == 'file') {
+          _setCurrentBookmarkKey(null, fallbackUri: src.uri.toFilePath());
+          keyResolved = true;
+        }
+      }
 
       _prefetchNeighborArtwork();
 
       // Update Last Played
-      final songId = tag.extras?['songId']?.toString();
+      final songId = tag?.extras?['songId']?.toString();
       if (songId != null) {
         SongRepository.instance.updateLastPlayed(songId).catchError((_) {});
       }
 
-      await _loadBookmarks();
+      if (keyResolved) {
+        await _loadBookmarks();
+      }
       _saveState();
 
       // Smart Volume (ReplayGain + limiter) per-track.
@@ -818,6 +963,8 @@ class PlayerController {
         }
       },
     );
+
+    _initCompleter.complete();
   }
 
   Future<void> _saveState() async {
@@ -828,11 +975,38 @@ class PlayerController {
     if (mediaId is int) {
       await prefs.setInt('last_song_original_id', mediaId);
     }
-    await prefs.setInt('last_position_ms', player.position.inMilliseconds);
+    final positionMs = player.position.inMilliseconds;
+    await prefs.setInt('last_position_ms', positionMs);
+
+    final mode = ContentModeDetector.detectFromMediaItem(tag);
+    final seriesKey = ContentModeDetector.seriesKeyForMediaItem(tag);
+    if (seriesKey.isEmpty) return;
+
+    final path = (tag.extras?['path'] as String?) ?? tag.id;
+    await ListeningProgressRepository.instance.recordFromPlayback(
+      seriesKey: seriesKey,
+      title: ContentModeDetector.displayTitleForSeries(tag),
+      artist: tag.artist,
+      songPath: path,
+      mediaId: mediaId is int ? mediaId : null,
+      positionMs: positionMs,
+      contentMode: mode,
+    );
   }
 
   Future<void> restoreState(List<oaq.SongModel> allSongs) async {
     if (hasQueue) return; // Don't restore if already playing (e.g. hot reload)
+
+    final recent = await ListeningProgressRepository.instance.getRecent(limit: 1);
+    if (recent.isNotEmpty) {
+      try {
+        await resumeListeningProgress(recent.first, allSongs, autoPlay: false);
+        return;
+      } catch (_) {
+        // Fall through to legacy restore.
+      }
+    }
+
     final prefs = await SharedPreferences.getInstance();
     final lastId = prefs.getInt('last_song_original_id');
     final lastPos = prefs.getInt('last_position_ms') ?? 0;
@@ -904,6 +1078,10 @@ class PlayerController {
       if (autoPlay) {
         await player.play();
       }
+
+      final media = currentMediaItem;
+      _setCurrentBookmarkKey(media);
+      await _loadBookmarks();
     } catch (e) {
       debugPrint("Error setting audio source: $e");
     }
@@ -1062,6 +1240,7 @@ class PlayerController {
         extras: {
           'path': s.data,
           'songId': s.data, // canonical key (file path) for metadata, favorites, Neural Mix etc.
+          'bookmarkKey': BookmarkKey.canonical(s.data),
           'mediaId': s.id, // Store original MediaStore ID as int
           if (extraExtras != null) ...extraExtras,
         },
@@ -1069,53 +1248,286 @@ class PlayerController {
     );
   }
 
-  Future<void> _loadBookmarks() async {
-    if (currentId.isEmpty) return;
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getStringList('bookmarks_$currentId') ?? [];
-    bookmarks.clear();
-    for (final s in saved) {
-      try {
-        // Try parsing as JSON (new format)
-        final map = jsonDecode(s) as Map<String, dynamic>;
-        bookmarks.add(map);
-      } catch (_) {
-        // Fallback: old format (just milliseconds string)
-        final ms = int.tryParse(s);
-        if (ms != null) {
-          bookmarks.add({'pos': ms, 'note': ''});
+  List<String> _bookmarkAliasesFor(MediaItem? media) {
+    if (media == null) {
+      return _currentBookmarkKey.isEmpty
+          ? const []
+          : [_currentBookmarkKey];
+    }
+
+    final mediaId = media.extras?['mediaId'];
+    return BookmarkKey.aliasesForTrack(
+      bookmarkKey: media.extras?['bookmarkKey']?.toString(),
+      path: media.extras?['path']?.toString() ?? media.id,
+      mediaId: mediaId is int ? mediaId : int.tryParse('$mediaId'),
+      itemId: media.id,
+    );
+  }
+
+  /// Sets (or updates) the stable bookmark key for whatever is currently playing.
+  /// We prefer the 'bookmarkKey' we ourselves planted in the MediaItem at enqueue time
+  /// (see _buildSource and playExternalFile). This is the only reliable way to have
+  /// the same key at save time and at list-view/reload time.
+  /// Attempts to set the bookmark key from the current media item.
+  /// If no valid key can be resolved (transient null state during track
+  /// transitions) the old key is left in place so that existing bookmarks
+  /// are NOT wiped by a brief window where the player hasn't settled yet.
+  void _setCurrentBookmarkKey(MediaItem? media, {String? fallbackUri}) {
+    String? candidate;
+
+    if (media != null) {
+      // Best case: the key we planted ourselves when we built the AudioSource
+      candidate = media.extras?['bookmarkKey']?.toString();
+      if (candidate == null || candidate.isEmpty) {
+        candidate = media.extras?['path']?.toString();
+      }
+      if (candidate == null || candidate.isEmpty) {
+        candidate = media.id;
+      }
+    }
+
+    if ((candidate == null || candidate.isEmpty) && fallbackUri != null) {
+      candidate = fallbackUri;
+    }
+
+    final newKey = BookmarkKey.canonical(candidate ?? '');
+    // If we can't resolve a key right now (transient null) do NOT clear the
+    // existing key — the previous track's bookmarks should remain visible
+    // until the new track has definitively resolved.
+    if (newKey.isEmpty) return;
+
+    if (newKey != _currentBookmarkKey) {
+      _currentBookmarkKey = newKey;
+      currentId = newKey;
+      if (kDebugMode) {
+        debugPrint('[BOOKMARKS] current key set to $newKey');
+      }
+    }
+  }
+
+  int _bookmarkPos(Map<String, dynamic> bookmark) =>
+      (bookmark['pos'] as num?)?.toInt() ?? 0;
+
+  Map<String, dynamic>? _parseBookmarkEntry(String raw) {
+    try {
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      final pos = (map['pos'] as num?)?.toInt();
+      if (pos == null) return null;
+      return {'pos': pos, 'note': (map['note'] as String?) ?? ''};
+    } catch (_) {
+      final ms = int.tryParse(raw);
+      if (ms == null) return null;
+      return {'pos': ms, 'note': ''};
+    }
+  }
+
+  Future<void> _migrateBookmarksFromPrefsIfNeeded() async {
+    if (_bookmarksPrefsMigrated) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool('bookmarks_db_migrated') == true) {
+        _bookmarksPrefsMigrated = true;
+        return;
+      }
+
+      for (final prefKey in prefs.getKeys()) {
+        if (!prefKey.startsWith('bookmarks_')) continue;
+        final rawTrackKey = prefKey.substring('bookmarks_'.length);
+        final trackKey = BookmarkKey.canonical(rawTrackKey);
+        if (trackKey.isEmpty) continue;
+
+        final entries = prefs.getStringList(prefKey) ?? [];
+        for (final entry in entries) {
+          final parsed = _parseBookmarkEntry(entry);
+          if (parsed == null) continue;
+          await DatabaseService.instance.upsertBookmark(
+            trackKey: trackKey,
+            positionMs: _bookmarkPos(parsed),
+            note: (parsed['note'] as String?) ?? '',
+          );
+        }
+      }
+
+      await prefs.setBool('bookmarks_db_migrated', true);
+      _bookmarksPrefsMigrated = true;
+    } catch (e) {
+      _lastBookmarkError = 'migration failed: $e';
+      if (kDebugMode) {
+        debugPrint('[BOOKMARKS] $_lastBookmarkError');
+      }
+      _bookmarksPrefsMigrated = true;
+    }
+  }
+
+  void _publishBookmarks(List<Map<String, dynamic>> rows) {
+    bookmarks
+      ..clear()
+      ..addAll(rows);
+    bookmarksNotifier.value = List<Map<String, dynamic>>.unmodifiable(bookmarks);
+  }
+
+  /// Loads bookmarks for whatever track is currently considered "the one".
+  /// Uses the single stable _currentBookmarkKey we set when the track started playing.
+  Future<void> _loadBookmarks({bool forceLog = false}) async {
+    // Wait for the controller to finish initialising so that the
+    // currentIndexStream listener and audio session are ready.
+    if (!_initCompleter.isCompleted) {
+      await _initCompleter.future;
+    }
+
+    await _migrateBookmarksFromPrefsIfNeeded();
+
+    if (_currentBookmarkKey.isEmpty) {
+      // Don't wipe existing bookmarks during transient null-key windows
+      // (e.g. track transition where _setCurrentBookmarkKey hasn't resolved yet).
+      if (bookmarks.isNotEmpty) {
+        return;
+      }
+      _publishBookmarks(const []);
+      if (kDebugMode) {
+        debugPrint('[BOOKMARKS] load skipped: no current bookmark key');
+      }
+      return;
+    }
+
+    final media = currentMediaItem;
+    final aliases = _bookmarkAliasesFor(media);
+    final rows = await BookmarkRepository.instance.loadForTrack(
+      _currentBookmarkKey,
+      aliases: aliases,
+    );
+
+    // Keep optimistic entries if storage hasn't caught up yet (common right
+    // after save while prefs/async DB settle).
+    if (rows.isEmpty && bookmarks.isNotEmpty) {
+      final hasFreshLocal = bookmarks.any(
+        (b) => b['source'] == 'just-added',
+      );
+      if (hasFreshLocal) return;
+    }
+
+    _publishBookmarks(rows);
+
+    if (kDebugMode &&
+        (forceLog ||
+            _currentBookmarkKey != _lastBookmarkLogKey ||
+            rows.length != _lastBookmarkLogCount)) {
+      _lastBookmarkLogKey = _currentBookmarkKey;
+      _lastBookmarkLogCount = rows.length;
+      debugPrint('[BOOKMARKS] track=$_currentBookmarkKey count=${rows.length}');
+    }
+  }
+
+  Future<bool> addBookmark({String note = ''}) async {
+    _lastBookmarkError = '';
+    if (!_initCompleter.isCompleted) {
+      await _initCompleter.future;
+    }
+    if (!isReady) {
+      _lastBookmarkError = 'nothing playing';
+      return false;
+    }
+
+    // Re-sync from the live MediaItem every time — audiobook dialogs can open
+    // across layout/keyboard transitions where the cached key was never set.
+    _setCurrentBookmarkKey(currentMediaItem);
+    if (_currentBookmarkKey.isEmpty) {
+      final idx = player.currentIndex ?? 0;
+      if (idx >= 0 && idx < _sources.length) {
+        final src = _sources[idx];
+        if (src.tag is MediaItem) {
+          _setCurrentBookmarkKey(src.tag as MediaItem);
+        } else if (src.uri.scheme == 'file') {
+          _setCurrentBookmarkKey(null, fallbackUri: src.uri.toFilePath());
         }
       }
     }
-    bookmarksNotifier.value = List<Map<String, dynamic>>.unmodifiable(bookmarks);
-  }
+    final key = _currentBookmarkKey;
 
-  Future<void> _saveBookmarks() async {
-    if (currentId.isEmpty) return;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(
-      'bookmarks_$currentId',
-      bookmarks.map((b) => jsonEncode(b)).toList(),
-    );
-    bookmarksNotifier.value = List<Map<String, dynamic>>.unmodifiable(bookmarks);
-  }
+    if (key.isEmpty) {
+      _lastBookmarkError = 'could not resolve track key';
+      if (kDebugMode) {
+        debugPrint('[BOOKMARKS] add failed: no current bookmark key');
+      }
+      return false;
+    }
 
-  Future<void> addBookmark({String note = ''}) async {
-    if (!isReady) return;
-    bookmarks.add({'pos': player.position.inMilliseconds, 'note': note});
-    await _saveBookmarks();
+    final pos = player.position.inMilliseconds;
+    final trimmedNote = note.trim();
+
+    try {
+      final saved = await BookmarkRepository.instance.add(
+        trackKey: key,
+        positionMs: pos,
+        note: trimmedNote,
+      );
+
+      if (!saved) {
+        _lastBookmarkError = 'storage write failed';
+        if (kDebugMode) {
+          debugPrint('[BOOKMARKS] add failed: repo returned false key=$key pos=$pos');
+        }
+        return false;
+      }
+
+      // === Optimistic update so the user sees it immediately ===
+      final newBookmark = <String, dynamic>{
+        'id': -pos, // negative = prefs-backed until we reload from DB
+        'pos': pos,
+        'note': trimmedNote,
+        'source': 'just-added',
+      };
+
+      // Replace if there was already one at exactly this position
+      bookmarks.removeWhere((b) => _bookmarkPos(b) == pos);
+      bookmarks.add(newBookmark);
+      bookmarks.sort((a, b) => _bookmarkPos(a).compareTo(_bookmarkPos(b)));
+      bookmarksNotifier.value = List<Map<String, dynamic>>.unmodifiable(bookmarks);
+
+      // Reconcile with storage (DB ids, legacy keys, media-id aliases).
+      await _loadBookmarks(forceLog: true);
+
+      if (kDebugMode) {
+        debugPrint('[BOOKMARKS] add success: key=$key pos=$pos (optimistic publish done)');
+      }
+      return true;
+    } catch (e) {
+      _lastBookmarkError = '$e';
+      if (kDebugMode) {
+        debugPrint('[BOOKMARKS] add failed: $e');
+      }
+      return false;
+    }
   }
 
   Future<void> updateBookmarkNote(int index, String note) async {
+    if (!_initCompleter.isCompleted) {
+      await _initCompleter.future;
+    }
     if (index < 0 || index >= bookmarks.length) return;
-    bookmarks[index]['note'] = note;
-    await _saveBookmarks();
+    if (_currentBookmarkKey.isEmpty) return;
+
+    await BookmarkRepository.instance.updateNote(
+      trackKey: _currentBookmarkKey,
+      bookmark: bookmarks[index],
+      note: note,
+    );
+    await _loadBookmarks();
   }
 
   Future<void> removeBookmark(int i) async {
+    if (!_initCompleter.isCompleted) {
+      await _initCompleter.future;
+    }
     if (i < 0 || i >= bookmarks.length) return;
-    bookmarks.removeAt(i);
-    await _saveBookmarks();
+    if (_currentBookmarkKey.isEmpty) return;
+
+    await BookmarkRepository.instance.remove(
+      trackKey: _currentBookmarkKey,
+      bookmark: bookmarks[i],
+    );
+    await _loadBookmarks();
   }
 
   Future<void> reloadBookmarks() async {
@@ -1206,11 +1618,13 @@ class PlayerController {
 
       final exclude = <String>{};
       final seq = player.sequenceState;
-      for (final src in seq.sequence) {
-        final tag = src.tag;
-        if (tag is MediaItem) {
-          final id = tag.extras?['songId']?.toString();
-          if (id != null && id.isNotEmpty) exclude.add(id);
+      if (seq != null) {
+        for (final src in seq.sequence) {
+          final tag = src.tag;
+          if (tag is MediaItem) {
+            final id = tag.extras?['songId']?.toString();
+            if (id != null && id.isNotEmpty) exclude.add(id);
+          }
         }
       }
 
@@ -1276,7 +1690,7 @@ class PlayerController {
         }
       } else {
         // Fallback: rebuild sources (may restart playback).
-        final seq = player.sequenceState.sequence;
+        final seq = player.sequenceState?.sequence ?? [];
 
         _sources.clear();
         if (seq.isNotEmpty) {
@@ -1331,11 +1745,13 @@ class PlayerController {
     try {
       final exclude = <String>{};
       final seq = player.sequenceState;
-      for (final src in seq.sequence) {
-        final tag = src.tag;
-        if (tag is MediaItem) {
-          final id = tag.extras?['songId']?.toString();
-          if (id != null && id.isNotEmpty) exclude.add(id);
+      if (seq != null) {
+        for (final src in seq.sequence) {
+          final tag = src.tag;
+          if (tag is MediaItem) {
+            final id = tag.extras?['songId']?.toString();
+            if (id != null && id.isNotEmpty) exclude.add(id);
+          }
         }
       }
 
@@ -1507,10 +1923,30 @@ class PlayerController {
         return;
       }
 
+      final canonicalPath = BookmarkKey.canonical(filePath);
       final uri = Uri.file(filePath);
-      final source = AudioSource.uri(uri);
+      final source = AudioSource.uri(
+        uri,
+        tag: MediaItem(
+          id: canonicalPath,
+          title: file.uri.pathSegments.isNotEmpty
+              ? file.uri.pathSegments.last
+              : 'External audio',
+          artist: 'External',
+          extras: {
+            'path': canonicalPath,
+            'songId': canonicalPath,
+            'bookmarkKey': canonicalPath,
+          },
+        ),
+      );
 
+      _sources
+        ..clear()
+        ..add(source);
       await player.setAudioSources([source]);
+      _setCurrentBookmarkKey(currentMediaItem, fallbackUri: filePath);
+      await _loadBookmarks();
       await player.play();
     } catch (e) {
       debugPrint('Error playing external file: $e');

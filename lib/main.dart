@@ -26,12 +26,15 @@ import 'services/library_scan_service.dart';
 // UI & Screens
 import 'ui/tokens.dart';
 import 'ui/deep_space_background.dart';
+import 'ui/torch_engine_glow_overlay.dart';
 import 'screens/library_page.dart';
 import 'screens/player_screen.dart';
 import 'screens/equalizer_screen.dart';
 
 import 'design/design_system.dart';
 import 'widgets/player_provider.dart';
+import 'widgets/audiobook_controls.dart';
+import 'widgets/bookmarks_sheet.dart';
 
 // Debug drawing for turntable painter (set with --dart-define=DEV_TT_GUIDES=true)
 const bool kDevPaintTurntableGuides = bool.fromEnvironment(
@@ -135,6 +138,11 @@ Future<void> main([List<String> args = const []]) async {
     }
   }
 
+  // Fully initialize the player controller (audio session, stream
+  // listeners, etc.) before the first frame so that bookmark operations
+  // and playback commands are safe from the start.
+  await PlayerController.ensureInitialized();
+
   runApp(const PlayaApp());
 }
 
@@ -156,8 +164,9 @@ class PlayaApp extends StatelessWidget {
       animation: SettingsService.instance,
       builder: (context, _) {
         // Using new Design System (Phase 1)
-        final rawAccent = Color(SettingsService.instance.accentColor);
-        final resolvedAccent = SettingsService.instance.resolveAccentColor(rawAccent);
+        final resolvedAccent = SettingsService.instance.resolveAccentColor(
+          SettingsService.instance.rawAccent,
+        );
 
         final playaColors = PlayaColorsExtension(
           accent: resolvedAccent,
@@ -316,6 +325,7 @@ class _ShellState extends State<_Shell> {
                 child: RepaintBoundary(
                   child: DeepSpaceBackground(
                     subtle: _tab == 0,
+                    starDensity: _tab == 0 ? 0.80 : 0.49,
                     mode: DeepSpaceMode.background,
                   ),
                 ),
@@ -327,7 +337,18 @@ class _ShellState extends State<_Shell> {
                 child: RepaintBoundary(
                   child: DeepSpaceBackground(
                     subtle: _tab == 0,
+                    starDensity: _tab == 0 ? 0.80 : 0.49,
                     mode: DeepSpaceMode.overlay,
+                  ),
+                ),
+              ),
+
+            // 2b. Torch engine glow bleed (Now Playing only)
+            if (settings.effectiveShowSpaceBackground && _tab != 0)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: RepaintBoundary(
+                    child: TorchEngineGlowOverlay(ctrl: ctrl),
                   ),
                 ),
               ),
@@ -365,7 +386,7 @@ class _ShellState extends State<_Shell> {
                           IconButton(
                             tooltip: 'Sleep Timer',
                             icon: const PhosphorIcon(PhosphorIconsBold.timer),
-                            onPressed: () => _showSleepTimer(context, ctrl),
+                            onPressed: () => showSleepTimerSheet(context, ctrl),
                           ),
                           IconButton(
                             tooltip: 'Queue',
@@ -373,9 +394,9 @@ class _ShellState extends State<_Shell> {
                             onPressed: () => _showQueue(context, ctrl),
                           ),
                           IconButton(
-                            tooltip: 'Chapters',
+                            tooltip: 'Bookmarks',
                             icon: const PhosphorIcon(
-                              PhosphorIconsBold.bookmarksSimple,
+                              PhosphorIconsBold.bookmarkSimple,
                             ),
                             onPressed: () => _showBookmarks(context, ctrl),
                           ),
@@ -517,9 +538,7 @@ class _ShellState extends State<_Shell> {
                           child: LinearProgressIndicator(
                             value: scan.progress == 0 ? null : scan.progress,
                             backgroundColor: Colors.white10,
-                            color: SettingsService.instance.resolveAccentColor(
-                              Color(SettingsService.instance.accentColor),
-                            ),
+                            color: SettingsService.instance.accentFor(),
                             minHeight: 6,
                           ),
                         ),
@@ -531,185 +550,6 @@ class _ShellState extends State<_Shell> {
           ],
         ),
       ),
-    );
-  }
-
-  void _showSleepTimer(BuildContext context, PlayerController ctrl) {
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) {
-        int fadeSeconds = SettingsService.instance.sleepFadeSeconds;
-        return StatefulBuilder(
-          builder: (ctx, setState) {
-            final fade = Duration(seconds: fadeSeconds);
-            return Container(
-              padding: const EdgeInsets.all(kSp * 2),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'Sleep Timer',
-                    style: TextStyle(
-                      fontSize: kTextLg,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: kSp),
-                  Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          'Fade out',
-                          style: TextStyle(color: kColorOn2, fontSize: kTextSm),
-                        ),
-                      ),
-                      DropdownButton<int>(
-                        value: fadeSeconds,
-                        dropdownColor: kColorSurface,
-                        underline: const SizedBox(),
-                        items: const [
-                          DropdownMenuItem(value: 0, child: Text('Off')),
-                          DropdownMenuItem(value: 5, child: Text('5s')),
-                          DropdownMenuItem(value: 10, child: Text('10s')),
-                          DropdownMenuItem(value: 20, child: Text('20s')),
-                        ],
-                        onChanged: (v) {
-                          if (v == null) return;
-                          setState(() => fadeSeconds = v);
-                          // Persist as the default for next time.
-                          SettingsService.instance.setSleepFadeSeconds(v);
-                        },
-                      ),
-                      const SizedBox(width: kSp),
-                      TextButton(
-                        onPressed:
-                            fadeSeconds == 0
-                                ? null
-                                : () async {
-                                  await ctrl.previewFadeToSilence(fade);
-                                },
-                        child: const Text('Preview'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: kSp),
-                  ListTile(
-                    leading: const Icon(PhosphorIconsRegular.timer),
-                    title: const Text('15 Minutes'),
-                    onTap: () {
-                      ctrl.setSleepTimer(15, fadeOut: fade);
-                      Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Sleep timer set for 15 minutes'),
-                        ),
-                      );
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(PhosphorIconsRegular.timer),
-                    title: const Text('30 Minutes'),
-                    onTap: () {
-                      ctrl.setSleepTimer(30, fadeOut: fade);
-                      Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Sleep timer set for 30 minutes'),
-                        ),
-                      );
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(PhosphorIconsRegular.timer),
-                    title: const Text('60 Minutes'),
-                    onTap: () {
-                      ctrl.setSleepTimer(60, fadeOut: fade);
-                      Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Sleep timer set for 60 minutes'),
-                        ),
-                      );
-                    },
-                  ),
-                  const Divider(color: Colors.white10),
-                  ListTile(
-                    leading: const Icon(PhosphorIconsRegular.musicNotes),
-                    title: const Text('End of Track'),
-                    subtitle: const Text(
-                      'Stop after the current track finishes',
-                    ),
-                    onTap: () {
-                      ctrl.setSleepTimerEndOfTrack(fadeOut: fade);
-                      Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Sleep timer set: end of track'),
-                        ),
-                      );
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(PhosphorIconsRegular.disc),
-                    title: const Text('End of Album'),
-                    subtitle: const Text('Stop after the current album ends'),
-                    onTap: () {
-                      ctrl.setSleepTimerEndOfAlbum(fadeOut: fade);
-                      Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Sleep timer set: end of album'),
-                        ),
-                      );
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(PhosphorIconsRegular.playlist),
-                    title: const Text('End of Playlist'),
-                    subtitle: const Text(
-                      'Stop after the current playlist ends',
-                    ),
-                    onTap: () {
-                      ctrl.setSleepTimerEndOfPlaylist(fadeOut: fade);
-                      Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Sleep timer set: end of playlist'),
-                        ),
-                      );
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(PhosphorIconsRegular.queue),
-                    title: const Text('End of Queue'),
-                    subtitle: const Text('Stop when the queue finishes'),
-                    onTap: () {
-                      ctrl.setSleepTimerEndOfQueue(fadeOut: fade);
-                      Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Sleep timer set: end of queue'),
-                        ),
-                      );
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(PhosphorIconsRegular.xCircle),
-                    title: const Text('Turn Off Timer'),
-                    onTap: () {
-                      ctrl.cancelSleepTimer();
-                      Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Sleep timer turned off')),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
     );
   }
 
@@ -734,7 +574,10 @@ class _ShellState extends State<_Shell> {
     });
   }
 
-  void _showBookmarks(BuildContext context, PlayerController ctrl) {
+  void _showBookmarks(BuildContext context, PlayerController ctrl) async {
+    if (!ctrl.isReady) return;
+    await ctrl.reloadBookmarks();
+    if (!context.mounted) return;
     showModalBottomSheet(
       context: context,
       isScrollControlled: false,

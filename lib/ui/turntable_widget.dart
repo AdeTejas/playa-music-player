@@ -15,6 +15,7 @@ import 'package:on_audio_query/on_audio_query.dart' as oaq;
 import '../services/player_controller.dart';
 import '../services/artwork_cache_service.dart';
 import '../services/settings_service.dart';
+import '../utils/content_mode.dart';
 import 'high_tech_speaker.dart';
 
 class TurntableDeck extends StatefulWidget {
@@ -220,7 +221,25 @@ class _TurntableDeckState extends State<TurntableDeck>
     }
   }
 
+  bool get _isAudiobookMode =>
+      ContentModeDetector.detectFromMediaItem(widget.item) ==
+      ContentMode.audiobook;
+
+  void _syncPitchFromPlaybackSpeed() {
+    if (!_isAudiobookMode) return;
+    final speed = widget.ctrl.player.speed;
+    if ((speed - _pitchValue).abs() > 0.01) {
+      _pitchValue = speed.clamp(0.75, 2.0);
+    }
+  }
+
   void _updateBpmFromItem() {
+    if (_isAudiobookMode) {
+      _currentBpm = 0;
+      _syncPitchFromPlaybackSpeed();
+      return;
+    }
+
     final extras = widget.item?.extras;
     final bpm = (extras?['bpm'] as num?)?.toDouble();
     if (bpm != null && bpm > 0 && bpm != _currentBpm) {
@@ -695,8 +714,12 @@ class _TurntableDeckState extends State<TurntableDeck>
       _pendingPauseAfterCue = false;
     }
 
+    _syncPitchFromPlaybackSpeed();
+
     final rpmMult = _is33RPM ? 1.0 : 1.35;
-    final baseTarget = _targetVelocity * _pitchValue * rpmMult;
+    final speedFactor =
+        _isAudiobookMode ? widget.ctrl.player.speed.clamp(0.5, 2.0) : _pitchValue;
+    final baseTarget = _targetVelocity * speedFactor * rpmMult;
     final seconds = elapsed.inMicroseconds / 1e6;
     final wowFlutter =
         (!disableAnimations && widget.ctrl.player.playing)
@@ -764,13 +787,16 @@ class _TurntableDeckState extends State<TurntableDeck>
       });
     }
 
+    final audiobookCalm = _isAudiobookMode;
     final bpm = _currentBpm.clamp(60.0, 220.0);
-    final beatFreq = bpm / 60.0;
-    _beatPulse =
-        disableAnimations ? 0.0 : (sin(seconds * beatFreq * 2 * pi) + 1) / 2;
-    _tonearmPulse =
-        disableAnimations ? 0.0 : sin(seconds * beatFreq * pi * 0.35) * 0.012;
-    if (_neuralMixActive) {
+    final beatFreq = audiobookCalm ? 0.0 : bpm / 60.0;
+    _beatPulse = disableAnimations || audiobookCalm
+        ? 0.0
+        : (sin(seconds * beatFreq * 2 * pi) + 1) / 2;
+    _tonearmPulse = disableAnimations || audiobookCalm
+        ? 0.0
+        : sin(seconds * beatFreq * pi * 0.35) * 0.012;
+    if (_neuralMixActive && !audiobookCalm) {
       _neuralPhase += dt * 4.0;
       _groovePulse = (sin(_neuralPhase) + 1) / 2;
     } else {
@@ -933,27 +959,51 @@ class _TurntableDeckState extends State<TurntableDeck>
         var delta = currentAngle - _lastKnobAngle!;
         if (delta > pi) delta -= 2 * pi;
         if (delta < -pi) delta += 2 * pi;
+        final audiobookKnob = _isAudiobookMode;
         setState(() {
-          _pitchValue = (_pitchValue + delta * 0.2).clamp(0.8, 1.2);
-          const detents = <double>[0.90, 0.95, 1.00, 1.05, 1.10];
-          double? snapped;
-          for (final d in detents) {
-            if ((_pitchValue - d).abs() <= 0.007) {
-              snapped = d;
-              break;
+          if (audiobookKnob) {
+            _pitchValue = (_pitchValue + delta * 0.35).clamp(0.75, 2.0);
+            const detents = <double>[1.0, 1.25, 1.5, 1.75, 2.0];
+            double? snapped;
+            for (final d in detents) {
+              if ((_pitchValue - d).abs() <= 0.03) {
+                snapped = d;
+                break;
+              }
             }
-          }
-          if (snapped != null) {
-            _pitchValue = snapped;
-            if (_lastPitchDetent == null || (_lastPitchDetent! - snapped).abs() > 0.0001) {
-              _lastPitchDetent = snapped;
-              HapticFeedback.selectionClick();
+            if (snapped != null) {
+              _pitchValue = snapped;
+              if (_lastPitchDetent == null ||
+                  (_lastPitchDetent! - snapped).abs() > 0.0001) {
+                _lastPitchDetent = snapped;
+                HapticFeedback.selectionClick();
+              }
+            } else {
+              _lastPitchDetent = null;
             }
           } else {
-            _lastPitchDetent = null;
+            _pitchValue = (_pitchValue + delta * 0.2).clamp(0.8, 1.2);
+            const detents = <double>[0.90, 0.95, 1.00, 1.05, 1.10];
+            double? snapped;
+            for (final d in detents) {
+              if ((_pitchValue - d).abs() <= 0.007) {
+                snapped = d;
+                break;
+              }
+            }
+            if (snapped != null) {
+              _pitchValue = snapped;
+              if (_lastPitchDetent == null ||
+                  (_lastPitchDetent! - snapped).abs() > 0.0001) {
+                _lastPitchDetent = snapped;
+                HapticFeedback.selectionClick();
+              }
+            } else {
+              _lastPitchDetent = null;
+            }
           }
         });
-        widget.ctrl.setSpeed(_pitchValue);
+        widget.ctrl.setPlaybackSpeed(_pitchValue);
       }
       _lastKnobAngle = currentAngle;
       return;
@@ -1102,33 +1152,13 @@ class _TurntableDeckState extends State<TurntableDeck>
     super.dispose();
   }
 
-  Color _turntableAccent(Color accent) {
-    final mode = SettingsService.instance.themeMode;
-    final hsl = HSLColor.fromColor(accent);
-
-    if (mode == SettingsService.themeNeon) {
-      // Neon mode: keep much more color and brightness
-      return hsl
-          .withSaturation((hsl.saturation * 0.95).clamp(0.6, 1.0))
-          .withLightness((hsl.lightness * 0.72 + 0.12).clamp(0.18, 0.48))
-          .toColor();
-    }
-
-    // Classic / Album Art: more subdued metallic look
-    return hsl
-        .withSaturation((hsl.saturation * 0.68).clamp(0.0, 1.0))
-        .withLightness((hsl.lightness * 0.48 + 0.09).clamp(0.09, 0.32))
-        .toColor();
-  }
-
   @override
   Widget build(BuildContext context) {
     final player = widget.ctrl.player;
     final settings = SettingsService.instance;
-    final baseAccent = Color(settings.accentColor);
-    final resolvedAccent = settings.resolveAccentColor(baseAccent, item: widget.item);
-    final accentColor = _turntableAccent(resolvedAccent);
-    final highlightAccent = resolvedAccent; // stronger for rim, strobe, pitch knob
+    final accentColor =
+        settings.resolveNowPlayingAccent(item: widget.item);
+    final highlightAccent = accentColor;
     final disableAnimations = SchedulerBinding.instance.platformDispatcher.accessibilityFeatures.disableAnimations;
     final perfTier = disableAnimations ? 0 : (settings.lowPerformanceMode ? min(settings.turntablePerfTier, 1) : settings.turntablePerfTier);
 

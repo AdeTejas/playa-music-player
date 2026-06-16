@@ -8,6 +8,7 @@ import 'package:just_audio_background/just_audio_background.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'dart:math' as math;
 
+import '../services/album_art_accent_service.dart';
 import '../services/player_controller.dart';
 import '../services/settings_service.dart';
 import '../services/database_service.dart';
@@ -17,7 +18,10 @@ import '../ui/turntable_widget.dart';
 import '../ui/waveform_widget.dart';
 import '../ui/lyrics_sheet.dart';
 import 'screensaver_screen.dart';
+import '../utils/content_mode.dart';
 import '../utils/ui_utils.dart';
+import '../widgets/audiobook_controls.dart';
+import '../widgets/bookmarks_sheet.dart';
 import '../widgets/player_provider.dart';
 
 class PlayerScreen extends StatefulWidget {
@@ -68,6 +72,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 stream: p.sequenceStateStream,
                 builder: (context, _) {
                   final tag = ctrl.currentMediaItem;
+                  if (tag != null) {
+                    AlbumArtAccentService.instance.prefetch(tag);
+                  }
                   return StreamBuilder<PlayerState>(
                     stream: p.playerStateStream,
                     builder: (context, _) {
@@ -113,9 +120,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                         const SizedBox(height: kSp * 2),
 
                                         // Transport
-                                        _TransportBar(ctrl: ctrl),
-                                        const SizedBox(height: kSp),
-                                        _SecondaryControls(ctrl: ctrl),
+                                        _PlayerControlsSection(ctrl: ctrl),
                                         const SizedBox(height: kSp),
                                         // Favorite Button
                                         ValueListenableBuilder<List<String>>(
@@ -200,9 +205,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                         height: 56,
                                       ),
                                       const SizedBox(height: kSp * 0.75),
-                                      _TransportBar(ctrl: ctrl),
-                                      const SizedBox(height: kSp * 0.75),
-                                      _SecondaryControls(ctrl: ctrl),
+                                      _PlayerControlsSection(ctrl: ctrl),
                                       const SizedBox(height: kSp),
                                     ],
                                   ),
@@ -224,24 +227,71 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 }
 
+class _PlayerControlsSection extends StatelessWidget {
+  final PlayerController ctrl;
+  const _PlayerControlsSection({required this.ctrl});
+
+  @override
+  Widget build(BuildContext context) {
+    final mode = ctrl.currentContentMode;
+    final isAudiobook = mode == ContentMode.audiobook;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _TransportBar(ctrl: ctrl),
+        SizedBox(height: isAudiobook ? kSp : kSp * 0.75),
+        if (isAudiobook) ...[
+          AudiobookQuickBar(ctrl: ctrl),
+          const SizedBox(height: kSp * 0.75),
+          MusicToolsExpansion(
+            ctrl: ctrl,
+            child: _SecondaryControls(
+              ctrl: ctrl,
+              visibleChips: const {
+                'shuffle',
+                'repeat',
+                'neural_mix',
+                'lyrics',
+                'screensaver',
+              },
+            ),
+          ),
+        ] else
+          _SecondaryControls(ctrl: ctrl),
+      ],
+    );
+  }
+}
+
 class _TransportBar extends StatelessWidget {
   final PlayerController ctrl;
   const _TransportBar({required this.ctrl});
 
   @override
   Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: SettingsService.instance,
+      builder: (context, _) => _buildBar(context),
+    );
+  }
+
+  Widget _buildBar(BuildContext context) {
     final p = ctrl.player;
     final accent = Theme.of(context).colorScheme.primary;
+    final skipSec = ctrl.skipIntervalSeconds;
+    final isAudiobook = ctrl.currentContentMode == ContentMode.audiobook;
 
     final controls = <Widget>[
       _IconBtn(
         icon: PhosphorIconsBold.skipBack,
+        tooltip: 'Previous track',
         onTap: () async {
           if (!ctrl.isReady) return;
           if (p.hasPrevious) {
             await p.seekToPrevious();
           } else {
-            final len = p.sequenceState.sequence.length;
+            final len = p.sequenceState?.sequence.length ?? 0;
             if (len > 0) {
               await p.seek(Duration.zero, index: len - 1);
             }
@@ -251,11 +301,11 @@ class _TransportBar extends StatelessWidget {
       ),
       _IconBtn(
         icon: PhosphorIconsBold.arrowCounterClockwise,
+        tooltip: 'Back $skipSec seconds',
+        label: isAudiobook ? '−${skipSec}s' : null,
         onTap: () async {
           if (!ctrl.isReady) return;
-          final pos = p.position;
-          final newPos = pos - const Duration(seconds: 10);
-          await p.seek(newPos.isNegative ? Duration.zero : newPos);
+          await ctrl.skipBackward();
           HapticFeedback.selectionClick();
         },
       ),
@@ -299,20 +349,23 @@ class _TransportBar extends StatelessWidget {
       ),
       _IconBtn(
         icon: PhosphorIconsBold.arrowClockwise,
+        tooltip: 'Forward $skipSec seconds',
+        label: isAudiobook ? '+${skipSec}s' : null,
         onTap: () async {
           if (!ctrl.isReady) return;
-          await p.seek(p.position + const Duration(seconds: 10));
+          await ctrl.skipForward();
           HapticFeedback.selectionClick();
         },
       ),
       _IconBtn(
         icon: PhosphorIconsBold.skipForward,
+        tooltip: 'Next track',
         onTap: () async {
           if (!ctrl.isReady) return;
           if (p.hasNext) {
             await p.seekToNext();
           } else {
-            final len = p.sequenceState.sequence.length;
+            final len = p.sequenceState?.sequence.length ?? 0;
             if (len > 0) {
               await p.seek(Duration.zero, index: 0);
             }
@@ -324,11 +377,12 @@ class _TransportBar extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (constraints.maxWidth < 260) {
+        if (constraints.maxWidth < 350) {
           return Wrap(
-            spacing: kSp,
-            runSpacing: kSp * 0.6,
+            spacing: kSp * 1.5,
+            runSpacing: kSp,
             alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: controls,
           );
         }
@@ -343,7 +397,8 @@ class _TransportBar extends StatelessWidget {
 
 class _SecondaryControls extends StatefulWidget {
   final PlayerController ctrl;
-  const _SecondaryControls({required this.ctrl});
+  final Set<String>? visibleChips;
+  const _SecondaryControls({required this.ctrl, this.visibleChips});
 
   @override
   State<_SecondaryControls> createState() => _SecondaryControlsState();
@@ -584,7 +639,7 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
                 final a = Theme.of(ctx).colorScheme.primary;
                 return AlertDialog(
                   backgroundColor: kColorSurface,
-                  title: const Text('Add Chapter'),
+                  title: const Text('Add Bookmark'),
                   content: TextField(
                     controller: controller,
                     autofocus: true,
@@ -610,10 +665,15 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
                     ),
                     TextButton(
                       onPressed: () async {
-                        await widget.ctrl.addBookmark(note: controller.text);
+                        final ok = await widget.ctrl.addBookmark(
+                          note: controller.text,
+                        );
                         if (!ctx.mounted) return;
                         Navigator.pop(ctx);
-                        showToast(context, 'Chapter added');
+                        showToast(
+                          context,
+                          ok ? 'Bookmark saved' : 'Could not save bookmark',
+                        );
                         HapticFeedback.selectionClick();
                       },
                       child: Text('Add', style: TextStyle(color: a)),
@@ -719,7 +779,9 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
           spacing: kSp,
           runSpacing: kSp,
           alignment: WrapAlignment.center,
-          children: _chipOrder.asMap().entries.map((entry) {
+          children: _chipOrder.asMap().entries
+              .where((e) => widget.visibleChips?.contains(e.value) ?? true)
+              .map((entry) {
             final index = entry.key;
             final chipId = entry.value;
             return _buildChip(chipId, context, index);
@@ -733,14 +795,33 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
 class _IconBtn extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
+  final String? tooltip;
+  final String? label;
 
-  const _IconBtn({required this.icon, required this.onTap});
+  const _IconBtn({
+    required this.icon,
+    required this.onTap,
+    this.tooltip,
+    this.label,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
+    final button = IconButton(
+      tooltip: tooltip,
       icon: PhosphorIcon(icon, size: 26, color: kColorOn),
       onPressed: onTap,
+    );
+    if (label == null) return button;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        button,
+        Text(
+          label!,
+          style: const TextStyle(color: kColorOn2, fontSize: 10),
+        ),
+      ],
     );
   }
 }
@@ -777,7 +858,9 @@ class _TrackInfoPanel extends StatelessWidget {
             fontSize: 13,
           ),
         ),
-        if (item != null) _SonicDnaBadge(songId: item!.id),
+        if (item != null &&
+            playerCtrl.currentContentMode == ContentMode.music)
+          _SonicDnaBadge(songId: item!.id),
         const SizedBox(height: 4),
         ValueListenableBuilder<List<String>>(
           valueListenable: playerCtrl.favoritesNotifier,
@@ -836,8 +919,7 @@ class _WaveformSection extends StatelessWidget {
                 child: WaveformWidget(
                   path: path,
                   player: player,
-                  playedColor:
-                      Color(SettingsService.instance.accentColor),
+                  playedColor: SettingsService.instance.rawAccent,
                   item: item,
                 ),
               ),
@@ -1231,152 +1313,6 @@ class _QueueSheetState extends State<QueueSheet>
       ],
     );
   }
-}
-
-class BookmarksSheet extends StatelessWidget {
-  final PlayerController ctrl;
-  const BookmarksSheet({super.key, required this.ctrl});
-
-  Future<void> _editBookmarkNote(
-    BuildContext context, {
-    required int index,
-    required String initial,
-  }) async {
-    final controller = TextEditingController(text: initial);
-    final accent = Theme.of(context).colorScheme.primary;
-
-    final saved = await showDialog<String>(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          backgroundColor: kColorSurface,
-          title: const Text('Edit Chapter'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: InputDecoration(
-              hintText: 'Note (optional)...',
-              hintStyle: const TextStyle(color: Colors.white38),
-              enabledBorder: const UnderlineInputBorder(
-                borderSide: BorderSide(color: kColorOn2),
-              ),
-              focusedBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: accent),
-              ),
-            ),
-            style: const TextStyle(color: kColorOn),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel', style: TextStyle(color: kColorOn2)),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, controller.text),
-              child: Text('Save', style: TextStyle(color: accent)),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (saved == null) return;
-    await ctrl.updateBookmarkNote(index, saved);
-    if (!context.mounted) return;
-    showToast(context, 'Chapter updated');
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
-
-    return GlassPanel(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-      borderColor: Colors.white.withValues(alpha: 0.14),
-      backgroundColor: kColorGlassBlackTint,
-      child: SizedBox(
-        height: 400,
-        child: Column(
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text(
-                'Chapters / Bookmarks',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-            ),
-            Expanded(
-              child: ValueListenableBuilder<List<Map<String, dynamic>>>(
-                valueListenable: ctrl.bookmarksNotifier,
-                builder: (context, bookmarks, _) {
-                  if (bookmarks.isEmpty) {
-                    return const Center(
-                      child: Text(
-                        'No chapters added',
-                        style: TextStyle(color: kColorOn2),
-                      ),
-                    );
-                  }
-
-                  return ListView.builder(
-                    itemCount: bookmarks.length,
-                    itemBuilder: (context, index) {
-                      final b = bookmarks[index];
-                      final pos = Duration(milliseconds: (b['pos'] as int?) ?? 0);
-                      return ListTile(
-                        leading: Text(
-                          _fmt(pos),
-                          style: TextStyle(
-                            color: accent,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                        title: Text((b['note'] as String?) ?? ''),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.edit_outlined, size: 18),
-                              onPressed: () async {
-                                await _editBookmarkNote(
-                                  context,
-                                  index: index,
-                                  initial: (b['note'] as String?) ?? '',
-                                );
-                              },
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.delete_outline, size: 18),
-                              onPressed: () async {
-                                await ctrl.removeBookmark(index);
-                                if (!context.mounted) return;
-                                Navigator.pop(context);
-                                showToast(context, 'Chapter removed');
-                              },
-                            ),
-                          ],
-                        ),
-                        onTap: () {
-                          ctrl.player.seek(pos);
-                          Navigator.pop(context);
-                        },
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-String _fmt(Duration d) {
-  final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
-  final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-  return '$m:$s';
 }
 
 class _SonicDnaBadge extends StatelessWidget {

@@ -18,6 +18,9 @@ import '../widgets/player_provider.dart';
 import '../widgets/artwork_image.dart';
 import '../utils/ui_utils.dart';
 import '../repositories/playlist_repository.dart';
+import '../models/listening_progress.dart';
+import '../widgets/continue_listening_section.dart';
+import '../utils/content_mode.dart';
 
 // Design System (Phase 3 Migration)
 import '../design/design_system.dart';
@@ -39,6 +42,8 @@ class _LibraryPageState extends State<LibraryPage> {
   // Multi-select mode
   bool _isSelectionMode = false;
   final Set<String> _selectedIds = {};
+
+  List<ListeningProgress> _continueListening = [];
 
   @override
   void dispose() {
@@ -137,14 +142,53 @@ class _LibraryPageState extends State<LibraryPage> {
         _songs = _computeFiltered(_searchCtrl.text);
         _loading = false;
       });
+      await _loadContinueListening();
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
     }
   }
 
+  Future<void> _loadContinueListening() async {
+    try {
+      final items =
+          await ServiceLocator.instance.playerController.getRecentListening();
+      if (!mounted) return;
+      setState(() {
+        _continueListening =
+            items
+                .where((p) => p.positionMs >= 30 * 1000)
+                .take(6)
+                .toList();
+      });
+    } catch (_) {}
+  }
+
+  String _emptyLibraryMessage() {
+    if (_showFavoritesOnly) return 'No favorites yet';
+    if (_allSongs.isEmpty) return 'No songs found';
+
+    final filter = SettingsService.instance.libraryBrowseFilter;
+    if (filter == LibraryBrowseFilter.audiobook) {
+      return 'No audiobooks or podcasts found';
+    }
+    if (filter == LibraryBrowseFilter.music) {
+      return 'No music tracks found';
+    }
+    return 'No matches';
+  }
+
   List<oaq.SongModel> _computeFiltered(String query) {
     List<oaq.SongModel> filtered = _allSongs;
+
+    final browseFilter = SettingsService.instance.libraryBrowseFilter;
+    if (browseFilter != LibraryBrowseFilter.all) {
+      filtered = filtered
+          .where(
+            (s) => ContentModeDetector.songMatchesBrowseFilter(s, browseFilter),
+          )
+          .toList();
+    }
 
     if (_showFavoritesOnly) {
       final favs = ServiceLocator.instance.playerController.favoritesNotifier.value;
@@ -865,78 +909,81 @@ class _LibraryPageState extends State<LibraryPage> {
                             ],
                           ),
                         )
-                        : Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              ValueListenableBuilder<List<String>>(
-                                valueListenable:
-                                    ServiceLocator.instance.playerController.favoritesNotifier,
-                                builder: (context, favs, _) {
-                                  return IconButton(
-                                    tooltip:
+                        : SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                ValueListenableBuilder<List<String>>(
+                                  valueListenable:
+                                      ServiceLocator.instance.playerController.favoritesNotifier,
+                                  builder: (context, favs, _) {
+                                    return IconButton(
+                                      tooltip:
+                                          _showFavoritesOnly
+                                              ? 'Show All'
+                                              : 'Show Favorites',
+                                      icon: Icon(
                                         _showFavoritesOnly
-                                            ? 'Show All'
-                                            : 'Show Favorites',
-                                    icon: Icon(
-                                      _showFavoritesOnly
-                                          ? PhosphorIconsFill.heart
-                                          : PhosphorIconsRegular.heart,
-                                       color:
-                                           _showFavoritesOnly
-                                               ? Theme.of(context).colorScheme.primary
-                                               : PlayaColors.onSurface,
-                                    ),
-                                    onPressed:
-                                        scan.isScanning
-                                            ? null
-                                       : () {
-                                         _exitSelectionMode();
-                                         setState(() {
-                                           _showFavoritesOnly =
-                                               !_showFavoritesOnly;
-                                           _songs = _computeFiltered(
-                                             _searchCtrl.text,
-                                           );
-                                         });
-                                       },
-                                  );
-                                },
-                              ),
-                              IconButton(
-                                tooltip: 'Playlists',
-                                icon: const Icon(PhosphorIconsBold.playlist),
-                                onPressed:
-                                    scan.isScanning
-                                        ? null
-                                        : () => Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) => const PlaylistsScreen(),
-                                          ),
-                                        ),
-                              ),
-                              IconButton(
-                                tooltip: 'Sort',
-                                icon: const Icon(
-                                  PhosphorIconsRegular.slidersHorizontal,
-                                ),
-                                onPressed: scan.isScanning ? null : () {
-                            _exitSelectionMode();
-                            _showSortMenu();
-                          },
-                              ),
-                              IconButton(
-                                tooltip: 'Settings',
-                                icon: const Icon(PhosphorIconsBold.gear),
-                                onPressed:
-                                    () => Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => const SettingsScreen(),
+                                            ? PhosphorIconsFill.heart
+                                            : PhosphorIconsRegular.heart,
+                                         color:
+                                             _showFavoritesOnly
+                                                 ? Theme.of(context).colorScheme.primary
+                                                 : PlayaColors.onSurface,
                                       ),
-                                    ),
-                              ),
-                            ],
+                                      onPressed:
+                                          scan.isScanning
+                                              ? null
+                                         : () {
+                                           _exitSelectionMode();
+                                           setState(() {
+                                             _showFavoritesOnly =
+                                                 !_showFavoritesOnly;
+                                             _songs = _computeFiltered(
+                                               _searchCtrl.text,
+                                             );
+                                           });
+                                         },
+                                    );
+                                  },
+                                ),
+                                IconButton(
+                                  tooltip: 'Playlists',
+                                  icon: const Icon(PhosphorIconsBold.playlist),
+                                  onPressed:
+                                      scan.isScanning
+                                          ? null
+                                          : () => Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) => const PlaylistsScreen(),
+                                            ),
+                                          ),
+                                ),
+                                IconButton(
+                                  tooltip: 'Sort',
+                                  icon: const Icon(
+                                    PhosphorIconsRegular.slidersHorizontal,
+                                  ),
+                                  onPressed: scan.isScanning ? null : () {
+                              _exitSelectionMode();
+                              _showSortMenu();
+                            },
+                                ),
+                                IconButton(
+                                  tooltip: 'Settings',
+                                  icon: const Icon(PhosphorIconsBold.gear),
+                                  onPressed:
+                                      () => Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => const SettingsScreen(),
+                                        ),
+                                      ),
+                                ),
+                              ],
+                            ),
                           ),
                   ),
                 ),
@@ -1016,6 +1063,18 @@ class _LibraryPageState extends State<LibraryPage> {
                   ),
                 ),
 
+              if (!_isSelectionMode && !_loading && _continueListening.isNotEmpty)
+                ContinueListeningSection(
+                  items: _continueListening,
+                  ctrl: ServiceLocator.instance.playerController,
+                  librarySongs: _allSongs,
+                  onResume: () {
+                    if (mounted) {
+                      showToast(context, 'Resuming where you left off');
+                    }
+                  },
+                ),
+
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(PlayaSpacing.sm * 2, 0, PlayaSpacing.sm * 2, 0),
@@ -1054,6 +1113,60 @@ class _LibraryPageState extends State<LibraryPage> {
                           ),
                         ),
                         const SizedBox(height: 10),
+                        AnimatedBuilder(
+                          animation: SettingsService.instance,
+                          builder: (context, _) {
+                            final filter =
+                                SettingsService.instance.libraryBrowseFilter;
+                            final accent =
+                                Theme.of(context).colorScheme.primary;
+                            return Row(
+                              children: [
+                                for (final option in LibraryBrowseFilter.values) ...[
+                                  if (option != LibraryBrowseFilter.values.first)
+                                    const SizedBox(width: 6),
+                                  ChoiceChip(
+                                    label: Text(option.label),
+                                    selected: filter == option,
+                                    onSelected: scan.isScanning
+                                        ? null
+                                        : (_) async {
+                                            await SettingsService.instance
+                                                .setLibraryBrowseFilter(option);
+                                            if (!mounted) return;
+                                            setState(() {
+                                              _songs = _computeFiltered(
+                                                _searchCtrl.text,
+                                              );
+                                            });
+                                          },
+                                    selectedColor:
+                                        accent.withValues(alpha: 0.25),
+                                    labelStyle: TextStyle(
+                                      color: filter == option
+                                          ? accent
+                                          : PlayaColors.onSurfaceVariant,
+                                      fontSize: 12,
+                                      fontWeight: filter == option
+                                          ? FontWeight.w600
+                                          : FontWeight.w500,
+                                    ),
+                                    side: BorderSide(
+                                      color: filter == option
+                                          ? accent.withValues(alpha: 0.5)
+                                          : PlayaColors.borderSubtle,
+                                    ),
+                                    visualDensity: VisualDensity.compact,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 10),
 
                         Container(
                           height: 1,
@@ -1084,11 +1197,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                         ),
                                         const SizedBox(height: 12),
                                         Text(
-                                          _showFavoritesOnly
-                                              ? 'No favorites yet'
-                                              : (_allSongs.isEmpty
-                                                  ? 'No songs found'
-                                                  : 'No matches'),
+                                          _emptyLibraryMessage(),
                                           style: const TextStyle(
                                             color: PlayaColors.onSurfaceVariant,
                                             fontSize: 14,

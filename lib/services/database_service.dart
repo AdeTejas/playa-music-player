@@ -3,8 +3,11 @@ import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
+import '../models/listening_progress.dart';
 import '../models/song_metadata.dart';
 import '../models/playlist.dart';
+import '../utils/bookmark_key.dart';
+import '../utils/content_mode.dart';
 
 class DatabaseService {
   static DatabaseService? _instance;
@@ -22,8 +25,33 @@ class DatabaseService {
   bool get isInitialized => _isInitialized;
   String? get dbPath => _dbPath;
 
+  @visibleForTesting
+  void initForTest(Database db) {
+    _db = db;
+    _isInitialized = true;
+    _dbPath = ':memory:';
+  }
+
+  @visibleForTesting
+  void resetForTest() {
+    _db = null;
+    _isInitialized = false;
+    _dbPath = null;
+    _metadataCache.clear();
+    _metadataInflight.clear();
+  }
+
+  Future<void> ensureBookmarksReady() async {
+    await init();
+    if (kIsWeb || _db == null) return;
+    await _ensureBookmarksTable(_db!);
+  }
+
   Future<void> init() async {
-    if (_isInitialized) return;
+    if (_isInitialized) {
+      if (_db != null) await _ensureBookmarksTable(_db!);
+      return;
+    }
 
     if (kIsWeb) {
       if (kDebugMode) {
@@ -41,11 +69,27 @@ class DatabaseService {
 
     _db = await openDatabase(
       path,
-      version: 4,
+      version: 7,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
+    await _ensureBookmarksTable(_db!);
     _isInitialized = true;
+  }
+
+  Future<void> _ensureBookmarksTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS bookmarks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        track_key TEXT NOT NULL,
+        position_ms INTEGER NOT NULL,
+        note TEXT DEFAULT '',
+        UNIQUE(track_key, position_ms)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_bookmarks_track_key ON bookmarks(track_key)',
+    );
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -77,6 +121,25 @@ class DatabaseService {
         description TEXT
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE listening_progress (
+        series_key TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        artist TEXT,
+        last_song_path TEXT NOT NULL,
+        last_media_id INTEGER,
+        position_ms INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL,
+        content_mode TEXT NOT NULL DEFAULT 'audiobook'
+      )
+    ''');
+
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_listening_progress_updated ON listening_progress(updated_at DESC)',
+    );
+
+    await _ensureBookmarksTable(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -104,6 +167,28 @@ class DatabaseService {
       } catch (_) {
         // Column may already exist.
       }
+    }
+
+    if (oldVersion < 5) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS listening_progress (
+          series_key TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          artist TEXT,
+          last_song_path TEXT NOT NULL,
+          last_media_id INTEGER,
+          position_ms INTEGER NOT NULL DEFAULT 0,
+          updated_at INTEGER NOT NULL,
+          content_mode TEXT NOT NULL DEFAULT 'audiobook'
+        )
+      ''');
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_listening_progress_updated ON listening_progress(updated_at DESC)',
+      );
+    }
+
+    if (oldVersion < 7) {
+      await _ensureBookmarksTable(db);
     }
   }
 
@@ -477,5 +562,216 @@ class DatabaseService {
       playlist.songIds.remove(songId);
       await updatePlaylist(playlist);
     }
+  }
+
+  // ═══ Listening Progress (audiobook-weighted resume) ═══
+
+  ListeningProgress _mapToListeningProgress(Map<String, Object?> map) {
+    final modeRaw = (map['content_mode'] as String?) ?? 'audiobook';
+    final mode =
+        modeRaw == 'music' ? ContentMode.music : ContentMode.audiobook;
+
+    return ListeningProgress(
+      seriesKey: map['series_key'] as String,
+      title: map['title'] as String,
+      artist: map['artist'] as String?,
+      lastSongPath: map['last_song_path'] as String,
+      lastMediaId: map['last_media_id'] as int?,
+      positionMs: map['position_ms'] as int? ?? 0,
+      updatedAt: DateTime.fromMillisecondsSinceEpoch(
+        map['updated_at'] as int? ?? 0,
+      ),
+      contentMode: mode,
+    );
+  }
+
+  Future<void> upsertListeningProgress(ListeningProgress progress) async {
+    if (kIsWeb || _db == null) return;
+
+    await _db!.insert(
+      'listening_progress',
+      {
+        'series_key': progress.seriesKey,
+        'title': progress.title,
+        'artist': progress.artist,
+        'last_song_path': progress.lastSongPath,
+        'last_media_id': progress.lastMediaId,
+        'position_ms': progress.positionMs,
+        'updated_at': progress.updatedAt.millisecondsSinceEpoch,
+        'content_mode':
+            progress.contentMode == ContentMode.music ? 'music' : 'audiobook',
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<ListeningProgress?> getListeningProgress(String seriesKey) async {
+    if (kIsWeb || _db == null || seriesKey.isEmpty) return null;
+
+    final maps = await _db!.query(
+      'listening_progress',
+      where: 'series_key = ?',
+      whereArgs: [seriesKey],
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    return _mapToListeningProgress(maps.first);
+  }
+
+  Future<List<ListeningProgress>> getRecentListeningProgress({
+    int limit = 8,
+  }) async {
+    if (kIsWeb || _db == null) return [];
+
+    final maps = await _db!.query(
+      'listening_progress',
+      orderBy: 'updated_at DESC',
+      limit: limit,
+    );
+    return maps.map(_mapToListeningProgress).toList();
+  }
+
+  Future<void> deleteListeningProgress(String seriesKey) async {
+    if (kIsWeb || _db == null || seriesKey.isEmpty) return;
+    await _db!.delete(
+      'listening_progress',
+      where: 'series_key = ?',
+      whereArgs: [seriesKey],
+    );
+  }
+
+  // ═══ Bookmarks ═══
+
+  Future<void> _rekeyLegacyBookmarksForCanonical(String canonicalKey) async {
+    if (kIsWeb || _db == null || canonicalKey.isEmpty) return;
+
+    try {
+      final legacy = await _db!.query(
+        'bookmarks',
+        where: r"LOWER(REPLACE(track_key, '\', '/')) = ? AND track_key != ?",
+        whereArgs: [canonicalKey, canonicalKey],
+      );
+
+      for (final row in legacy) {
+        final id = (row['id'] as num).toInt();
+        final pos = (row['position_ms'] as num).toInt();
+        final conflict = await _db!.query(
+          'bookmarks',
+          where: 'track_key = ? AND position_ms = ?',
+          whereArgs: [canonicalKey, pos],
+          limit: 1,
+        );
+
+        if (conflict.isNotEmpty) {
+          await _db!.delete('bookmarks', where: 'id = ?', whereArgs: [id]);
+        } else {
+          await _db!.update(
+            'bookmarks',
+            {'track_key': canonicalKey},
+            where: 'id = ?',
+            whereArgs: [id],
+          );
+        }
+      }
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[BOOKMARKS] legacy rekey failed: $e');
+        debugPrint('$st');
+      }
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getBookmarksForTrack(String trackKey) async {
+    final key = BookmarkKey.canonical(trackKey);
+    await ensureBookmarksReady();
+    if (kIsWeb || _db == null || key.isEmpty) {
+      if (kDebugMode && !kIsWeb && _db == null) {
+        debugPrint('[BOOKMARKS] load skipped: database not open');
+      }
+      return [];
+    }
+
+    try {
+      await _rekeyLegacyBookmarksForCanonical(key);
+
+      final maps = await _db!.query(
+        'bookmarks',
+        where: 'track_key = ?',
+        whereArgs: [key],
+        orderBy: 'position_ms ASC',
+      );
+
+      return maps
+          .map(
+            (row) => <String, dynamic>{
+              'id': (row['id'] as num).toInt(),
+              'pos': (row['position_ms'] as num).toInt(),
+              'note': (row['note'] as String?) ?? '',
+            },
+          )
+          .toList(growable: false);
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[BOOKMARKS] load failed: $e');
+        debugPrint('$st');
+      }
+      return [];
+    }
+  }
+
+  Future<bool> upsertBookmark({
+    required String trackKey,
+    required int positionMs,
+    required String note,
+  }) async {
+    if (kIsWeb) return false;
+    final key = BookmarkKey.canonical(trackKey);
+    await ensureBookmarksReady();
+    if (_db == null) {
+      if (kDebugMode) {
+        debugPrint('[BOOKMARKS] upsert skipped: database not open');
+      }
+      return false;
+    }
+    if (key.isEmpty) return false;
+
+    try {
+      final rowId = await _db!.insert(
+        'bookmarks',
+        {
+          'track_key': key,
+          'position_ms': positionMs,
+          'note': note,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      if (kDebugMode) {
+        debugPrint(
+          '[BOOKMARKS] upsert ok id=$rowId key=$key pos=$positionMs',
+        );
+      }
+      return true;
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[BOOKMARKS] upsert failed: $e');
+        debugPrint('$st');
+      }
+      return false;
+    }
+  }
+
+  Future<void> updateBookmarkNote(int id, String note) async {
+    if (kIsWeb || _db == null) return;
+    await _db!.update(
+      'bookmarks',
+      {'note': note},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> deleteBookmark(int id) async {
+    if (kIsWeb || _db == null) return;
+    await _db!.delete('bookmarks', where: 'id = ?', whereArgs: [id]);
   }
 }
