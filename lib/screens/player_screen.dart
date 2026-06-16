@@ -13,7 +13,7 @@ import '../services/player_controller.dart';
 import '../services/settings_service.dart';
 import '../services/database_service.dart';
 import '../models/song_metadata.dart';
-import '../ui/tokens.dart';
+import '../design/design_system.dart';
 import '../ui/turntable_widget.dart';
 import '../ui/waveform_widget.dart';
 import '../ui/lyrics_sheet.dart';
@@ -104,24 +104,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                 Expanded(
                                   flex: 3,
                                   child: SingleChildScrollView(
-                                    padding: const EdgeInsets.all(kSp),
+                                    padding: const EdgeInsets.all(PlayaSpacing.kSp),
                                     child: Column(
                                       mainAxisAlignment:
                                           MainAxisAlignment.center,
                                       children: [
                                         // Track Info
                                         _TrackInfoPanel(item: tag, playerCtrl: ctrl),
-                                        const SizedBox(height: kSp * 2),
+                                        const SizedBox(height: PlayaSpacing.kSp * 2),
                                         _WaveformSection(
                                           item: tag,
                                           player: p,
                                           height: 80,
                                         ),
-                                        const SizedBox(height: kSp * 2),
+                                        const SizedBox(height: PlayaSpacing.kSp * 2),
 
                                         // Transport
                                         _PlayerControlsSection(ctrl: ctrl),
-                                        const SizedBox(height: kSp),
+                                        const SizedBox(height: PlayaSpacing.kSp),
                                         // Favorite Button
                                         ValueListenableBuilder<List<String>>(
                                           valueListenable:
@@ -150,7 +150,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                                  color:
                                                      isFav
                                                          ? accent
-                                                        : kColorOn2,
+                                                        : PlayaColors.onSurfaceVariant,
                                                 size: 28,
                                               ),
                                             );
@@ -168,13 +168,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               builder: (context, constraints) {
                                 return Padding(
                                   padding: const EdgeInsets.symmetric(
-                                    horizontal: kSp * 1.5,
+                                    horizontal: PlayaSpacing.kSp * 1.5,
                                   ),
                                   child: Column(
                                     mainAxisAlignment:
                                         MainAxisAlignment.start,
                                     children: [
-                                      const SizedBox(height: kSp),
+                                      const SizedBox(height: PlayaSpacing.kSp),
                                       Expanded(
                                         flex: 7,
                                         child: Center(
@@ -196,17 +196,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                           ),
                                         ),
                                       ),
-                                      const SizedBox(height: kSp),
+                                      const SizedBox(height: PlayaSpacing.kSp),
                                       _TrackInfoPanel(item: tag, playerCtrl: ctrl),
-                                      const SizedBox(height: kSp * 0.75),
+                                      const SizedBox(height: PlayaSpacing.kSp * 0.75),
                                       _WaveformSection(
                                         item: tag,
                                         player: p,
                                         height: 56,
                                       ),
-                                      const SizedBox(height: kSp * 0.75),
+                                      const SizedBox(height: PlayaSpacing.kSp * 0.75),
                                       _PlayerControlsSection(ctrl: ctrl),
-                                      const SizedBox(height: kSp),
+                                      const SizedBox(height: PlayaSpacing.kSp),
                                     ],
                                   ),
                                 );
@@ -240,10 +240,10 @@ class _PlayerControlsSection extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         _TransportBar(ctrl: ctrl),
-        SizedBox(height: isAudiobook ? kSp : kSp * 0.75),
+        SizedBox(height: isAudiobook ? PlayaSpacing.kSp : PlayaSpacing.kSp * 0.75),
         if (isAudiobook) ...[
           AudiobookQuickBar(ctrl: ctrl),
-          const SizedBox(height: kSp * 0.75),
+          const SizedBox(height: PlayaSpacing.kSp * 0.75),
           MusicToolsExpansion(
             ctrl: ctrl,
             child: _SecondaryControls(
@@ -379,8 +379,8 @@ class _TransportBar extends StatelessWidget {
       builder: (context, constraints) {
         if (constraints.maxWidth < 350) {
           return Wrap(
-            spacing: kSp * 1.5,
-            runSpacing: kSp,
+            spacing: PlayaSpacing.kSp * 1.5,
+            runSpacing: PlayaSpacing.kSp,
             alignment: WrapAlignment.center,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: controls,
@@ -638,7 +638,7 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
               builder: (ctx) {
                 final a = Theme.of(ctx).colorScheme.primary;
                 return AlertDialog(
-                  backgroundColor: kColorSurface,
+                  backgroundColor: PlayaColors.surface,
                   title: const Text('Add Bookmark'),
                   content: TextField(
                     controller: controller,
@@ -647,20 +647,20 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
                       hintText: 'Note (optional)...',
                       hintStyle: const TextStyle(color: Colors.white38),
                       enabledBorder: const UnderlineInputBorder(
-                        borderSide: BorderSide(color: kColorOn2),
+                        borderSide: BorderSide(color: PlayaColors.onSurfaceVariant),
                       ),
                       focusedBorder: UnderlineInputBorder(
                         borderSide: BorderSide(color: a),
                       ),
                     ),
-                    style: const TextStyle(color: kColorOn),
+                    style: const TextStyle(color: PlayaColors.onSurface),
                   ),
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(ctx),
                       child: const Text(
                         'Cancel',
-                        style: TextStyle(color: kColorOn2),
+                        style: TextStyle(color: PlayaColors.onSurfaceVariant),
                       ),
                     ),
                     TextButton(
@@ -769,15 +769,15 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
               child: Icon(
                 _isReordering ? Icons.check : Icons.reorder,
                 size: 16,
-                color: _isReordering ? Colors.blue : kColorOn2,
+                color: _isReordering ? Colors.blue : PlayaColors.onSurfaceVariant,
               ),
             ),
           ),
         ),
         const SizedBox(height: 4),
         Wrap(
-          spacing: kSp,
-          runSpacing: kSp,
+          spacing: PlayaSpacing.kSp,
+          runSpacing: PlayaSpacing.kSp,
           alignment: WrapAlignment.center,
           children: _chipOrder.asMap().entries
               .where((e) => widget.visibleChips?.contains(e.value) ?? true)
@@ -809,7 +809,7 @@ class _IconBtn extends StatelessWidget {
   Widget build(BuildContext context) {
     final button = IconButton(
       tooltip: tooltip,
-      icon: PhosphorIcon(icon, size: 26, color: kColorOn),
+      icon: PhosphorIcon(icon, size: 26, color: PlayaColors.onSurface),
       onPressed: onTap,
     );
     if (label == null) return button;
@@ -819,7 +819,7 @@ class _IconBtn extends StatelessWidget {
         button,
         Text(
           label!,
-          style: const TextStyle(color: kColorOn2, fontSize: 10),
+          style: const TextStyle(color: PlayaColors.onSurfaceVariant, fontSize: 10),
         ),
       ],
     );
@@ -854,7 +854,7 @@ class _TrackInfoPanel extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
           style: const TextStyle(
-            color: kColorOn2,
+            color: PlayaColors.onSurfaceVariant,
             fontSize: 13,
           ),
         ),
@@ -873,7 +873,7 @@ class _TrackInfoPanel extends StatelessWidget {
                   : () => playerCtrl.toggleFavorite(item!.id),
               icon: Icon(
                 isFav ? PhosphorIconsFill.heart : PhosphorIconsRegular.heart,
-                color: isFav ? accent : kColorOn2,
+                color: isFav ? accent : PlayaColors.onSurfaceVariant,
                 size: 28,
               ),
             );
@@ -1020,13 +1020,13 @@ class _ReorderableChipIconState extends State<_ReorderableChipIcon> {
               Icon(
                 widget.icon,
                 size: 13,
-                color: widget.active ? accent : kColorOn2,
+                color: widget.active ? accent : PlayaColors.onSurfaceVariant,
               ),
               const SizedBox(width: 4),
               Text(
                 widget.label,
                 style: TextStyle(
-                  color: widget.active ? accent : kColorOn2,
+                  color: widget.active ? accent : PlayaColors.onSurfaceVariant,
                   fontSize: 11,
                   fontWeight: widget.active ? FontWeight.bold : FontWeight.normal,
                 ),
@@ -1047,8 +1047,8 @@ class _SpeedSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final accent = Theme.of(context).colorScheme.primary;
     return Container(
-      color: kColorSurface,
-      padding: const EdgeInsets.all(kSp * 2),
+      color: PlayaColors.surface,
+      padding: const EdgeInsets.all(PlayaSpacing.kSp * 2),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1056,9 +1056,9 @@ class _SpeedSheet extends StatelessWidget {
             'Playback Speed',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
-          const SizedBox(height: kSp),
+          const SizedBox(height: PlayaSpacing.kSp),
           Wrap(
-            spacing: kSp,
+            spacing: PlayaSpacing.kSp,
             children:
                 [0.5, 0.8, 1.0, 1.2, 1.5, 2.0].map((speed) {
                   final selected = (speed - current).abs() < 0.01;
@@ -1067,9 +1067,9 @@ class _SpeedSheet extends StatelessWidget {
                     selected: selected,
                     onSelected: (_) => Navigator.pop(context, speed),
                     selectedColor: accent,
-                    backgroundColor: kColorCard,
+                    backgroundColor: PlayaColors.card,
                     labelStyle: TextStyle(
-                      color: selected ? Colors.white : kColorOn,
+                      color: selected ? Colors.white : PlayaColors.onSurface,
                     ),
                   );
                 }).toList(),
@@ -1111,14 +1111,14 @@ class _QueueSheetState extends State<QueueSheet>
     return GlassPanel(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
       borderColor: Colors.white.withValues(alpha: 0.14),
-      backgroundColor: kColorGlassBlackTint,
+      backgroundColor: PlayaColors.glass,
       child: Column(
         children: [
           TabBar(
             controller: _tabController,
             indicatorColor: accent,
             labelColor: accent,
-            unselectedLabelColor: kColorOn2,
+            unselectedLabelColor: PlayaColors.onSurfaceVariant,
             tabs: const [Tab(text: 'Queue'), Tab(text: 'Library')],
           ),
           Expanded(
@@ -1157,7 +1157,7 @@ class _QueueSheetState extends State<QueueSheet>
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: isPlaying ? accent : kColorOn,
+                  color: isPlaying ? accent : PlayaColors.onSurface,
                   fontWeight: isPlaying ? FontWeight.bold : FontWeight.normal,
                 ),
               ),
@@ -1165,7 +1165,7 @@ class _QueueSheetState extends State<QueueSheet>
                 item.tag.artist ?? 'Unknown',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: kColorOn2, fontSize: 12),
+                style: const TextStyle(color: PlayaColors.onSurfaceVariant, fontSize: 12),
               ),
               trailing:
                   isPlaying
@@ -1204,7 +1204,7 @@ class _QueueSheetState extends State<QueueSheet>
               hintText: 'Search Library...',
               prefixIcon: const Icon(
                 PhosphorIconsRegular.magnifyingGlass,
-                color: kColorOn2,
+                color: PlayaColors.onSurfaceVariant,
               ),
               filled: true,
               fillColor: Colors.white10,
@@ -1213,9 +1213,9 @@ class _QueueSheetState extends State<QueueSheet>
                 borderSide: BorderSide.none,
               ),
               contentPadding: const EdgeInsets.symmetric(vertical: 0),
-              hintStyle: const TextStyle(color: kColorOn2),
+              hintStyle: const TextStyle(color: PlayaColors.onSurfaceVariant),
             ),
-            style: const TextStyle(color: kColorOn),
+            style: const TextStyle(color: PlayaColors.onSurface),
             onChanged: (v) => setState(() => _searchQuery = v),
           ),
         ),
@@ -1231,18 +1231,18 @@ class _QueueSheetState extends State<QueueSheet>
                   s.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: kColorOn),
+                  style: const TextStyle(color: PlayaColors.onSurface),
                 ),
                 subtitle: Text(
                   s.artist ?? '<unknown>',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: kColorOn2),
+                  style: const TextStyle(color: PlayaColors.onSurfaceVariant),
                 ),
                 trailing: IconButton(
                   icon: const Icon(
                     PhosphorIconsRegular.plusCircle,
-                    color: kColorOn2,
+                    color: PlayaColors.onSurfaceVariant,
                   ),
                   onPressed: () {
                     widget.ctrl.addToQueue(s);
@@ -1252,7 +1252,7 @@ class _QueueSheetState extends State<QueueSheet>
                 onTap: () {
                   showModalBottomSheet(
                     context: context,
-                    backgroundColor: kColorSurface,
+                    backgroundColor: PlayaColors.surface,
                     builder:
                         (ctx) => Column(
                           mainAxisSize: MainAxisSize.min,
@@ -1260,11 +1260,11 @@ class _QueueSheetState extends State<QueueSheet>
                             ListTile(
                               leading: const Icon(
                                 PhosphorIconsRegular.play,
-                                color: kColorOn,
+                                color: PlayaColors.onSurface,
                               ),
                               title: const Text(
                                 'Play Now',
-                                style: TextStyle(color: kColorOn),
+                                style: TextStyle(color: PlayaColors.onSurface),
                               ),
                               onTap: () {
                                 widget.ctrl.replaceQueue([s]);
@@ -1275,11 +1275,11 @@ class _QueueSheetState extends State<QueueSheet>
                             ListTile(
                               leading: const Icon(
                                 PhosphorIconsRegular.queue,
-                                color: kColorOn,
+                                color: PlayaColors.onSurface,
                               ),
                               title: const Text(
                                 'Play Next',
-                                style: TextStyle(color: kColorOn),
+                                style: TextStyle(color: PlayaColors.onSurface),
                               ),
                               onTap: () {
                                 widget.ctrl.insertNext(s);
@@ -1290,11 +1290,11 @@ class _QueueSheetState extends State<QueueSheet>
                             ListTile(
                               leading: const Icon(
                                 PhosphorIconsRegular.plus,
-                                color: kColorOn,
+                                color: PlayaColors.onSurface,
                               ),
                               title: const Text(
                                 'Add to Queue',
-                                style: TextStyle(color: kColorOn),
+                                style: TextStyle(color: PlayaColors.onSurface),
                               ),
                               onTap: () {
                                 widget.ctrl.addToQueue(s);

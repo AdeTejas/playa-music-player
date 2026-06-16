@@ -134,6 +134,78 @@ void main() {
     expect(key1, 'james s. a. corey::leviathan wakes');
   });
 
+  test('resolveSeriesIndex matches canonical paths across slash casing', () {
+    final songs = [
+      _song(
+        id: 1,
+        title: 'Chapter 1',
+        path: r'C:\Books\Saga\01.mp3',
+        album: 'Saga',
+        artist: 'Author',
+        track: 1,
+      ),
+      _song(
+        id: 2,
+        title: 'Chapter 2',
+        path: r'C:\Books\Saga\02.mp3',
+        album: 'Saga',
+        artist: 'Author',
+        track: 2,
+      ),
+    ];
+
+    final progress = ListeningProgress(
+      seriesKey: 'author::saga',
+      title: 'Saga',
+      artist: 'Author',
+      lastSongPath: r'c:\books\saga\02.mp3',
+      lastMediaId: 2,
+      positionMs: 120000,
+      updatedAt: DateTime.now(),
+      contentMode: ContentMode.audiobook,
+    );
+
+    expect(
+      ListeningProgressRepository.resolveSeriesIndex(songs, progress),
+      1,
+    );
+  });
+
+  test('resolveSeriesIndex falls back to media id when path moved', () {
+    final songs = [
+      _song(
+        id: 10,
+        title: 'Episode 3',
+        path: '/new/path/ep03.mp3',
+        album: 'Podcast',
+        artist: 'Host',
+      ),
+      _song(
+        id: 11,
+        title: 'Episode 4',
+        path: '/new/path/ep04.mp3',
+        album: 'Podcast',
+        artist: 'Host',
+      ),
+    ];
+
+    final progress = ListeningProgress(
+      seriesKey: 'host::podcast',
+      title: 'Podcast',
+      artist: 'Host',
+      lastSongPath: '/old/path/ep04.mp3',
+      lastMediaId: 11,
+      positionMs: 5000,
+      updatedAt: DateTime.now(),
+      contentMode: ContentMode.audiobook,
+    );
+
+    expect(
+      ListeningProgressRepository.resolveSeriesIndex(songs, progress),
+      1,
+    );
+  });
+
   test('delete removes series from recent listening', () async {
     const seriesKey = 'host::weekly show';
     await ListeningProgressRepository.instance.recordFromPlayback(

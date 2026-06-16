@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:on_audio_query/on_audio_query.dart' as oaq;
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../design/design_system.dart';
 import '../models/listening_progress.dart';
+import '../repositories/listening_progress_repository.dart';
 import '../services/player_controller.dart';
 import '../utils/content_mode.dart';
 
 class ContinueListeningSection extends StatelessWidget {
   final List<ListeningProgress> items;
   final PlayerController ctrl;
-  final List<dynamic> librarySongs;
+  final List<oaq.SongModel> librarySongs;
   final VoidCallback? onResume;
   final Future<void> Function(String seriesKey)? onDismiss;
 
@@ -57,7 +59,7 @@ class ContinueListeningSection extends StatelessWidget {
           ),
         ),
         SizedBox(
-          height: 132,
+          height: 140,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: PlayaSpacing.sm * 2),
@@ -65,13 +67,19 @@ class ContinueListeningSection extends StatelessWidget {
             separatorBuilder: (_, __) => const SizedBox(width: PlayaSpacing.sm),
             itemBuilder: (context, index) {
               final item = items[index];
-              return _ContinueCard(
+              final durationMs = ListeningProgressRepository.durationMsForProgress(
+                item,
+                librarySongs,
+              );
+
+              final card = _ContinueCard(
                 progress: item,
                 accent: accent,
+                durationMs: durationMs,
                 onTap: () async {
                   await ctrl.resumeListeningProgress(
                     item,
-                    librarySongs.cast(),
+                    librarySongs,
                     autoPlay: true,
                   );
                   onResume?.call();
@@ -79,6 +87,28 @@ class ContinueListeningSection extends StatelessWidget {
                 onDismiss: onDismiss == null
                     ? null
                     : () => onDismiss!(item.seriesKey),
+              );
+
+              if (onDismiss == null) return card;
+
+              return Dismissible(
+                key: ValueKey('continue-${item.seriesKey}'),
+                direction: DismissDirection.endToStart,
+                onDismissed: (_) => onDismiss!(item.seriesKey),
+                background: Container(
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.only(right: PlayaSpacing.sm),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(PlayaRadii.md),
+                  ),
+                  child: const Icon(
+                    Icons.delete_outline,
+                    color: Colors.redAccent,
+                    size: 22,
+                  ),
+                ),
+                child: card,
               );
             },
           ),
@@ -92,12 +122,14 @@ class ContinueListeningSection extends StatelessWidget {
 class _ContinueCard extends StatelessWidget {
   final ListeningProgress progress;
   final Color accent;
+  final int? durationMs;
   final VoidCallback onTap;
   final Future<void> Function()? onDismiss;
 
   const _ContinueCard({
     required this.progress,
     required this.accent,
+    required this.durationMs,
     required this.onTap,
     this.onDismiss,
   });
@@ -109,6 +141,8 @@ class _ContinueCard extends StatelessWidget {
         : (progress.contentMode == ContentMode.audiobook
             ? 'Audiobook'
             : 'Music');
+
+    final progressFraction = _progressFraction(progress.positionMs, durationMs);
 
     return SizedBox(
       width: 220,
@@ -160,6 +194,26 @@ class _ContinueCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                  if (progressFraction != null) ...[
+                    const SizedBox(height: 6),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(999),
+                      child: LinearProgressIndicator(
+                        value: progressFraction,
+                        minHeight: 4,
+                        backgroundColor: Colors.white12,
+                        color: accent.withValues(alpha: 0.85),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${(progressFraction * 100).round()}% through chapter',
+                      style: const TextStyle(
+                        color: PlayaColors.onSurfaceVariant,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
                   const Spacer(),
                   Text(
                     progress.title,
@@ -188,6 +242,11 @@ class _ContinueCard extends StatelessWidget {
       ),
     );
   }
+}
+
+double? _progressFraction(int positionMs, int? durationMs) {
+  if (durationMs == null || durationMs <= 0) return null;
+  return (positionMs / durationMs).clamp(0.0, 1.0);
 }
 
 String _formatResumeTime(int positionMs) {

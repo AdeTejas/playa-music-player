@@ -24,7 +24,7 @@ import 'services/player_controller.dart';
 import 'services/library_scan_service.dart';
 
 // UI & Screens
-import 'ui/tokens.dart';
+
 import 'ui/deep_space_background.dart';
 import 'ui/torch_engine_glow_overlay.dart';
 import 'screens/library_page.dart';
@@ -413,16 +413,16 @@ class _ShellState extends State<_Shell> {
                 top: false,
                 child: Padding(
                     padding: const EdgeInsets.fromLTRB(
-                      kSp * 2,
+                      PlayaSpacing.kSp * 2,
                       0,
-                      kSp * 2,
-                      kSp,
+                      PlayaSpacing.kSp * 2,
+                      PlayaSpacing.kSp,
                     ),
                     child: GlassPanel(
                       borderRadius: BorderRadius.circular(32),
                       borderWidth: 1.5,
                       borderColor: PlayaColors.border,
-                      backgroundColor: kColorGlassClear,
+                      backgroundColor: PlayaColors.glassSubtle,
                       child: SizedBox(
                         height: 48,
                       child: Row(
@@ -471,17 +471,17 @@ class _ShellState extends State<_Shell> {
                           scan.lastError != null) {
                         return Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: kSp * 2,
-                            vertical: kSp,
+                            horizontal: PlayaSpacing.kSp * 2,
+                            vertical: PlayaSpacing.kSp,
                           ),
                           child: Container(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: kSp,
-                              vertical: kSp * 0.75,
+                              horizontal: PlayaSpacing.kSp,
+                              vertical: PlayaSpacing.kSp * 0.75,
                             ),
                             decoration: BoxDecoration(
                               color: Colors.black.withValues(alpha: 0.35),
-                              borderRadius: BorderRadius.circular(kRadius),
+                              borderRadius: BorderRadius.circular(PlayaRadii.kRadius),
                               border: Border.all(
                                 color: Colors.redAccent.withValues(alpha: 0.35),
                                 width: 1,
@@ -494,14 +494,14 @@ class _ShellState extends State<_Shell> {
                                   color: Colors.redAccent,
                                   size: 18,
                                 ),
-                                const SizedBox(width: kSp),
+                                const SizedBox(width: PlayaSpacing.kSp),
                                 Expanded(
                                   child: Text(
                                     'Scan failed. ${scan.lastError}',
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
-                                      color: kColorOn2,
+                                      color: PlayaColors.onSurfaceVariant,
                                       fontSize: 12,
                                     ),
                                   ),

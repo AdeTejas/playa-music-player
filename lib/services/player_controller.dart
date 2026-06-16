@@ -757,21 +757,13 @@ class PlayerController {
     oaq.SongModel? target;
 
     if (seriesSongs.length > 1) {
-      var index = seriesSongs.indexWhere(
-        (s) => s.data == progress.lastSongPath,
+      final index = ListeningProgressRepository.resolveSeriesIndex(
+        seriesSongs,
+        progress,
       );
-      if (index < 0) index = 0;
       await replaceQueue(seriesSongs, initialIndex: index, autoPlay: autoPlay);
     } else {
-      try {
-        target = library.firstWhere((s) => s.data == progress.lastSongPath);
-      } catch (_) {
-        if (progress.lastMediaId != null) {
-          try {
-            target = library.firstWhere((s) => s.id == progress.lastMediaId);
-          } catch (_) {}
-        }
-      }
+      target = ListeningProgressRepository.resolveSingleTrack(library, progress);
       if (target == null) return;
       await replaceQueue([target], autoPlay: autoPlay);
     }
