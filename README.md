@@ -1,117 +1,173 @@
-# Playa - Audio Book Player
+# Playa
 
-A sleek, dark-themed music and audio book player built with Flutter, featuring an immersive hard sci-fi aesthetic and a unique animated torch ship waveform progress bar. Designed for deep listening with advanced bookmarking and library tools.
+Playa is a local audio player for **music and long-form listening** — audiobooks, podcasts, and multi-chapter files. It runs on **Android and Windows**, keeps your library on your device, and wraps playback in a hard sci-fi player: turntable hero, deep-space backgrounds, and a torch-drive ship scrubber you will not find in a stock player.
 
-## ✨ Features
+Built with Flutter. No account required. No cloud library.
 
-### Core Playback
-- **Cross-Platform:** Windows and Android support
-- **Background Playback:** Continues playing when app is minimized
-- **Queue Management:** Add, remove, and reorder tracks
-- **Shuffle & Repeat:** Full control over playback modes
+**Repository:** [github.com/AdeTejas/playa-music-player](https://github.com/AdeTejas/playa-music-player)
 
-### Audio Book Focused
-- **Bookmarks:** Save and manage timestamps for interesting parts of audio books
-- **Chapters:** Navigate through book sections
-- **Sleep Timer:** Auto-pause after set duration
+---
 
-### Library Management
-- **Local Library:** Scan and organize your music/audio book collection
-- **Playlists:** Create, edit, and manage custom playlists
-- **Smart Playlists:** Auto-generated based on play history (Most Played, Recently Added, etc.)
-- **Ratings:** Rate your favorite tracks/books
+## Who it is for
 
-### Audio Enhancements
-- **Neural Mix:** Generate intelligent, harmonically matched playlists based on Sonic DNA (BPM, Key) and Energy modes (Up, Down, Neutral).
-- **Smart Volume:** Automatic loudness normalization and peak limiting using ReplayGain tags to ensure consistent volume and prevent clipping.
-- **Equalizer:** Android-native equalizer controls (bands, presets).
-- **Lyrics Sync:** Display synced lyrics (LRCLIB integration).
-- **Waveforms:** Visual audio representation.
-- **Sonic DNA:** Analyze BPM and key for tracks to power harmonic mixing.
-- **Signature Visual:** The torch ship progress indicator (detailed hard sci-fi vessel with reactive plasma drive effects) is the app's signature element and available as a standalone reusable painter.
+- **Audiobook listeners** — bookmarks, speed control, sleep timer, resume across chapters and series  
+- **Music collectors** — playlists, shuffle/repeat, lyrics, equalizer, BPM/key-aware mixing  
+- **Anyone tired of generic players** — a UI that feels designed, not templated  
 
-### Immersive Hard Sci-Fi UI
-- **Torch Ship Waveform:** Custom animated progress bar featuring a detailed torch-drive corvette with plasma effects, engine plume, and dynamic markings
-- **Reusable Component:** The `TorchShipPainter` is self-contained and ready to drop into other Flutter projects (open-source friendly)
-- **Turntable UI:** Custom animated turntable with sci-fi detailing
-- **Deep Space Backgrounds:** Subtle drifting nebulae and starfields
-- **Battery Optimization:** Respects battery saver settings
-- **Accessibility:** Screen reader support for key controls
+---
 
-## 🚀 Getting Started
+## Highlights
+
+### Playback
+- Background playback with system media controls  
+- Queue management, shuffle, and repeat  
+- Gapless playback and optional crossfade  
+- Configurable skip intervals (5–60 seconds)  
+
+### Audiobooks and long-form
+- **Bookmarks** with notes and jump-to-position  
+- **Continue listening** — pick up series and chapters where you left off  
+- Playback speed presets  
+- Sleep timer with fade-out  
+- Library filter: All · Music · Audiobooks  
+
+### Library
+- Local scan (Android MediaStore; Windows folder scan)  
+- Manual and smart playlists  
+- Favorites, ratings, and play-history hooks  
+- Cached library bootstrap for faster reopen  
+
+### Audio tools
+- **Neural Mix** — harmonically matched queues from Sonic DNA (BPM, key, energy)  
+- **ReplayGain** and smart volume limiting  
+- **Equalizer** (Android native bands and presets)  
+- **Synced lyrics** (LRCLIB)  
+- **Waveforms** with procedural preview and envelope extraction  
+
+### The look (signature UI)
+- **Torch ship waveform** — animated scrubber with plasma plume and RCS detail  
+- **Turntable Now Playing** — vinyl deck with sci-fi detailing  
+- **Deep space backgrounds** — nebula and starfield with battery-aware rendering  
+- **High-tech speaker** — Flower-of-Life resonator on the deck  
+- Themes: Classic, Neon, Album-art accent; customizable colors  
+
+### Privacy
+Everything stays on your device — library, bookmarks, playlists, and listening progress. No server-side library sync.
+
+---
+
+## Platforms
+
+| Platform | Status |
+|----------|--------|
+| Android | Supported (Play Store–ready versioning in `pubspec.yaml`) |
+| Windows | Supported |
+| iOS | Not a current target |
+
+---
+
+## Screenshots
+
+_Add a Now Playing screenshot here when you have one — it helps enormously for first impressions and GitHub social preview._
+
+---
+
+## Getting started
 
 ### Prerequisites
-- Flutter SDK (3.7.0+)
-- Dart SDK
-- For Windows: Visual Studio Build Tools
-- For Android: Android SDK, device/emulator
+- Flutter SDK 3.7.0+  
+- Dart SDK  
+- **Windows:** Visual Studio Build Tools  
+- **Android:** Android SDK and a device or emulator  
 
-### Installation
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/playa.git
-   cd playa
-   ```
+### Clone and run
 
-2. Install dependencies:
-   ```bash
-   flutter pub get
-   ```
-
-3. Run on your platform:
-   ```bash
-   # Windows
-   flutter run -d windows
-
-   # Android
-   flutter run -d <device-id>
-   ```
-
-### Build Release
 ```bash
-# Android AAB
+git clone https://github.com/AdeTejas/playa-music-player.git
+cd playa-music-player
+flutter pub get
+```
+
+```bash
+# Windows
+flutter run -d windows
+
+# Android
+flutter run -d <device-id>
+```
+
+### Release builds
+
+```bash
+# Android App Bundle
 flutter build appbundle --release
 
 # Windows
 flutter build windows --release
 ```
 
-## 📱 Usage
-
-### For Audio Books
-1. **Import Library:** Grant storage permissions to scan your audio files
-2. **Bookmark Moments:** Tap the bookmark icon during playback to save timestamps
-3. **Navigate Chapters:** Use the bookmarks list to jump to saved sections
-4. **Sleep Timer:** Set auto-pause for bedtime listening
-
-### Playlists & Ratings
-- Create playlists from your library
-- Rate tracks to build smart playlists
-- Access "Heavy Rotation" for most played content
-
-## 🛠️ Architecture
-
-- **Services:** Singleton pattern for PlayerController, SettingsService, DatabaseService
-- **Persistence:** Sqflite database for metadata, playlists, and bookmarks
-- **UI:** Modular screens with custom widgets (TurntableWidget, WaveformWidget, TorchShipPainter)
-- **State Management:** InheritedWidget for player state, ChangeNotifier for settings
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-## 📞 Contact
-
-For questions or support: [paxpiece@gmail.com]
+Play Store checklist: [docs/PLAY_STORE_RELEASE.md](docs/PLAY_STORE_RELEASE.md)
 
 ---
 
-**Note:** This app stores all data locally on your device. No data is transmitted to external servers.
+## Usage (quick)
+
+**Audiobooks**
+1. Grant storage access and scan your library  
+2. Tap bookmark during playback to save a moment  
+3. Open the bookmarks list to jump back  
+4. Set a sleep timer for bedtime listening  
+
+**Music**
+- Build playlists from the library  
+- Rate tracks for smart playlists  
+- Try Neural Mix from Now Playing for a harmonic queue  
+- Open lyrics or the screensaver from the player chips  
+
+---
+
+## Documentation
+
+| Doc | What it covers |
+|-----|----------------|
+| [docs/PITCH.md](docs/PITCH.md) | Product story, differentiators, buyer-oriented overview |
+| [docs/PLAY_STORE_RELEASE.md](docs/PLAY_STORE_RELEASE.md) | Android release and signing checklist |
+| [lib/design/README.md](lib/design/README.md) | Design system tokens and components |
+
+---
+
+## Architecture (short)
+
+- **Services** — `PlayerController`, `SettingsService`, `DatabaseService`, `LibraryScanService`  
+- **Persistence** — Sqflite for metadata, playlists, bookmarks, listening progress; SharedPreferences for settings  
+- **UI** — Modular screens; custom painters (`TorchShipPainter`, turntable, waveforms, deep space)  
+- **State** — `PlayerProvider` for playback; `ChangeNotifier` for settings  
+- **Tests** — Bookmarks, resume soak, layout metrics, motion, torch engine, geometry  
+
+---
+
+## Contributing
+
+1. Fork the repository  
+2. Create a feature branch (`git checkout -b feature/my-change`)  
+3. Commit and push  
+4. Open a pull request  
+
+Run tests before submitting:
+
+```bash
+flutter test
+flutter analyze lib/
+```
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+---
+
+## Contact
+
+Questions or support: [paxpiece@gmail.com](mailto:paxpiece@gmail.com)
