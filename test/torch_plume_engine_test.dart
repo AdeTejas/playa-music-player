@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:playa_clean/services/waveform_envelope_service.dart';
@@ -117,9 +119,9 @@ void main() {
     final core = TorchPlumeEngine.raptorCore(accent);
     final sheath = TorchPlumeEngine.raptorSheath(accent);
     final warm = TorchPlumeEngine.warmExhaust(accent);
-    expect(core.green, greaterThan(accent.green));
-    expect(sheath.blue, greaterThan(sheath.red));
-    expect(sheath.blue, greaterThan(warm.blue));
+    expect(core.g, greaterThan(accent.g));
+    expect(sheath.b, greaterThan(sheath.r));
+    expect(sheath.b, greaterThan(warm.b));
     expect(sheath, isNot(equals(warm)));
   });
 
@@ -163,11 +165,39 @@ void main() {
     expect(atThroatExit, lessThan(farAft));
   });
 
+  test('buildExhaustWaveformPath spans track width', () {
+    final data = List<double>.generate(50, (i) => 0.5 + 0.4 * sin(i * 0.3));
+    const width = 400.0;
+    const height = 80.0;
+    const centerY = 40.0;
+    const shipLen = 64.0;
+    const nozzleX = 300.0;
+
+    final path = TorchPlumeEngine.buildExhaustWaveformPath(
+      waveformData: data,
+      width: width,
+      height: height,
+      centerY: centerY,
+      nozzleX: nozzleX,
+      shipLen: shipLen,
+    );
+    final bounds = path.getBounds();
+    expect(bounds.width, closeTo(width, 2.0));
+    expect(bounds.height, greaterThan(height * 0.15));
+  });
+
+  test('exhaustWaveformGradientColors uses raptor palette', () {
+    const base = Color(0xFFC9A86A);
+    final colors = TorchPlumeEngine.exhaustWaveformGradientColors(base);
+    expect(colors, hasLength(4));
+    expect(colors.first, TorchPlumeEngine.raptorCore(base));
+  });
+
   test('engineMetrics matches ship bell proportions', () {
     final m = TorchPlumeEngine.engineMetrics(80);
     expect(m.shipWidth, 20);
-    expect(m.bellHalfW, 8);
-    expect(m.throatHalfW, closeTo(3.36, 0.01));
+    expect(m.bellHalfW, closeTo(10.26, 0.01));
+    expect(m.throatHalfW, closeTo(4.51, 0.01));
     expect(m.engineFaceOffset, 36);
   });
 

@@ -1,6 +1,171 @@
 import 'dart:math';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
+
+import '../design/design_system.dart';
 import '../services/settings_service.dart';
+import 'playback_motion.dart';
+
+// ---------------------------------------------------------------------------
+// Sacred geometry helpers (cached, testable)
+// ---------------------------------------------------------------------------
+
+/// Hex-lattice Flower of Life layout utilities.
+class SacredFlowerGeometry {
+  SacredFlowerGeometry._();
+
+  static const int flowerOfLifeCircleCount = 19;
+
+  /// Classic 19-circle Flower of Life (equal radius = [radius], centers spaced by [radius]).
+  static List<Offset> flowerCenters(double radius, {int rings = 2}) {
+    if (rings != 2) {
+      // Seed of Life (7 circles) for nested driver detail.
+      final centers = <Offset>[Offset.zero];
+      for (int i = 0; i < 6; i++) {
+        final a = pi / 3 * i;
+        centers.add(Offset(cos(a) * radius, sin(a) * radius));
+      }
+      return centers;
+    }
+
+    final sqrt3 = sqrt(3);
+    final centers = <Offset>[Offset.zero];
+
+    for (int i = 0; i < 6; i++) {
+      final a = pi / 3 * i;
+      centers.add(Offset(cos(a) * radius, sin(a) * radius));
+    }
+    for (int i = 0; i < 6; i++) {
+      final a = pi / 3 * i + pi / 6;
+      centers.add(Offset(cos(a) * radius * sqrt3, sin(a) * radius * sqrt3));
+    }
+    for (int i = 0; i < 6; i++) {
+      final a = pi / 3 * i;
+      centers.add(Offset(cos(a) * radius * 2, sin(a) * radius * 2));
+    }
+    return centers;
+  }
+
+  /// Neighbor pairs whose centers are exactly [spacing] apart.
+  static List<(Offset, Offset)> adjacentPairs(
+    List<Offset> centers,
+    double spacing,
+  ) {
+    final pairs = <(Offset, Offset)>[];
+    final tol = spacing * 0.06;
+    for (int i = 0; i < centers.length; i++) {
+      for (int j = i + 1; j < centers.length; j++) {
+        final d = (centers[i] - centers[j]).distance;
+        if ((d - spacing).abs() <= tol) {
+          pairs.add((centers[i], centers[j]));
+        }
+      }
+    }
+    return pairs;
+  }
+
+  static Path vesicaLens(Offset c1, Offset c2, double radius) {
+    final d = (c2 - c1).distance;
+    if (d < 1e-5 || d > radius * 2.05) return Path();
+
+    final mid = Offset((c1.dx + c2.dx) / 2, (c1.dy + c2.dy) / 2);
+    final h = sqrt(max(0.0, radius * radius - (d * 0.5) * (d * 0.5)));
+    final nx = -(c2.dy - c1.dy) / d;
+    final ny = (c2.dx - c1.dx) / d;
+
+    final p1 = Offset(mid.dx + nx * h, mid.dy + ny * h);
+    final p2 = Offset(mid.dx - nx * h, mid.dy - ny * h);
+
+    double sweep(Offset c, Offset from, Offset to) {
+      var a0 = atan2(from.dy - c.dy, from.dx - c.dx);
+      var a1 = atan2(to.dy - c.dy, to.dx - c.dx);
+      var sweep = a1 - a0;
+      while (sweep <= -pi) {
+        sweep += 2 * pi;
+      }
+      while (sweep > pi) {
+        sweep -= 2 * pi;
+      }
+      return sweep;
+    }
+
+    final path = Path()..moveTo(p1.dx, p1.dy);
+    path.arcToPoint(
+      p2,
+      radius: Radius.circular(radius),
+      rotation: 0,
+      largeArc: false,
+      clockwise: sweep(c1, p1, p2) < 0,
+    );
+    path.arcToPoint(
+      p1,
+      radius: Radius.circular(radius),
+      rotation: 0,
+      largeArc: false,
+      clockwise: sweep(c2, p2, p1) < 0,
+    );
+    path.close();
+    return path;
+  }
+
+  /// Ring index for 19-circle layout: 0=center, 1=inner hex, 2=mid, 3=outer.
+  static int ringAt(Offset local, double spacing) {
+    final d = local.distance;
+    if (d < spacing * 0.2) return 0;
+    if (d < spacing * 1.15) return 1;
+    if (d < spacing * sqrt(3) * 1.15) return 2;
+    return 3;
+  }
+
+  /// Coherent mandala pulse — shared breath with an outward-traveling wave.
+  static double pulseLevel({
+    required int ring,
+    required double t,
+    required double lowBand,
+    required double highBand,
+    required bool isPlaying,
+  }) {
+    if (!isPlaying) return PlaybackMotion.idleShimmer(t);
+
+    final drive = (lowBand * 0.74 + highBand * 0.26).clamp(0.0, 1.0);
+    final breathEased = PlaybackMotion.breathEased(t);
+    final waveEased = PlaybackMotion.ringWaveEased(ring, t);
+
+    return (0.28 + 0.34 * breathEased + 0.58 * waveEased) * drive;
+  }
+
+  /// Subtle whole-symbol scale tied to the shared breath.
+  static double globalBreath({
+    required double t,
+    required double lowBand,
+    required double energy,
+    required bool isPlaying,
+  }) {
+    final idle = 1.0 + 0.006 * sin(t * PlaybackMotion.idleShimmerHz);
+    if (!isPlaying) return idle;
+
+    final e = energy.clamp(0.0, 1.0);
+    return 1.0 + 0.022 * lowBand * e * PlaybackMotion.breathEased(t);
+  }
+
+  /// Per-ring radius swell — keeps circle geometry locked while feeling alive.
+  static double ringRadiusScale({
+    required int ring,
+    required double t,
+    required double lowBand,
+    required bool isPlaying,
+  }) {
+    if (!isPlaying) return 1.0;
+    return 1.0 +
+        0.014 * lowBand * sin(PlaybackMotion.ringWave(ring, t) * pi);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Widget
+// ---------------------------------------------------------------------------
 
 class HighTechSpeaker extends StatefulWidget {
   final bool isPlaying;
@@ -15,7 +180,7 @@ class HighTechSpeaker extends StatefulWidget {
     this.bpm,
     this.position,
     this.volume = 1.0,
-    this.accentColor = const Color(0xFFFF9F40), // default Jedi Survivor Coruscant Paint accent
+    this.accentColor = PlayaColors.accent,
   });
 
   @override
@@ -24,10 +189,11 @@ class HighTechSpeaker extends StatefulWidget {
 
 class _HighTechSpeakerState extends State<HighTechSpeaker>
     with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  double _lowBand = 0.0;
-  double _highBand = 0.0;
+  late final Ticker _ticker;
+  double _animSeconds = 0;
   Duration _lastElapsed = Duration.zero;
+  double _lowBand = 0;
+  double _highBand = 0;
 
   double _beatHz() {
     final v = (widget.bpm ?? 120.0).clamp(55.0, 190.0);
@@ -41,7 +207,6 @@ class _HighTechSpeakerState extends State<HighTechSpeaker>
     required double tauAttack,
     required double tauRelease,
   }) {
-    // One-pole low-pass with separate attack/release constants.
     final tau = target >= current ? tauAttack : tauRelease;
     final a = 1.0 - exp(-dtSeconds / max(1e-6, tau));
     return current + (target - current) * a;
@@ -50,101 +215,92 @@ class _HighTechSpeakerState extends State<HighTechSpeaker>
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    );
-
-    if (widget.isPlaying) {
-      _controller.repeat();
-    }
+    _ticker = createTicker(_onTick);
+    if (widget.isPlaying) _ticker.start();
   }
 
   @override
   void didUpdateWidget(HighTechSpeaker oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.isPlaying && !_controller.isAnimating) {
-      _controller.repeat();
-    } else if (!widget.isPlaying && _controller.isAnimating) {
-      _controller.stop();
+    if (widget.isPlaying && !_ticker.isActive) {
+      _ticker.start();
+    } else if (!widget.isPlaying && _ticker.isActive) {
+      _ticker.stop();
+      _lowBand = 0;
+      _highBand = 0;
     }
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _ticker.dispose();
     super.dispose();
+  }
+
+  void _onTick(Duration elapsed) {
+    final dt = (elapsed - _lastElapsed).inMicroseconds / 1e6;
+    _lastElapsed = elapsed;
+    if (!dt.isFinite || dt <= 0) return;
+
+    _animSeconds += dt;
+    if (_animSeconds > 36000) _animSeconds -= 36000;
+
+    if (widget.isPlaying) {
+      final posSeconds = (widget.position?.inMicroseconds ?? 0) / 1e6;
+      final t = posSeconds + _animSeconds;
+      final beatHz = _beatHz();
+      final lowTarget =
+          pow(0.5 + 0.5 * sin(2 * pi * beatHz * t), 1.35).toDouble();
+      final highTarget = (0.5 +
+              0.5 *
+                  sin(2 * pi * (beatHz * 6.0) * t + sin(t * 1.73) * 1.20))
+          .clamp(0.0, 1.0);
+
+      _lowBand = _smoothBand(
+        _lowBand,
+        lowTarget,
+        dt,
+        tauAttack: 0.14,
+        tauRelease: 0.32,
+      );
+      _highBand = _smoothBand(
+        _highBand,
+        highTarget,
+        dt,
+        tauAttack: 0.08,
+        tauRelease: 0.24,
+      );
+    }
+
+    setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        final posSeconds = (widget.position?.inMicroseconds ?? 0) / 1e6;
-        // Use monotonic time (no visible looping) while still allowing the
-        // track position to influence phase when playing.
-        final animSeconds =
-            ((_controller.lastElapsedDuration?.inMicroseconds ?? 0) / 1e6);
-        // When paused/stopped, visualizer must freeze.
-        final t = widget.isPlaying ? (posSeconds + animSeconds) : posSeconds;
+    final posSeconds = (widget.position?.inMicroseconds ?? 0) / 1e6;
+    final t = widget.isPlaying ? posSeconds + _animSeconds : posSeconds;
+    final energy =
+        (widget.isPlaying ? 1.0 : 0.0) * widget.volume.clamp(0.0, 1.0);
+    final expensive = SettingsService.instance.expensiveEffectsEnabled;
 
-        final energy =
-            (widget.isPlaying ? 1.0 : 0.0) * widget.volume.clamp(0.0, 1.0);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final side = min(
+          constraints.maxWidth.isFinite ? constraints.maxWidth : 120.0,
+          constraints.maxHeight.isFinite ? constraints.maxHeight : 120.0,
+        );
 
-        // Super-smooth bands with attack/release behavior.
-        if (widget.isPlaying) {
-          final elapsed = _controller.lastElapsedDuration ?? Duration.zero;
-          final dt = (elapsed - _lastElapsed).inMicroseconds / 1e6;
-          final dtSeconds = dt.isFinite && dt > 0 ? dt : (1 / 60.0);
-          _lastElapsed = elapsed;
-
-          final beatHz = _beatHz();
-
-          // Target bands: low = sub/beat, high = sparkle/transients.
-          // These are *not* true FFT; they are a lightweight proxy that
-          // looks reactive without heavy DSP.
-          final lowTarget =
-              pow(0.5 + 0.5 * sin(2 * pi * beatHz * t), 1.35).toDouble();
-          final highTarget = (0.5 +
-                  0.5 *
-                      sin(
-                        2 * pi * (beatHz * 6.0) * t +
-                            sin(t * 1.73) * 1.20 +
-                            sin(t * 0.23) * 0.90,
-                      ))
-              .clamp(0.0, 1.0);
-
-          _lowBand = _smoothBand(
-            _lowBand,
-            lowTarget,
-            dtSeconds,
-            tauAttack: 0.10,
-            tauRelease: 0.22,
-          );
-          _highBand = _smoothBand(
-            _highBand,
-            highTarget,
-            dtSeconds,
-            tauAttack: 0.06,
-            tauRelease: 0.16,
-          );
-        }
-
-        final lowBand = widget.isPlaying ? _lowBand : 0.0;
-        final highBand = widget.isPlaying ? _highBand : 0.0;
-
-        return SizedBox(
-          height: 120,
-          width: double.infinity,
+        return RepaintBoundary(
           child: CustomPaint(
-            painter: _HypnoSpeakerPainter(
+            size: Size(side, side),
+            painter: _SacredResonanceSpeakerPainter(
               t: t,
               isPlaying: widget.isPlaying,
               energy: energy,
-              lowBand: lowBand,
-              highBand: highBand,
+              lowBand: _lowBand,
+              highBand: _highBand,
               accentColor: widget.accentColor,
+              highQuality: expensive,
             ),
           ),
         );
@@ -153,376 +309,379 @@ class _HighTechSpeakerState extends State<HighTechSpeaker>
   }
 }
 
-class _HypnoSpeakerPainter extends CustomPainter {
+// ---------------------------------------------------------------------------
+// Painter — premium chassis + etched Flower of Life resonator
+// ---------------------------------------------------------------------------
+
+class _SacredResonanceSpeakerPainter extends CustomPainter {
   final double t;
   final bool isPlaying;
   final double energy;
   final double lowBand;
   final double highBand;
   final Color accentColor;
+  final bool highQuality;
 
-  double get _intensityMul {
-    final isNeon = SettingsService.instance.themeMode == SettingsService.themeNeon;
-    return isNeon ? 2.1 : 1.45;
-  }
-
-  _HypnoSpeakerPainter({
+  _SacredResonanceSpeakerPainter({
     required this.t,
     required this.isPlaying,
     required this.energy,
     required this.lowBand,
     required this.highBand,
     required this.accentColor,
+    required this.highQuality,
   });
 
-  double _hash(double x) {
-    final s = sin(x * 12.9898) * 43758.5453;
-    return s - s.floorToDouble();
-  }
-
-  double _smoothstep(double edge0, double edge1, double x) {
-    final t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
-    return t * t * (3 - 2 * t);
-  }
-
-  Path _catmullRom(List<Offset> pts) {
-    if (pts.length < 2) return Path();
-    final path = Path()..moveTo(pts.first.dx, pts.first.dy);
-    for (int i = 0; i < pts.length - 1; i++) {
-      final p0 = pts[i == 0 ? 0 : i - 1];
-      final p1 = pts[i];
-      final p2 = pts[i + 1];
-      final p3 = pts[(i + 2) < pts.length ? (i + 2) : (pts.length - 1)];
-
-      final c1 = p1 + (p2 - p0) / 6.0;
-      final c2 = p2 - (p3 - p1) / 6.0;
-      path.cubicTo(c1.dx, c1.dy, c2.dx, c2.dy, p2.dx, p2.dy);
-    }
-    return path;
+  double get _intensityMul {
+    final isNeon = SettingsService.instance.themeMode == SettingsService.themeNeon;
+    return isNeon ? 1.75 : 1.15;
   }
 
   @override
   void paint(Canvas canvas, Size size) {
-    final w = size.width;
-    final h = size.height;
-    final r = min(w, h) * 0.5;
-    final pad = r * 0.10;
-    final rect = RRect.fromRectAndRadius(
-      Rect.fromLTWH(
-        (w - (2 * r)) / 2,
-        (h - (2 * r)) / 2,
-        2 * r,
-        2 * r,
-      ).deflate(pad),
+    final side = min(size.width, size.height);
+    final center = Offset(size.width / 2, size.height / 2);
+    final r = side * 0.48;
+    final e = (0.06 + 0.94 * energy).clamp(0.0, 1.0);
+    final breathe = SacredFlowerGeometry.globalBreath(
+      t: t,
+      lowBand: lowBand,
+      energy: e,
+      isPlaying: isPlaying,
+    );
+    final flowerRadius = r * 0.78 * breathe;
+
+    _drawChassis(canvas, center, r, e);
+    _drawFaceRecess(canvas, center, r * 0.90, e);
+    _drawHarmonicRings(canvas, center, flowerRadius, e);
+    _drawFlowerOfLife(canvas, center, flowerRadius, e);
+    _drawVesicaLenses(canvas, center, flowerRadius, e);
+    _drawDriverAssembly(canvas, center, r * 0.30, e, breathe);
+  }
+
+  void _drawChassis(Canvas canvas, Offset center, double r, double e) {
+    final outer = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: center, width: r * 2.05, height: r * 2.05),
       Radius.circular(r * 0.22),
     );
 
-    final e = (0.10 + 0.90 * energy).clamp(0.0, 1.0);
-
-    // Background panel
-    canvas.drawRRect(rect, Paint()..color = const Color(0xFF07090C));
-
-    // High-tech rim: outer bevel + neon edge + inner bevel.
-    final rimOuter = rect;
-    final rimInner = rect.deflate(r * 0.10);
-    final rimNeon = rect.deflate(r * 0.055);
-
-    // Premium depth: subtle outer shadow.
     canvas.drawRRect(
-      rimOuter,
+      outer.shift(const Offset(2, 3)),
       Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = r * 0.085
-        ..color = Colors.black.withValues(alpha: 0.55)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.22),
+        ..color = Colors.black.withValues(alpha: 0.50)
+        ..maskFilter = highQuality
+            ? const MaskFilter.blur(BlurStyle.normal, 5)
+            : null,
     );
 
-    // Outer bevel / metal ring (sweep highlight)
-    final metalRect = rimOuter.outerRect;
     canvas.drawRRect(
-      rimOuter,
+      outer,
       Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = r * 0.070
-        ..shader = const SweepGradient(
-          center: Alignment.center,
-          startAngle: 0,
-          endAngle: 2 * pi,
-          colors: [
-            Color(0xFF0E1014),
-            Color(0xFF2D3540),
-            Color(0xFF10141B),
-            Color(0xFF3A4656),
-            Color(0xFF0E1014),
+        ..shader = ui.Gradient.linear(
+          Offset(center.dx - r, center.dy - r),
+          Offset(center.dx + r, center.dy + r),
+          [
+            PlayaColors.matteGunmetal,
+            PlayaColors.matteGraphite,
+            PlayaColors.matteWarm,
+            PlayaColors.deepVoid,
           ],
-          stops: [0.00, 0.22, 0.50, 0.78, 1.00],
-        ).createShader(metalRect),
+          const [0.0, 0.35, 0.72, 1.0],
+        ),
     );
 
-    // Specular sweep (premium gloss) - intensity reacts more to highs.
-    final specA = (0.08 + 0.22 * e * (0.35 + 0.65 * highBand)).clamp(0.0, 0.30);
     canvas.drawRRect(
-      rimOuter.deflate(r * 0.014),
+      outer,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = max(1.0, r * 0.012)
-        ..shader = SweepGradient(
-          center: Alignment.center,
-          startAngle: -pi / 2,
-          endAngle: 3 * pi / 2,
-          colors: [
-            Colors.transparent,
-            Colors.white.withValues(alpha: specA),
-            Colors.transparent,
-          ],
-          stops: const [0.18, 0.25, 0.33],
-          transform: GradientRotation(t * 0.08),
-        ).createShader(metalRect)
-        ..blendMode = BlendMode.plus,
+        ..strokeWidth = max(1.0, r * 0.04)
+        ..color = PlayaColors.borderSubtle,
     );
 
-    // Neon edge (glow-in-the-dark feel)
-    final neonAlpha = (0.22 + 0.48 * e * (0.55 + 0.45 * lowBand)).clamp(
-      0.0,
-      1.0,
-    );
-
-    // Outer halo (wide, soft) - feels like charged phosphor.
-    final intensity = _intensityMul;
     canvas.drawRRect(
-      rimNeon,
+      outer.deflate(r * 0.06),
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = r * 0.060
-        ..color = accentColor.withValues(
-          alpha: (neonAlpha * 0.35 * intensity).clamp(0.0, 0.75),
-        )
-        ..blendMode = BlendMode.plus
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.28),
-    );
-    canvas.drawRRect(
-      rimNeon,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = r * 0.030
-        ..color = accentColor.withValues(alpha: (neonAlpha * intensity).clamp(0.0, 1.0))
-        ..blendMode = BlendMode.plus
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.11),
-    );
-    canvas.drawRRect(
-      rimNeon,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = max(1.0, r * 0.010)
-        ..shader = LinearGradient(
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-          colors: [
-            Colors.transparent,
-            Colors.white.withValues(alpha: (neonAlpha * 0.55).clamp(0.0, 0.55)),
-            Colors.transparent,
-          ],
-          stops: const [0.0, 0.5, 1.0],
-        ).createShader(rimNeon.outerRect)
-        ..blendMode = BlendMode.plus,
+        ..strokeWidth = max(0.6, r * 0.018)
+        ..color = Colors.black.withValues(alpha: 0.55),
     );
 
-    // Inner bevel
-    canvas.drawRRect(
-      rimInner,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = r * 0.030
-        ..color = const Color(0xFF1E232B).withValues(alpha: 0.95),
-    );
+    _drawCornerHardware(canvas, outer, r);
+  }
 
-    canvas.save();
-    canvas.clipRRect(rect);
-
-    final inner = rect.deflate(r * 0.16);
-    final center = Offset(
-      rect.left + rect.width / 2,
-      rect.top + rect.height / 2,
-    );
-    final slow = t * 2 * pi * 0.20;
-    final fast = t * 2 * pi * 0.75;
-
-    // Premium interior vignette (adds depth).
-    final vignetteRect = inner.outerRect;
-    canvas.drawRect(
-      vignetteRect,
-      Paint()
-        ..shader = RadialGradient(
-          colors: [Colors.transparent, Colors.black.withValues(alpha: 0.55)],
-          stops: const [0.55, 1.0],
-        ).createShader(vignetteRect),
-    );
-
-    // Hypnotic "ribbons" (no rings/arcs/sweep)
-    final ribbonArea = Rect.fromLTWH(
-      inner.left,
-      inner.top + inner.height * 0.12,
-      inner.width,
-      inner.height * 0.76,
-    );
-    final ribbons = isPlaying ? 5 : 3;
-    for (int i = 0; i < ribbons; i++) {
-      final fi = i.toDouble();
-      final yBase =
-          ribbonArea.top + ribbonArea.height * (0.18 + 0.64 * (fi / (ribbons)));
-      final amp =
-          ribbonArea.height *
-          (0.05 + 0.13 * e * (0.55 + 0.45 * lowBand)) *
-          (1.0 - fi * 0.10);
-      final phase = slow + fi * 1.7;
-      final freq = 1.2 + fi * 0.35;
-      final wobble = 0.55 + 0.45 * sin((fast * 0.85) + fi + highBand * 1.25);
-
-      // Build smooth spline points.
-      const steps = 92;
-      final pts = <Offset>[];
-      for (int s = 0; s <= steps; s++) {
-        final nx = (s / steps);
-        final x = ribbonArea.left + ribbonArea.width * nx;
-        final env = 0.22 + 0.78 * sin(pi * nx);
-
-        // Drift & shimmer; pauses at 0 when not playing.
-        final drift =
-            sin((t * 0.07) + fi * 0.9) * ribbonArea.height * 0.012 * e;
-        final y =
-            yBase +
-            drift +
-            sin(phase + nx * 2 * pi * freq) * amp * env +
-            sin(phase * 0.71 + nx * 2 * pi * (freq * 0.53)) * amp * 0.38 * env;
-
-        pts.add(Offset(x, y));
-      }
-      final path = _catmullRom(pts);
-
-      final alpha = ((isPlaying ? 0.88 : 0.0) *
-              (0.65 + 0.35 * wobble) *
-               (0.55 + 0.45 * e) *
-               _intensityMul)
-          .clamp(0.0, 1.0);
-      final strokeW = ribbonArea.height * (0.10 - fi * 0.010);
-      final bounds = path.getBounds();
-      final shader = LinearGradient(
-        begin: Alignment.centerLeft,
-        end: Alignment.centerRight,
-        colors: [
-          Colors.transparent,
-          accentColor.withValues(alpha: alpha.clamp(0.0, 1.0)),
-          Colors.white.withValues(alpha: (alpha * 0.16).clamp(0.0, 0.34)),
-          accentColor.withValues(alpha: (alpha * 0.70).clamp(0.0, 1.0)),
-          Colors.transparent,
-        ],
-        stops: const [0.0, 0.26, 0.52, 0.80, 1.0],
-      ).createShader(bounds);
-
-      // Glow pass
-      canvas.drawPath(
-        path,
-        Paint()
-          ..isAntiAlias = true
-          ..style = PaintingStyle.stroke
-          ..strokeCap = StrokeCap.round
-          ..strokeJoin = StrokeJoin.round
-          ..strokeWidth = strokeW
-          ..shader = shader
-          ..blendMode = BlendMode.plus
-          ..maskFilter = MaskFilter.blur(
-            BlurStyle.normal,
-            r * (0.165 + 0.070 * highBand) * _intensityMul,
-          ),
-      );
-      // Highlight pass (thin and crisp)
-      canvas.drawPath(
-        path,
-        Paint()
-          ..isAntiAlias = true
-          ..style = PaintingStyle.stroke
-          ..strokeCap = StrokeCap.round
-          ..strokeJoin = StrokeJoin.round
-          ..strokeWidth = max(1.0, strokeW * 0.18)
-          ..shader = LinearGradient(
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-            colors: [
-              Colors.transparent,
-              Colors.white.withValues(alpha: (alpha * 0.811).clamp(0.0, 0.97)),
-              Colors.transparent,
-            ],
-            stops: const [0.0, 0.5, 1.0],
-          ).createShader(bounds)
-          ..blendMode = BlendMode.plus,
+  void _drawCornerHardware(Canvas canvas, RRect outer, double r) {
+    final rect = outer.outerRect;
+    final inset = r * 0.18;
+    final boltR = r * 0.035;
+    final corners = [
+      Offset(rect.left + inset, rect.top + inset),
+      Offset(rect.right - inset, rect.top + inset),
+      Offset(rect.left + inset, rect.bottom - inset),
+      Offset(rect.right - inset, rect.bottom - inset),
+    ];
+    for (final c in corners) {
+      canvas.drawCircle(c, boltR, Paint()..color = PlayaColors.matteSlate);
+      canvas.drawCircle(
+        c,
+        boltR * 0.45,
+        Paint()..color = Colors.white.withValues(alpha: 0.07),
       );
     }
+  }
 
-    // Diaphragm "breath" in the center
-    final breath = isPlaying ? lowBand : 0.0;
-    final diaphragmR = r * (0.18 + 0.040 * breath * e);
-    final glowA = (isPlaying ? 0.80 : 0.0) * (0.55 + 0.45 * breath) * e * 0.98;
-    final diaphragmRect = Rect.fromCircle(center: center, radius: diaphragmR);
+  void _drawFaceRecess(Canvas canvas, Offset center, double r, double e) {
     canvas.drawCircle(
       center,
-      diaphragmR * 1.55,
+      r,
       Paint()
         ..shader = RadialGradient(
           colors: [
-            accentColor.withValues(alpha: glowA.clamp(0.0, 0.44)),
+            PlayaColors.matteCool.withValues(alpha: 0.35),
+            PlayaColors.deepVoid,
+            Colors.black.withValues(alpha: 0.92),
+          ],
+          stops: const [0.0, 0.55, 1.0],
+        ).createShader(Rect.fromCircle(center: center, radius: r)),
+    );
+  }
+
+  void _drawHarmonicRings(
+    Canvas canvas,
+    Offset center,
+    double radius,
+    double e,
+  ) {
+    final spacing = radius / 3.02;
+    final ringRadii = [spacing, spacing * sqrt(3), spacing * 2.0];
+
+    for (int ring = 1; ring <= 3; ring++) {
+      final level = SacredFlowerGeometry.pulseLevel(
+        ring: ring,
+        t: t,
+        lowBand: lowBand,
+        highBand: highBand,
+        isPlaying: isPlaying,
+      );
+      final alpha =
+          (0.04 + 0.28 * level * e * _intensityMul).clamp(0.0, 0.45);
+      final strokeW = max(0.6, radius * 0.012) * (0.85 + 0.25 * level);
+
+      canvas.drawCircle(
+        center,
+        ringRadii[ring - 1],
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = strokeW
+          ..color = accentColor.withValues(alpha: alpha)
+          ..blendMode = isPlaying ? BlendMode.plus : BlendMode.srcOver,
+      );
+    }
+  }
+
+  void _drawFlowerOfLife(Canvas canvas, Offset center, double radius, double e) {
+    final petalR = radius / 3.02;
+    final spacing = petalR;
+    final centers = SacredFlowerGeometry.flowerCenters(spacing);
+    final baseStroke = max(0.5, radius * 0.014);
+
+    for (final local in centers) {
+      final ring = SacredFlowerGeometry.ringAt(local, spacing);
+      final level = SacredFlowerGeometry.pulseLevel(
+        ring: ring,
+        t: t,
+        lowBand: lowBand,
+        highBand: highBand,
+        isPlaying: isPlaying,
+      );
+      final radiusScale = SacredFlowerGeometry.ringRadiusScale(
+        ring: ring,
+        t: t,
+        lowBand: lowBand,
+        isPlaying: isPlaying,
+      );
+      final drawR = petalR * radiusScale;
+      final alpha =
+          (0.12 + 0.72 * level * e * _intensityMul).clamp(0.0, 1.0);
+      final strokeW = baseStroke * (0.82 + 0.28 * level);
+
+      if (highQuality && isPlaying && level > 0.22) {
+        canvas.drawCircle(
+          center + local,
+          drawR,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = strokeW * 1.5
+            ..color = accentColor.withValues(alpha: alpha * 0.26)
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, radius * 0.014)
+            ..blendMode = BlendMode.plus,
+        );
+      }
+
+      canvas.drawCircle(
+        center + local,
+        drawR,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = strokeW
+          ..color = Color.lerp(
+            PlayaColors.matteSlate.withValues(alpha: 0.38),
+            accentColor,
+            alpha,
+          )!,
+      );
+    }
+  }
+
+  void _drawVesicaLenses(Canvas canvas, Offset center, double radius, double e) {
+    if (!isPlaying && e < 0.05) return;
+
+    final petalR = radius / 3.02;
+    final spacing = petalR;
+    final centers = SacredFlowerGeometry.flowerCenters(spacing);
+    final pairs = SacredFlowerGeometry.adjacentPairs(centers, spacing);
+
+    for (int i = 0; i < pairs.length; i++) {
+      final (a, b) = pairs[i];
+      final mid = Offset((a.dx + b.dx) / 2, (a.dy + b.dy) / 2);
+      final ring = SacredFlowerGeometry.ringAt(mid, spacing);
+      final level = SacredFlowerGeometry.pulseLevel(
+        ring: ring,
+        t: t,
+        lowBand: lowBand,
+        highBand: highBand,
+        isPlaying: isPlaying,
+      );
+      final alpha =
+          (0.05 + 0.42 * level * e * _intensityMul).clamp(0.0, 0.68);
+
+      final lens = SacredFlowerGeometry.vesicaLens(
+        center + a,
+        center + b,
+        petalR * 1.002,
+      );
+
+      canvas.drawPath(
+        lens,
+        Paint()
+          ..color = accentColor.withValues(alpha: alpha * 0.55)
+          ..style = PaintingStyle.fill
+          ..blendMode = BlendMode.plus
+          ..maskFilter = highQuality
+              ? MaskFilter.blur(BlurStyle.normal, radius * 0.012)
+              : null,
+      );
+      canvas.drawPath(
+        lens,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = max(0.4, radius * 0.008)
+          ..color = accentColor.withValues(alpha: alpha * 0.85),
+      );
+    }
+  }
+
+  void _drawDriverAssembly(
+    Canvas canvas,
+    Offset center,
+    double coreR,
+    double e,
+    double breathe,
+  ) {
+    final corePulse = SacredFlowerGeometry.pulseLevel(
+      ring: 0,
+      t: t,
+      lowBand: lowBand,
+      highBand: highBand,
+      isPlaying: isPlaying,
+    );
+    final domeR =
+        coreR * breathe * (isPlaying ? 1.0 + 0.06 * corePulse * e : 1.0);
+
+    canvas.drawCircle(
+      center,
+      domeR * 1.35,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            accentColor.withValues(alpha: 0.16 * lowBand * e * _intensityMul),
             Colors.transparent,
           ],
-          stops: const [0.0, 1.0],
-        ).createShader(
-          Rect.fromCircle(center: center, radius: diaphragmR * 1.6),
-        )
+        ).createShader(Rect.fromCircle(center: center, radius: domeR * 1.5))
         ..blendMode = BlendMode.plus,
     );
-    canvas.drawOval(
-      diaphragmRect,
-      Paint()
-        ..shader = const RadialGradient(
-          colors: [Color(0xFF0B0F14), Color(0xFF050609)],
-          stops: [0.0, 1.0],
-        ).createShader(diaphragmRect),
-    );
-    canvas.drawOval(
-      diaphragmRect,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = r * 0.04
-        ..color = const Color(0xFF1E232B),
-    );
 
-    // Subtle shimmer grain (deterministic)
-    final grainPaint = Paint()..blendMode = BlendMode.plus;
-    for (int i = 0; i < 28; i++) {
-      final hx = _hash(i + 13.0);
-      final hy = _hash(i + 71.0);
-      final p = Offset(
-        inner.left + hx * inner.width,
-        inner.top + hy * inner.height,
+    // Seed of Life at driver scale.
+    const seedRings = 1;
+    final seedSpacing = domeR * 0.52;
+    final seedCenters =
+        SacredFlowerGeometry.flowerCenters(seedSpacing, rings: seedRings);
+    for (final local in seedCenters) {
+      canvas.drawCircle(
+        center + local,
+        seedSpacing,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = max(0.5, coreR * 0.06)
+          ..color = accentColor.withValues(
+            alpha: (0.12 + 0.40 * highBand * e * _intensityMul).clamp(0.0, 0.70),
+          ),
       );
-      final tw = 0.5 + 0.5 * sin(fast + i * 0.7);
-      final a =
-          (isPlaying ? 0.18 : 0.0) *
-          _smoothstep(0.0, 1.0, tw) *
-          e *
-          (0.55 + 0.45 * highBand);
-      grainPaint.color = Colors.white.withValues(alpha: a.clamp(0.0, 0.125));
-      canvas.drawCircle(p, r * (0.010 + 0.010 * _hash(i + 99.0)), grainPaint);
     }
 
-    canvas.restore();
+    canvas.drawCircle(
+      center,
+      domeR,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            Color.lerp(Colors.white, accentColor, 0.25)!.withValues(alpha: 0.35),
+            PlayaColors.matteGraphite,
+            PlayaColors.deepVoid,
+          ],
+          stops: const [0.0, 0.48, 1.0],
+        ).createShader(Rect.fromCircle(center: center, radius: domeR)),
+    );
+
+    canvas.drawCircle(
+      center,
+      domeR,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = max(0.6, coreR * 0.05)
+        ..color = PlayaColors.border,
+    );
+
+    final dustR = domeR * (0.22 + 0.10 * lowBand * e);
+    canvas.drawCircle(
+      center,
+      dustR,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            accentColor.withValues(alpha: 0.95 * e),
+            accentColor.withValues(alpha: 0.35 * e),
+            Colors.transparent,
+          ],
+          stops: const [0.0, 0.42, 1.0],
+        ).createShader(Rect.fromCircle(center: center, radius: dustR * 1.3))
+        ..blendMode = BlendMode.plus,
+    );
+
+    canvas.drawCircle(
+      center,
+      dustR * 0.42,
+      Paint()..color = PlayaColors.deepVoid,
+    );
   }
 
   @override
-  bool shouldRepaint(covariant _HypnoSpeakerPainter oldDelegate) {
+  bool shouldRepaint(covariant _SacredResonanceSpeakerPainter oldDelegate) {
     return t != oldDelegate.t ||
         isPlaying != oldDelegate.isPlaying ||
         energy != oldDelegate.energy ||
         lowBand != oldDelegate.lowBand ||
         highBand != oldDelegate.highBand ||
-        accentColor != oldDelegate.accentColor;
+        accentColor != oldDelegate.accentColor ||
+        highQuality != oldDelegate.highQuality;
   }
 }

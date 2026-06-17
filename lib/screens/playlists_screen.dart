@@ -1,7 +1,7 @@
 // lib/screens/playlists_screen.dart
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
-import '../ui/tokens.dart';
+import '../design/design_system.dart';
 import '../models/playlist.dart';
 import '../repositories/playlist_repository.dart';
 import 'smart_playlist_screen.dart';
@@ -41,7 +41,8 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
           (context) => Dialog(
             backgroundColor: Colors.transparent,
             child: GlassPanel(
-              borderRadius: BorderRadius.circular(18),
+              useStrongVariant: true,
+              borderRadius: BorderRadius.circular(PlayaRadii.lg),
               borderColor: PlayaColors.border,
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -51,7 +52,7 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
                   const Text(
                     'Create Playlist',
                     style: TextStyle(
-                      color: kColorOn,
+                      color: PlayaColors.onSurface,
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                     ),
@@ -112,7 +113,8 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
           (context) => Dialog(
             backgroundColor: Colors.transparent,
             child: GlassPanel(
-              borderRadius: BorderRadius.circular(18),
+              useStrongVariant: true,
+              borderRadius: BorderRadius.circular(PlayaRadii.lg),
               borderColor: PlayaColors.border,
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -122,7 +124,7 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
                   const Text(
                     'Delete Playlist',
                     style: TextStyle(
-                      color: kColorOn,
+                      color: PlayaColors.onSurface,
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                     ),
@@ -130,7 +132,7 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
                   const SizedBox(height: 12),
                   Text(
                     'Delete "${playlist.name}"? This action cannot be undone.',
-                    style: const TextStyle(color: kColorOn2),
+                    style: const TextStyle(color: PlayaColors.onSurfaceVariant),
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -174,7 +176,7 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
       child: GlassPanel(
         useShader: false,
         borderRadius: BorderRadius.circular(14),
-        borderColor: Colors.white.withValues(alpha: 0.15),
+        borderColor: PlayaColors.border,
         child: Material(
           color: Colors.transparent,
           child: ListTile(
@@ -195,13 +197,13 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
             title: Text(
               title,
               style: const TextStyle(
-                color: kColorOn,
+                color: PlayaColors.onSurface,
                 fontWeight: FontWeight.w600,
               ),
             ),
             subtitle: Text(
               subtitle,
-              style: const TextStyle(color: kColorOn2, fontSize: 12),
+              style: const TextStyle(color: PlayaColors.onSurfaceVariant, fontSize: 12),
             ),
             onTap: () {
               Navigator.push(
@@ -273,7 +275,7 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
                     type: SmartPlaylistType.forgottenFavorites,
                   ),
 
-                  const Divider(color: Colors.white10, height: 32),
+                  Divider(color: PlayaColors.borderSubtle, height: 32),
 
                   // User Playlists Section
                   Padding(
@@ -338,18 +340,18 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
                               ),
                               title: Text(
                                 p.name,
-                                style: const TextStyle(color: kColorOn),
+                                style: const TextStyle(color: PlayaColors.onSurface),
                               ),
                               subtitle: Text(
                                 p.description?.isNotEmpty == true
                                     ? p.description!
                                     : '${p.songCount} songs',
-                                style: const TextStyle(color: kColorOn2),
+                                style: const TextStyle(color: PlayaColors.onSurfaceVariant),
                               ),
                               trailing: IconButton(
                                 icon: const Icon(
                                   Icons.delete_outline,
-                                  color: kColorOn2,
+                                  color: PlayaColors.onSurfaceVariant,
                                 ),
                                 onPressed: () => _deletePlaylist(p),
                               ),

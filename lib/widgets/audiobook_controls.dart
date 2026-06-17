@@ -8,160 +8,248 @@ import '../services/settings_service.dart';
 import '../utils/ui_utils.dart';
 import 'bookmarks_sheet.dart';
 
+/// Speed presets shared across audiobook controls.
+const List<double> kAudiobookSpeedPresets = [1.0, 1.25, 1.5, 1.75, 2.0];
+
+String formatAudiobookSpeed(double preset) {
+  if (preset == 1.0) return '1×';
+  final text = preset.toStringAsFixed(2).replaceAll(RegExp(r'\.?0+$'), '');
+  return '$text×';
+}
+
+/// Full-width speed selector — sits directly under the playback time row.
+class AudiobookSpeedRow extends StatelessWidget {
+  final PlayerController ctrl;
+  final bool compact;
+
+  const AudiobookSpeedRow({
+    super.key,
+    required this.ctrl,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+
+    return StreamBuilder<double>(
+      stream: ctrl.player.speedStream,
+      initialData: ctrl.player.speed,
+      builder: (context, snap) {
+        final speed = snap.data ?? 1.0;
+        return Row(
+          children: [
+            for (var i = 0; i < kAudiobookSpeedPresets.length; i++) ...[
+              if (i > 0) const SizedBox(width: PlayaSpacing.xxs),
+              Expanded(
+                child: _SpeedPill(
+                  label: formatAudiobookSpeed(kAudiobookSpeedPresets[i]),
+                  selected:
+                      (speed - kAudiobookSpeedPresets[i]).abs() < 0.04,
+                  accent: accent,
+                  compact: compact,
+                  onTap: ctrl.isReady
+                      ? () async {
+                          await ctrl.setPlaybackSpeed(
+                            kAudiobookSpeedPresets[i],
+                          );
+                          HapticFeedback.selectionClick();
+                        }
+                      : null,
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Bookmark + sleep actions below transport controls.
+class AudiobookActionRow extends StatelessWidget {
+  final PlayerController ctrl;
+  final bool compact;
+
+  const AudiobookActionRow({
+    super.key,
+    required this.ctrl,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (compact) {
+      final accent = Theme.of(context).colorScheme.primary;
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          _CompactAudiobookIcon(
+            icon: PhosphorIconsBold.bookmarkSimple,
+            tooltip: 'Bookmark',
+            accent: accent,
+            onTap: () => _addBookmark(context, ctrl),
+            onLongPress: () => _showBookmarks(context, ctrl),
+          ),
+          const SizedBox(width: PlayaSpacing.md),
+          _CompactAudiobookIcon(
+            icon: PhosphorIconsBold.timer,
+            tooltip: 'Sleep timer',
+            accent: accent,
+            onTap: () => showSleepTimerSheet(context, ctrl),
+          ),
+        ],
+      );
+    }
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _AudiobookAction(
+          icon: PhosphorIconsBold.bookmarkSimple,
+          label: 'Bookmark',
+          onTap: () => _addBookmark(context, ctrl),
+          onLongPress: () => _showBookmarks(context, ctrl),
+        ),
+        const SizedBox(width: PlayaSpacing.lg),
+        _AudiobookAction(
+          icon: PhosphorIconsBold.timer,
+          label: 'Sleep',
+          onTap: () => showSleepTimerSheet(context, ctrl),
+        ),
+      ],
+    );
+  }
+}
+
+class _CompactAudiobookIcon extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final Color accent;
+  final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+
+  const _CompactAudiobookIcon({
+    required this.icon,
+    required this.tooltip,
+    required this.accent,
+    required this.onTap,
+    this.onLongPress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: tooltip,
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+      onPressed: onTap,
+      onLongPress: onLongPress,
+      icon: PhosphorIcon(icon, color: accent, size: 20),
+    );
+  }
+}
+
 /// Primary controls for audiobook-weighted hybrid mode.
 class AudiobookQuickBar extends StatelessWidget {
   final PlayerController ctrl;
 
   const AudiobookQuickBar({super.key, required this.ctrl});
 
-  static const List<double> speedPresets = [1.0, 1.25, 1.5, 1.75, 2.0];
-
   @override
   Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
-
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        StreamBuilder<double>(
-          stream: ctrl.player.speedStream,
-          initialData: ctrl.player.speed,
-          builder: (context, snap) {
-            final speed = snap.data ?? 1.0;
-            return SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (final preset in speedPresets) ...[
-                    _SpeedPill(
-                      label: _formatSpeed(preset),
-                      selected: (speed - preset).abs() < 0.04,
-                      accent: accent,
-                      onTap: ctrl.isReady
-                          ? () async {
-                              await ctrl.setPlaybackSpeed(preset);
-                              HapticFeedback.selectionClick();
-                            }
-                          : null,
-                    ),
-                    if (preset != speedPresets.last)
-                      const SizedBox(width: 6),
-                  ],
-                ],
-              ),
-            );
-          },
-        ),
+        AudiobookSpeedRow(ctrl: ctrl),
         const SizedBox(height: PlayaSpacing.kSp * 0.75),
-        Wrap(
-          spacing: PlayaSpacing.kSp,
-          runSpacing: PlayaSpacing.kSp * 0.5,
-          alignment: WrapAlignment.center,
-          children: [
-            _AudiobookAction(
-              icon: PhosphorIconsBold.bookmarkSimple,
-              label: 'Bookmark',
-              onTap: () => _addBookmark(context),
-              onLongPress: () => _showBookmarks(context),
-            ),
-            _AudiobookAction(
-              icon: PhosphorIconsBold.timer,
-              label: 'Sleep',
-              onTap: () => showSleepTimerSheet(context, ctrl),
-            ),
-          ],
-        ),
+        AudiobookActionRow(ctrl: ctrl),
       ],
     );
   }
+}
 
-  String _formatSpeed(double preset) {
-    if (preset == 1.0) return '1×';
-    final text = preset.toStringAsFixed(2).replaceAll(RegExp(r'\.?0+$'), '');
-    return '$text×';
+void _addBookmark(BuildContext context, PlayerController ctrl) {
+  if (!ctrl.isReady) {
+    showToast(context, 'Nothing playing');
+    return;
   }
 
-  void _addBookmark(BuildContext context) {
-    if (!ctrl.isReady) {
-      showToast(context, 'Nothing playing');
-      return;
-    }
-
-    final controller = TextEditingController();
-    showDialog<void>(
-      context: context,
-      builder: (ctx) {
-        final a = Theme.of(ctx).colorScheme.primary;
-        return AlertDialog(
-          backgroundColor: PlayaColors.surface,
-          title: const Text('Add Bookmark'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: InputDecoration(
-              hintText: 'Note (optional)...',
-              hintStyle: const TextStyle(color: Colors.white38),
-              enabledBorder: const UnderlineInputBorder(
-                borderSide: BorderSide(color: PlayaColors.onSurfaceVariant),
-              ),
-              focusedBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: a),
-              ),
+  final controller = TextEditingController();
+  showDialog<void>(
+    context: context,
+    builder: (ctx) {
+      final a = Theme.of(ctx).colorScheme.primary;
+      return AlertDialog(
+        backgroundColor: PlayaColors.surface,
+        title: const Text('Add Bookmark'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: InputDecoration(
+            hintText: 'Note (optional)...',
+            hintStyle: const TextStyle(color: Colors.white38),
+            enabledBorder: const UnderlineInputBorder(
+              borderSide: BorderSide(color: PlayaColors.onSurfaceVariant),
             ),
-            style: const TextStyle(color: PlayaColors.onSurface),
+            focusedBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: a),
+            ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text(
-                'Cancel',
-                style: TextStyle(color: PlayaColors.onSurfaceVariant),
-              ),
+          style: const TextStyle(color: PlayaColors.onSurface),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: PlayaColors.onSurfaceVariant),
             ),
-            TextButton(
-              onPressed: () async {
-                final ok = await ctrl.addBookmark(note: controller.text);
-                if (!ctx.mounted) return;
-                Navigator.pop(ctx);
-                showToast(
-                  context,
-                  ok ? 'Bookmark saved' : 'Could not save bookmark',
-                );
-                if (ok) HapticFeedback.selectionClick();
-              },
-              child: Text('Save', style: TextStyle(color: a)),
-            ),
-          ],
-        );
-      },
-    );
-  }
+          ),
+          TextButton(
+            onPressed: () async {
+              final ok = await ctrl.addBookmark(note: controller.text);
+              if (!ctx.mounted) return;
+              Navigator.pop(ctx);
+              showToast(
+                context,
+                ok ? 'Bookmark saved' : 'Could not save bookmark',
+              );
+              if (ok) HapticFeedback.selectionClick();
+            },
+            child: Text('Save', style: TextStyle(color: a)),
+          ),
+        ],
+      );
+    },
+  );
+}
 
-  void _showBookmarks(BuildContext context) async {
-    if (!ctrl.isReady) return;
-    await ctrl.reloadBookmarks();
-    if (!context.mounted) return;
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => BookmarksSheet(ctrl: ctrl),
-    );
-  }
+void _showBookmarks(BuildContext context, PlayerController ctrl) async {
+  if (!ctrl.isReady) return;
+  await ctrl.reloadBookmarks();
+  if (!context.mounted) return;
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (_) => BookmarksSheet(ctrl: ctrl),
+  );
 }
 
 class _SpeedPill extends StatelessWidget {
   final String label;
   final bool selected;
   final Color accent;
+  final bool compact;
   final VoidCallback? onTap;
 
   const _SpeedPill({
     required this.label,
     required this.selected,
     required this.accent,
+    this.compact = false,
     required this.onTap,
   });
 
@@ -173,8 +261,11 @@ class _SpeedPill extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(999),
         child: Container(
-          constraints: const BoxConstraints(minWidth: 36),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          width: double.infinity,
+          padding: EdgeInsets.symmetric(
+            horizontal: PlayaSpacing.xxs,
+            vertical: compact ? 3 : 5,
+          ),
           decoration: BoxDecoration(
             color: selected
                 ? accent.withValues(alpha: 0.85)
@@ -189,8 +280,9 @@ class _SpeedPill extends StatelessWidget {
             label,
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 11,
+              fontSize: compact ? 10 : 11,
               fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+              height: 1,
               color: selected ? Colors.white : PlayaColors.onSurfaceVariant,
             ),
           ),
@@ -277,7 +369,7 @@ class _MusicToolsExpansionState extends State<MusicToolsExpansion> {
           onTap: () => setState(() => _expanded = !_expanded),
           borderRadius: BorderRadius.circular(8),
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: PlayaSpacing.kSp * 0.5),
+            padding: const EdgeInsets.symmetric(vertical: PlayaSpacing.xxs),
             child: FittedBox(
               fit: BoxFit.scaleDown,
               child: Row(

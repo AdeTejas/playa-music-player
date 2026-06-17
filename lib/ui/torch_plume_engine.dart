@@ -227,10 +227,81 @@ class TorchPlumeEngine {
       0.008 * sin(animTimeSeconds * 15.0 + 0.9);
 
   /// Softens torch layers when painted inside the Now Playing waveform.
-  static const double waveformBlendScale = 0.48;
+  static const double waveformBlendScale = 0.58;
+
+  /// Shared exhaust geometry scale (plume width, throat glow, bell mouth).
+  static const double raptorExhaustSizeMul = 1.14;
 
   /// Vertical pinch at the nozzle — waveform exits the bell at engine width.
   static const double waveformThroatScale = 0.10;
+
+  /// Exhaust-aligned gradient stops for waveform fill (matches Raptor plume).
+  static List<Color> exhaustWaveformGradientColors(
+    Color base, {
+    double waveformAmplitude = 0.5,
+  }) {
+    final amp = waveformAmplitude.clamp(0.0, 1.0);
+    return [
+      raptorCore(base),
+      Color.lerp(raptorCore(base), raptorSheath(base), 0.55)!,
+      raptorSheath(base),
+      base.withValues(alpha: 0.82 + 0.18 * amp),
+    ];
+  }
+
+  static const List<double> exhaustWaveformGradientStops = [
+    0.0,
+    0.14,
+    0.38,
+    1.0,
+  ];
+
+  /// Waveform ribbon path that tapers at the nozzle and expands aft.
+  static Path buildExhaustWaveformPath({
+    required List<double> waveformData,
+    required double width,
+    required double height,
+    required double centerY,
+    required double nozzleX,
+    required double shipLen,
+    double topMul = 0.88,
+    double bottomMul = 0.80,
+  }) {
+    if (waveformData.isEmpty) return Path();
+
+    final envelope = waveformEnvelopeScales(
+      shipLen: shipLen,
+      canvasHeight: height,
+    );
+    final step = width / max(1, waveformData.length - 1);
+    final path = Path();
+
+    path.moveTo(0, centerY);
+    for (int i = 0; i < waveformData.length; i++) {
+      final x = i * step;
+      final expansion = waveformExpansionScale(
+        x: x,
+        nozzleX: nozzleX,
+        shipLen: shipLen,
+      );
+      final ampH =
+          waveformData[i] * height * envelope.top * topMul * expansion;
+      path.lineTo(x, centerY - ampH / 2);
+    }
+    for (int i = waveformData.length - 1; i >= 0; i--) {
+      final x = i * step;
+      final expansion = waveformExpansionScale(
+        x: x,
+        nozzleX: nozzleX,
+        shipLen: shipLen,
+      );
+      final ampH =
+          waveformData[i] * height * envelope.bottom * bottomMul * expansion;
+      path.lineTo(x, centerY + ampH / 2);
+    }
+    path.close();
+    return path;
+  }
 
   /// Ribbon height multipliers aligned to triple-Raptor cluster span.
   static ({double top, double bottom}) waveformEnvelopeScales({
@@ -278,11 +349,11 @@ class TorchPlumeEngine {
     double engineFaceOffset,
   }) engineMetrics(double shipLen) {
     final shipWidth = shipLen * 0.25;
-    final bellHalfW = shipWidth * 0.40;
+    final bellHalfW = shipWidth * 0.45 * raptorExhaustSizeMul;
     return (
       shipWidth: shipWidth,
       bellHalfW: bellHalfW,
-      throatHalfW: bellHalfW * 0.42,
+      throatHalfW: bellHalfW * 0.44,
       engineFaceOffset: shipLen * 0.45,
     );
   }
@@ -390,13 +461,13 @@ class TorchPlumeEngine {
       canvas.drawOval(
         Rect.fromCenter(
           center: Offset(0, baseY),
-          width: bellHalfW * 1.75,
-          height: throatHalfW * 2.35,
+          width: bellHalfW * 2.0,
+          height: throatHalfW * 2.7,
         ),
         Paint()
           ..shader = ui.Gradient.radial(
             Offset(0, baseY + throatHalfW * 0.08),
-            bellHalfW * 0.95,
+            bellHalfW * 1.08,
             [
               core.withValues(alpha: (0.82 * pulse * amp).clamp(0.0, 1.0)),
               sheath.withValues(alpha: (0.38 * pulse * amp).clamp(0.0, 1.0)),
@@ -442,13 +513,13 @@ class TorchPlumeEngine {
     canvas.drawOval(
       Rect.fromCenter(
         center: Offset(nozzleX, axisPos),
-        width: bellHalfW * 1.75,
-        height: throatHalfW * 2.35,
+        width: bellHalfW * 2.0,
+        height: throatHalfW * 2.7,
       ),
       Paint()
         ..shader = ui.Gradient.radial(
           Offset(nozzleX - throatHalfW * 0.08, axisPos),
-          bellHalfW * 0.95,
+          bellHalfW * 1.08,
           [
             core.withValues(alpha: (0.82 * pulse * amp).clamp(0.0, 1.0)),
             sheath.withValues(alpha: (0.38 * pulse * amp).clamp(0.0, 1.0)),
@@ -782,12 +853,12 @@ class TorchPlumeEngine {
     final plumeBlend = blendScale < 0.85 ? BlendMode.screen : BlendMode.plus;
     final wobbleVal = _raptorWobble(animTimeSeconds);
     final oscillation =
-        sin(animTimeSeconds * 7.0) * height * (0.006 + 0.002 * beatStrength);
+        sin(animTimeSeconds * 5.0) * height * (0.003 + 0.001 * beatStrength);
 
     final scaledThroat = throatHalfW * engineScale;
     final scaledBell = bellHalfW * engineScale;
-    final haloHalfW = scaledBell * (1.48 + 0.22 * effectiveAmp);
-    final coreHalfW = scaledThroat * (0.88 + 0.10 * effectiveAmp);
+    final haloHalfW = scaledBell * (1.56 + 0.24 * effectiveAmp);
+    final coreHalfW = scaledThroat * (0.94 + 0.10 * effectiveAmp);
 
     final haloPath =
         _buildRaptorPlumePath(
@@ -937,8 +1008,9 @@ class TorchPlumeEngine {
       beatWeight: 0.08 + 0.06 * seekPulse,
     );
     final plumeLen =
-        effectiveShipLen * 2.25 * flickerVal * budget.plumeLengthMul * seekBoost;
-    final throatHalfW = metrics.throatHalfW * (0.92 + 0.08 * ampFactor);
+        effectiveShipLen * 2.42 * flickerVal * budget.plumeLengthMul * seekBoost;
+    final throatHalfW =
+        metrics.throatHalfW * (0.92 + 0.08 * ampFactor) * raptorExhaustSizeMul;
     final bellHalfW = metrics.bellHalfW;
 
     for (final engine in raptorCluster(bellHalfW)) {
@@ -988,9 +1060,11 @@ class TorchPlumeEngine {
     );
 
     final plumeLen =
-        effectiveShipLen * 2.25 * flickerVal * budget.plumeLengthMul * seekBoost;
-    final throatHalfW = metrics.throatHalfW * (0.92 + 0.08 * ampFactor);
-    final bellHalfW = metrics.bellHalfW * (0.95 + 0.12 * ampFactor);
+        effectiveShipLen * 2.42 * flickerVal * budget.plumeLengthMul * seekBoost;
+    final throatHalfW =
+        metrics.throatHalfW * (0.92 + 0.08 * ampFactor) * raptorExhaustSizeMul;
+    final bellHalfW =
+        metrics.bellHalfW * (0.95 + 0.12 * ampFactor) * raptorExhaustSizeMul;
 
     for (final engine in raptorCluster(metrics.bellHalfW)) {
       _paintSingleHorizontalRaptor(

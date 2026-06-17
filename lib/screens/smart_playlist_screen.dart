@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import '../repositories/song_repository.dart';
 import '../widgets/player_provider.dart';
-import '../ui/tokens.dart';
+import '../design/design_system.dart';
 import '../widgets/artwork_image.dart';
 
 enum SmartPlaylistType { heavyRotation, forgottenFavorites, recentlyAdded }
@@ -116,7 +116,7 @@ class _SmartPlaylistScreenState extends State<SmartPlaylistScreen> {
               ? const Center(
                 child: Text(
                   'No songs found for this criteria',
-                  style: TextStyle(color: kColorOn2),
+                  style: TextStyle(color: PlayaColors.onSurfaceVariant),
                 ),
               )
               : ListView.builder(
@@ -126,7 +126,8 @@ class _SmartPlaylistScreenState extends State<SmartPlaylistScreen> {
                   return Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                     child: GlassPanel(
-                      borderRadius: BorderRadius.circular(14),
+                      useStrongVariant: true,
+                      borderRadius: BorderRadius.circular(PlayaRadii.kRadius),
                       borderColor: PlayaColors.border,
                       child: Material(
                         color: Colors.transparent,
@@ -146,7 +147,7 @@ class _SmartPlaylistScreenState extends State<SmartPlaylistScreen> {
                               ),
                               child: const Icon(
                                 Icons.music_note,
-                                color: kColorOn2,
+                                color: PlayaColors.onSurfaceVariant,
                               ),
                             ),
                           ),
@@ -154,13 +155,13 @@ class _SmartPlaylistScreenState extends State<SmartPlaylistScreen> {
                             song.title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: kColorOn),
+                            style: const TextStyle(color: PlayaColors.onSurface),
                           ),
                           subtitle: Text(
                             song.artist ?? 'Unknown',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: kColorOn2),
+                            style: const TextStyle(color: PlayaColors.onSurfaceVariant),
                           ),
                           onTap: () {
                             PlayerProvider.of(context).replaceQueue(

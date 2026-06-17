@@ -13,6 +13,31 @@ enum DeepSpaceMode { background, overlay }
 
 enum StarLayer { far, mid, near }
 
+/// Adaptive repaint cadence — lowers GPU work without visible stutter.
+class DeepSpaceFrameBudget {
+  DeepSpaceFrameBudget._();
+
+  static const double backgroundImmersiveFps = 30;
+  static const double backgroundSubtleFps = 22;
+  static const double overlayActiveFps = 45;
+  static const double overlayIdleFps = 18;
+
+  static double minFrameIntervalSeconds({
+    required DeepSpaceMode mode,
+    required bool subtle,
+    required bool hasComets,
+    required bool appActive,
+  }) {
+    if (!appActive) return double.infinity;
+    if (mode == DeepSpaceMode.overlay) {
+      final fps = hasComets ? overlayActiveFps : overlayIdleFps;
+      return 1.0 / fps;
+    }
+    final fps = subtle ? backgroundSubtleFps : backgroundImmersiveFps;
+    return 1.0 / fps;
+  }
+}
+
 /// Adaptive quality budget for stars/nebula/comets across platforms.
 class _QualityBudget {
   final int starCount;
@@ -67,8 +92,8 @@ class _QualityBudget {
       filaments: !subtle,
       dustLanes: !subtle,
       noiseField: !subtle,
-      nebulaAlpha: subtle ? 0.08 : (isDesktop ? 0.16 : 0.14),
-      starAlpha: subtle ? 0.88 : (isDesktop ? 1.0 : 0.98),
+      nebulaAlpha: subtle ? 0.11 : (isDesktop ? 0.18 : 0.16),
+      starAlpha: subtle ? 0.94 : (isDesktop ? 1.0 : 0.98),
       subtleStarFloor: subtle ? 420 : 0,
     );
   }
@@ -81,11 +106,15 @@ class DeepSpaceBackground extends StatefulWidget {
   /// Star field density multiplier. Library ~0.80; Now Playing ~0.49; screensaver ~0.54.
   final double starDensity;
 
+  /// Perceptual HDR lift (bright cores / deep vignette) without extra particles.
+  final bool hdrBoost;
+
   const DeepSpaceBackground({
     super.key,
     this.subtle = false,
     this.mode = DeepSpaceMode.background,
     this.starDensity = 1.0,
+    this.hdrBoost = true,
   });
 
   @override
@@ -93,9 +122,15 @@ class DeepSpaceBackground extends StatefulWidget {
 }
 
 class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+  static const int _maxConcurrentComets = 2;
+  static const double _cometSpawnRate = 0.10;
+  static const double _nebulaCacheLifetimeSeconds = 2.5;
+
   late Ticker _ticker;
   final ValueNotifier<double> _repaint = ValueNotifier<double>(0.0);
+  double _repaintAccumulator = 0.0;
+  bool _appActive = true;
   final List<_Star> _stars = [];
   final List<_Star> _farStars = [];
   final List<_ShootingStar> _shootingStars = [];
@@ -108,6 +143,9 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
   _QualityBudget? _budget;
   ui.Picture? _cachedFarLayer;
   Size? _cachedFarLayerSize;
+  ui.Picture? _cachedNebulaLayer;
+  Size? _cachedNebulaLayerSize;
+  double _lastNebulaCacheAt = -999.0;
 
   final List<Offset> _nebulaCenters = [];
   final List<Offset> _nebulaVels = [];
@@ -176,6 +214,7 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _ticker = createTicker(_onTick)..start();
 
     if (widget.mode == DeepSpaceMode.background) {
@@ -203,10 +242,22 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _ticker.dispose();
     _repaint.dispose();
     _cachedFarLayer = null;
+    _cachedNebulaLayer = null;
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appActive = state == AppLifecycleState.resumed;
+    if (_appActive && !_ticker.isActive) {
+      _ticker.start();
+    } else if (!_appActive) {
+      _ticker.stop();
+    }
   }
 
   Color _randomStarColor() {
@@ -265,6 +316,8 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
     _stars.clear();
     _farStars.clear();
     _cachedFarLayer = null;
+    _cachedNebulaLayer = null;
+    _lastNebulaCacheAt = -999.0;
 
     final budget = _QualityBudget.resolve(
       dpr: devicePixelRatio,
@@ -378,6 +431,45 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
     _cachedFarLayerSize = size;
   }
 
+  void _rebuildNebulaCache(Size size, double timeSeconds) {
+    if (widget.subtle ||
+        widget.mode != DeepSpaceMode.background ||
+        _budget == null) {
+      _cachedNebulaLayer = null;
+      _cachedNebulaLayerSize = null;
+      return;
+    }
+
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    _StarFieldPainter.recordStaticLayers(
+      canvas: canvas,
+      size: size,
+      timeSeconds: timeSeconds,
+      subtle: widget.subtle,
+      hdrBoost: widget.hdrBoost && !widget.subtle,
+      budget: _budget,
+      nebulaCenters: _nebulaCenters,
+      nebulaRotSpeed: _nebulaRotSpeed,
+      nebulaEnabled: _nebulaEnabled,
+      nebulaColors: _nebulaColors,
+      nebulaSpecks: _nebulaSpecks,
+      frame: _frame,
+    );
+
+    _cachedNebulaLayer = recorder.endRecording();
+    _cachedNebulaLayerSize = size;
+    _lastNebulaCacheAt = timeSeconds;
+  }
+
+  void _maybeRefreshNebulaCache(Size size, double timeSeconds) {
+    final stale = timeSeconds - _lastNebulaCacheAt >= _nebulaCacheLifetimeSeconds;
+    final sizeChanged = _cachedNebulaLayerSize != size;
+    if (_cachedNebulaLayer == null || stale || sizeChanged) {
+      _rebuildNebulaCache(size, timeSeconds);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final disableAnimations = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
@@ -414,6 +506,7 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
               stars: _stars,
               shootingStars: _shootingStars,
               subtle: widget.subtle,
+              hdrBoost: widget.hdrBoost && !widget.subtle,
               budget: _budget,
               nebulaCenters: _nebulaCenters,
               nebulaRotSpeed: _nebulaRotSpeed,
@@ -422,6 +515,8 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
               nebulaSpecks: _nebulaSpecks,
               cachedFarLayer: _cachedFarLayer,
               cachedFarLayerSize: _cachedFarLayerSize,
+              cachedNebulaLayer: _cachedNebulaLayer,
+              cachedNebulaLayerSize: _cachedNebulaLayerSize,
               mode: widget.mode,
               time: _repaint,
               devicePixelRatio: dpr,
@@ -435,14 +530,13 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
   }
 
   void _onTick(Duration elapsed) {
-    if (!mounted) return;
+    if (!mounted || !_appActive) return;
     final dt = (elapsed - _lastElapsed).inMilliseconds / 1000.0;
     _lastElapsed = elapsed;
-    if (dt.isFinite && dt > 0) {
-      _timeSeconds += dt;
-      if (_timeSeconds > 3600) _timeSeconds -= 3600;
-    }
-    _frame++;
+    if (!dt.isFinite || dt <= 0) return;
+
+    _timeSeconds += dt;
+    if (_timeSeconds > 3600) _timeSeconds -= 3600;
 
     if (widget.mode == DeepSpaceMode.background) {
       for (final star in _stars) {
@@ -488,9 +582,11 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
     }
 
     if (widget.mode == DeepSpaceMode.overlay) {
-      if (!widget.subtle && dt.isFinite && dt > 0) {
-        final rate = widget.subtle ? 0.18 : 0.34;
-        if (_rnd.nextDouble() < rate * dt) {
+      if (!widget.subtle &&
+          dt.isFinite &&
+          dt > 0 &&
+          _shootingStars.length < _maxConcurrentComets) {
+        if (_rnd.nextDouble() < _cometSpawnRate * dt) {
           _spawnShootingStar();
         }
       }
@@ -501,6 +597,23 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
       for (final s in _shootingStars) {
         s.update(dt, w, h);
       }
+    }
+
+    final minInterval = DeepSpaceFrameBudget.minFrameIntervalSeconds(
+      mode: widget.mode,
+      subtle: widget.subtle,
+      hasComets: _shootingStars.isNotEmpty,
+      appActive: _appActive,
+    );
+    _repaintAccumulator += dt;
+    if (_repaintAccumulator < minInterval) return;
+    _repaintAccumulator = 0.0;
+    _frame++;
+
+    if (widget.mode == DeepSpaceMode.background &&
+        _lastSize != null &&
+        !widget.subtle) {
+      _maybeRefreshNebulaCache(_lastSize!, _timeSeconds);
     }
 
     _repaint.value = _timeSeconds;
@@ -777,6 +890,7 @@ class _StarFieldPainter extends CustomPainter {
   final List<_Star> stars;
   final List<_ShootingStar> shootingStars;
   final bool subtle;
+  final bool hdrBoost;
   final _QualityBudget? budget;
   final List<Offset> nebulaCenters;
   final List<double> nebulaRotSpeed;
@@ -785,6 +899,8 @@ class _StarFieldPainter extends CustomPainter {
   final List<_NebulaSpeck> nebulaSpecks;
   final ui.Picture? cachedFarLayer;
   final Size? cachedFarLayerSize;
+  final ui.Picture? cachedNebulaLayer;
+  final Size? cachedNebulaLayerSize;
   final DeepSpaceMode mode;
   final ValueNotifier<double> time;
   final double devicePixelRatio;
@@ -794,6 +910,7 @@ class _StarFieldPainter extends CustomPainter {
     required this.stars,
     required this.shootingStars,
     required this.subtle,
+    this.hdrBoost = false,
     required this.budget,
     required this.nebulaCenters,
     required this.nebulaRotSpeed,
@@ -802,11 +919,52 @@ class _StarFieldPainter extends CustomPainter {
     required this.nebulaSpecks,
     required this.cachedFarLayer,
     required this.cachedFarLayerSize,
+    this.cachedNebulaLayer,
+    this.cachedNebulaLayerSize,
     required this.mode,
     required this.time,
     required this.devicePixelRatio,
     required this.frame,
   }) : super(repaint: time);
+
+  static void recordStaticLayers({
+    required Canvas canvas,
+    required Size size,
+    required double timeSeconds,
+    required bool subtle,
+    required bool hdrBoost,
+    required _QualityBudget? budget,
+    required List<Offset> nebulaCenters,
+    required List<double> nebulaRotSpeed,
+    required List<bool> nebulaEnabled,
+    required List<Color> nebulaColors,
+    required List<_NebulaSpeck> nebulaSpecks,
+    required int frame,
+  }) {
+    final painter = _StarFieldPainter(
+      stars: const [],
+      shootingStars: const [],
+      subtle: subtle,
+      hdrBoost: hdrBoost,
+      budget: budget,
+      nebulaCenters: nebulaCenters,
+      nebulaRotSpeed: nebulaRotSpeed,
+      nebulaEnabled: nebulaEnabled,
+      nebulaColors: nebulaColors,
+      nebulaSpecks: nebulaSpecks,
+      cachedFarLayer: null,
+      cachedFarLayerSize: null,
+      mode: DeepSpaceMode.background,
+      time: ValueNotifier<double>(timeSeconds),
+      devicePixelRatio: 1.0,
+      frame: frame,
+    );
+    painter._paintNebulaClouds(canvas, size, timeSeconds);
+    painter._paintDeepSpaceVignette(canvas, size);
+    if (hdrBoost) {
+      painter._paintHdrGradePass(canvas, size);
+    }
+  }
 
   double _hash01(double v) {
     final x = sin(v * 12.9898) * 43758.5453;
@@ -953,8 +1111,12 @@ class _StarFieldPainter extends CustomPainter {
         coreCenter,
         coreRadius,
         [
-          Colors.white.withValues(alpha: 0.018 * nebulaAlphaMul),
-          nebulaColors[i].withValues(alpha: 0.038 * nebulaAlphaMul),
+          Colors.white.withValues(
+            alpha: (hdrBoost ? 0.026 : 0.018) * nebulaAlphaMul,
+          ),
+          nebulaColors[i].withValues(
+            alpha: (hdrBoost ? 0.046 : 0.038) * nebulaAlphaMul,
+          ),
           Colors.transparent,
         ],
         const [0.0, 0.62, 1.0],
@@ -982,6 +1144,69 @@ class _StarFieldPainter extends CustomPainter {
     paint.shader = null;
   }
 
+  void _paintHdrGradePass(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..blendMode = BlendMode.screen
+      ..shader = ui.Gradient.radial(
+        Offset(size.width * 0.5, size.height * 0.38),
+        size.shortestSide * 0.55,
+        [
+          Colors.white.withValues(alpha: 0.028),
+          Colors.transparent,
+        ],
+        const [0.0, 1.0],
+      );
+    canvas.drawRect(Offset.zero & size, paint);
+    paint.shader = null;
+    paint.blendMode = BlendMode.srcOver;
+  }
+
+  void _paintDeepSpaceVignette(Canvas canvas, Size size) {
+    final paint = Paint();
+    final w = size.width;
+    final h = size.height;
+    final center = Offset(w * 0.5, h * 0.42);
+    final edgeAlpha = hdrBoost
+        ? (subtle ? 0.42 : 0.58)
+        : (subtle ? 0.38 : 0.52);
+
+    paint.shader = ui.Gradient.radial(
+      center,
+      size.shortestSide * 0.92,
+      [
+        Colors.transparent,
+        Colors.black.withValues(alpha: edgeAlpha),
+      ],
+      const [0.42, 1.0],
+    );
+    paint.blendMode = BlendMode.multiply;
+    canvas.drawRect(Offset.zero & size, paint);
+
+    paint.shader = ui.Gradient.linear(
+      Offset(0, 0),
+      Offset(0, h * 0.22),
+      [
+        Colors.black.withValues(alpha: subtle ? 0.55 : 0.72),
+        Colors.transparent,
+      ],
+      const [0.0, 1.0],
+    );
+    canvas.drawRect(Offset.zero & size, paint);
+
+    paint.shader = ui.Gradient.linear(
+      Offset(0, h),
+      Offset(0, h * 0.78),
+      [
+        Colors.black.withValues(alpha: subtle ? 0.65 : 0.82),
+        Colors.transparent,
+      ],
+      const [0.0, 1.0],
+    );
+    canvas.drawRect(Offset.zero & size, paint);
+    paint.shader = null;
+    paint.blendMode = BlendMode.srcOver;
+  }
+
   void _paintStars(Canvas canvas, Size size, double timeSeconds) {
     final b = budget;
     final w = size.width;
@@ -1005,12 +1230,18 @@ class _StarFieldPainter extends CustomPainter {
         starRadius = star.size * (1.0 + 0.14 * sparkle);
       }
 
-      if (!subtle && starRadius > 1.5 && op > 0.78) {
-        paint.color = starColor.withValues(alpha: alpha * 0.14);
-        canvas.drawCircle(pos, starRadius * 2.2, paint);
+      final bloomThreshold = hdrBoost ? 0.72 : 0.78;
+      final bloomAlpha = hdrBoost ? 0.17 : 0.14;
+      if (!subtle && starRadius > 1.5 && op > bloomThreshold) {
+        paint.color = starColor.withValues(alpha: alpha * bloomAlpha);
+        canvas.drawCircle(pos, starRadius * (hdrBoost ? 2.35 : 2.2), paint);
       }
 
-      if (!subtle && star.layer == StarLayer.near && starRadius > 1.1 && op > 0.72) {
+      final spikeThreshold = hdrBoost ? 0.66 : 0.72;
+      if (!subtle &&
+          star.layer == StarLayer.near &&
+          starRadius > 1.1 &&
+          op > spikeThreshold) {
         _drawSoftSpikes(canvas, pos, starRadius, starColor, alpha * 0.55);
       }
 
@@ -1166,7 +1397,18 @@ class _StarFieldPainter extends CustomPainter {
         canvas.restore();
       }
 
-      _paintNebulaClouds(canvas, size, timeSeconds);
+      if (cachedNebulaLayer != null &&
+          cachedNebulaLayerSize == size &&
+          !subtle) {
+        canvas.drawPicture(cachedNebulaLayer!);
+      } else {
+        _paintNebulaClouds(canvas, size, timeSeconds);
+        _paintDeepSpaceVignette(canvas, size);
+        if (hdrBoost) {
+          _paintHdrGradePass(canvas, size);
+        }
+      }
+
       _paintStars(canvas, size, timeSeconds);
       return;
     }
@@ -1191,6 +1433,8 @@ class _StarFieldPainter extends CustomPainter {
         oldDelegate.nebulaColors != nebulaColors ||
         oldDelegate.nebulaSpecks != nebulaSpecks ||
         oldDelegate.nebulaEnabled != nebulaEnabled ||
-        oldDelegate.cachedFarLayer != cachedFarLayer;
+        oldDelegate.cachedFarLayer != cachedFarLayer ||
+        oldDelegate.cachedNebulaLayer != cachedNebulaLayer ||
+        oldDelegate.hdrBoost != hdrBoost;
   }
 }

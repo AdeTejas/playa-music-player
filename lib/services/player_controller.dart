@@ -450,8 +450,7 @@ class PlayerController {
   }
 
   bool _hasLaterAlbumItem(String album, int currentIndex) {
-    final seq = player.sequenceState?.sequence;
-    if (seq == null) return false;
+    final seq = player.sequenceState.sequence;
     for (int i = currentIndex + 1; i < seq.length; i++) {
       final tag = seq[i].tag;
       if (tag is MediaItem && (tag.album ?? '') == album) return true;
@@ -460,8 +459,7 @@ class PlayerController {
   }
 
   bool _hasLaterContextItem(String type, String id, int currentIndex) {
-    final seq = player.sequenceState?.sequence;
-    if (seq == null) return false;
+    final seq = player.sequenceState.sequence;
     for (int i = currentIndex + 1; i < seq.length; i++) {
       final tag = seq[i].tag;
       if (tag is! MediaItem) continue;
@@ -686,16 +684,12 @@ class PlayerController {
   String get activeBookmarkKey => _currentBookmarkKey;
   String get lastBookmarkError => _lastBookmarkError;
 
-  // Back-compat alias for any external code that was reading the old name
-  @Deprecated('Use activeBookmarkKey')
-  String get _activeBookmarkKey => _currentBookmarkKey;
-
-  bool get hasQueue => player.sequenceState?.sequence.isNotEmpty ?? false;
+  bool get hasQueue => player.sequenceState.sequence.isNotEmpty;
   bool get isReady => hasQueue;
 
   MediaItem? get currentMediaItem {
     final seq = player.sequenceState;
-    if (seq == null || seq.sequence.isEmpty) return null;
+    if (seq.sequence.isEmpty) return null;
     final i = player.currentIndex ?? 0;
     final clamped = i.clamp(0, seq.sequence.length - 1);
     final src = seq.sequence[clamped];
@@ -785,7 +779,7 @@ class PlayerController {
     // Artwork cache is Android-only (MediaStore).
     if (!Platform.isAndroid) return;
     final seq = player.sequenceState;
-    if (seq == null || seq.sequence.isEmpty) return;
+    if (seq.sequence.isEmpty) return;
     final i = player.currentIndex;
     if (i == null) return;
 
@@ -1614,14 +1608,11 @@ class PlayerController {
       }
 
       final exclude = <String>{};
-      final seq = player.sequenceState;
-      if (seq != null) {
-        for (final src in seq.sequence) {
-          final tag = src.tag;
-          if (tag is MediaItem) {
-            final id = tag.extras?['songId']?.toString();
-            if (id != null && id.isNotEmpty) exclude.add(id);
-          }
+      for (final src in player.sequenceState.sequence) {
+        final tag = src.tag;
+        if (tag is MediaItem) {
+          final id = tag.extras?['songId']?.toString();
+          if (id != null && id.isNotEmpty) exclude.add(id);
         }
       }
 
@@ -1687,7 +1678,7 @@ class PlayerController {
         }
       } else {
         // Fallback: rebuild sources (may restart playback).
-        final seq = player.sequenceState?.sequence ?? [];
+        final seq = player.sequenceState.sequence;
 
         _sources.clear();
         if (seq.isNotEmpty) {
@@ -1741,14 +1732,11 @@ class PlayerController {
     neuralMixBusy.value = true;
     try {
       final exclude = <String>{};
-      final seq = player.sequenceState;
-      if (seq != null) {
-        for (final src in seq.sequence) {
-          final tag = src.tag;
-          if (tag is MediaItem) {
-            final id = tag.extras?['songId']?.toString();
-            if (id != null && id.isNotEmpty) exclude.add(id);
-          }
+      for (final src in player.sequenceState.sequence) {
+        final tag = src.tag;
+        if (tag is MediaItem) {
+          final id = tag.extras?['songId']?.toString();
+          if (id != null && id.isNotEmpty) exclude.add(id);
         }
       }
 

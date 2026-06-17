@@ -7,24 +7,38 @@ import 'package:just_audio_background/just_audio_background.dart';
 
 import '../design/design_system.dart';
 import '../services/settings_service.dart';
+import '../services/waveform_envelope_service.dart';
+import 'now_playing_layout.dart';
+import 'playback_motion.dart';
 import 'torch_plume_engine.dart';
 import 'torch_ship_painter.dart';
+
+enum WaveformDisplayMode {
+  /// Full torch ship + plume (music hero dock).
+  standard,
+
+  /// Slim scrubber under turntable — smaller ship, no diamonds.
+  compact,
+
+  /// Audiobook scrubber — soft plume, minimal motion.
+  calm,
+}
 
 class WaveformWidget extends StatefulWidget {
   final String path;
   final AudioPlayer player;
   final Color playedColor;
-  final Color unplayedColor;
   final bool showDuration;
   final MediaItem? item;
+  final WaveformDisplayMode displayMode;
 
   const WaveformWidget({
     required this.path,
     required this.player,
     required this.playedColor,
-    this.unplayedColor = Colors.transparent,
     this.showDuration = true,
     this.item,
+    this.displayMode = WaveformDisplayMode.standard,
     super.key,
   });
 
@@ -34,16 +48,24 @@ class WaveformWidget extends StatefulWidget {
 
 class _WaveformWidgetState extends State<WaveformWidget> {
   List<double> _waveformData = [];
-  Path? _cachedPath;
-  Size? _cachedSize;
   bool _isExtracting = false;
+  bool _usingProceduralPreview = false;
+  String? _loadError;
 
   int _lastSeekAtMs = 0;
   Duration? _pendingSeek;
 
+  List<double> _proceduralPreview() =>
+      WaveformEnvelopeService.instance.proceduralFallback(
+        widget.path,
+        samples: 300,
+      );
+
   @override
   void initState() {
     super.initState();
+    _waveformData = _proceduralPreview();
+    _usingProceduralPreview = true;
     _loadWaveform();
   }
 
@@ -51,55 +73,77 @@ class _WaveformWidgetState extends State<WaveformWidget> {
   void didUpdateWidget(covariant WaveformWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.path != widget.path) {
-      _waveformData = [];
-      _cachedPath = null;
+      _waveformData = _proceduralPreview();
+      _usingProceduralPreview = true;
+      _loadError = null;
       _loadWaveform();
     }
   }
 
+  @override
+  void dispose() {
+    _isExtracting = false;
+    super.dispose();
+  }
+
   Future<void> _loadWaveform() async {
-    if (_waveformData.isNotEmpty || _isExtracting) return;
+    if (_isExtracting) return;
+    if (!_usingProceduralPreview && _waveformData.isNotEmpty) return;
 
-    setState(() => _isExtracting = true);
+    _isExtracting = true;
+    _loadError = null;
 
-    final rnd = Random(widget.path.hashCode);
-    final List<double> data = [];
-
-    // Generate smoother, more "plasma-like" data
-    for (int i = 0; i < 100; i++) {
-      double t = i / 100.0;
-
-      // Base structure (Envelope)
-      double envelope = 1.0;
-      if (t < 0.1) {
-        envelope = t * 10.0; // Fade in
-      } else if (t > 0.9) {
-        envelope = (1.0 - t) * 10.0; // Fade out
-      }
-
-      // Composition of sine waves for organic look
-      double val = 0.3;
-      val += 0.2 * sin(t * 15 + rnd.nextDouble());
-      val += 0.1 * sin(t * 40 + rnd.nextDouble());
-      val += 0.05 * sin(t * 80 + rnd.nextDouble());
-
-      // "Beats" (Engine pulses)
-      if (i % 4 == 0) val += 0.15 * rnd.nextDouble();
-
-      // Chorus sections (Loud)
-      if ((t > 0.3 && t < 0.45) || (t > 0.7 && t < 0.85)) {
-        val *= 1.4;
-      }
-
-      data.add((val * envelope).clamp(0.05, 1.0));
+    List<double> data;
+    try {
+      data = await WaveformEnvelopeService.instance
+          .loadEnvelope(widget.path, samples: 300)
+          .timeout(
+            const Duration(seconds: 6),
+            onTimeout: () =>
+                WaveformEnvelopeService.instance.proceduralFallback(
+              widget.path,
+              samples: 300,
+            ),
+          );
+    } catch (e, st) {
+      debugPrint('[WaveformWidget] load failed for ${widget.path}: $e\n$st');
+      data = WaveformEnvelopeService.instance.proceduralFallback(
+        widget.path,
+        samples: 300,
+      );
+      _loadError = e.toString();
     }
 
-    if (mounted) {
-      setState(() {
-        _waveformData = data;
-        _isExtracting = false;
-      });
+    if (data.isEmpty) {
+      data = WaveformEnvelopeService.instance.proceduralFallback(
+        widget.path,
+        samples: 300,
+      );
     }
+
+    if (!mounted) return;
+
+    final preview = _proceduralPreview();
+    final unchanged = _listEquals(data, preview) || _listEquals(data, _waveformData);
+    if (unchanged && _usingProceduralPreview) {
+      _isExtracting = false;
+      return;
+    }
+
+    setState(() {
+      _waveformData = data;
+      _usingProceduralPreview = false;
+      _isExtracting = false;
+    });
+  }
+
+  bool _listEquals(List<double> a, List<double> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   String _fmt(Duration d) {
@@ -122,50 +166,22 @@ class _WaveformWidgetState extends State<WaveformWidget> {
                 ? constraints.maxHeight
                 : 60.0;
 
-        if (_isExtracting && _waveformData.isEmpty) {
+        if (_waveformData.isEmpty) {
           return SizedBox(
             height: height,
-            child: const Center(
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
+            child: Center(
+              child: TextButton(
+                onPressed: _loadWaveform,
+                child: Text(
+                  _loadError == null ? 'Load waveform' : 'Retry waveform',
+                  style: TextStyle(
+                    color: SettingsService.instance.rawAccent,
+                    fontSize: 11,
+                  ),
+                ),
               ),
             ),
           );
-        }
-
-        if (_waveformData.isEmpty) {
-          return SizedBox(height: height);
-        }
-
-        final width = constraints.maxWidth;
-        final sizeKey = Size(width, height);
-
-        // Cache the path for this width
-        if (_cachedPath == null || _cachedSize != sizeKey) {
-          _cachedSize = sizeKey;
-          // We can't easily cache based on width in State without checking if width changed.
-          // But LayoutBuilder runs when constraints change.
-          // Let's rebuild path here.
-          final centerY = height / 2;
-          final step = width / (_waveformData.length - 1);
-          final newPath = Path();
-          newPath.moveTo(0, centerY);
-          for (int i = 0; i < _waveformData.length; i++) {
-            final x = i * step;
-            final amplitude = _waveformData[i];
-            final ampH = amplitude * height * 0.88;
-            newPath.lineTo(x, centerY - ampH / 2);
-          }
-          for (int i = _waveformData.length - 1; i >= 0; i--) {
-            final x = i * step;
-            final amplitude = _waveformData[i];
-            final ampH = amplitude * height * 0.8;
-            newPath.lineTo(x, centerY + ampH / 2);
-          }
-          newPath.close();
-          _cachedPath = newPath;
         }
 
         return StreamBuilder<Duration>(
@@ -199,13 +215,8 @@ class _WaveformWidgetState extends State<WaveformWidget> {
                             timeSeconds: timeSeconds,
                             playedColor: SettingsService.instance
                                 .resolveNowPlayingAccent(item: widget.item),
-                            unplayedColor: widget.unplayedColor == Colors.transparent
-                                ? SettingsService.instance
-                                    .resolveNowPlayingAccent(item: widget.item)
-                                    .withValues(alpha: 0.18)
-                                : widget.unplayedColor,
                             bpm: _extractBpm(widget.item),
-                            cachedPath: _cachedPath,
+                            displayMode: widget.displayMode,
                           ),
                         ),
                       ),
@@ -315,122 +326,106 @@ class PreciseWaveformPainter extends CustomPainter {
   final double progress;
   final double timeSeconds;
   final Color playedColor;
-  final Color unplayedColor;
   final double? bpm;
-  final Path? cachedPath;
+  final WaveformDisplayMode displayMode;
 
   PreciseWaveformPainter({
     required this.waveformData,
     required this.progress,
     required this.timeSeconds,
     required this.playedColor,
-    required this.unplayedColor,
     this.bpm,
-    this.cachedPath,
+    this.displayMode = WaveformDisplayMode.standard,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     if (waveformData.isEmpty) return;
 
-    final centerY = size.height / 2;
-    late final Path path;
-    if (cachedPath != null) {
-      path = cachedPath!;
-    } else {
-      final width = size.width;
-      final step = width / (waveformData.length - 1);
-
-      path = Path();
-      path.moveTo(0, centerY);
-
-      for (int i = 0; i < waveformData.length; i++) {
-        final x = i * step;
-        final amplitude = waveformData[i];
-        final height = amplitude * size.height * 0.88;
-        path.lineTo(x, centerY - height / 2);
-      }
-      for (int i = waveformData.length - 1; i >= 0; i--) {
-        final x = i * step;
-        final amplitude = waveformData[i];
-        final height = amplitude * size.height * 0.8;
-        path.lineTo(x, centerY + height / 2);
-      }
-      path.close();
-    }
-
-    // Draw Unplayed (Background) - Subtle "Flight Path" - HIDDEN
-    // canvas.drawPath(
-    //   path,
-    //   Paint()
-    //     ..color = unplayedColor.withValues(alpha: 0.15) // Very subtle
-    //     ..style = PaintingStyle.stroke
-    //     ..strokeWidth = 1.0,
-    // );
-    // Also fill with very low opacity - HIDDEN
-    // canvas.drawPath(
-    //   path,
-    //   Paint()
-    //     ..color = unplayedColor.withValues(alpha: 0.05)
-    //     ..style = PaintingStyle.fill,
-    // );
-
     final width = size.width;
-    final beatStrength = _computeBeatStrength(timeSeconds, bpm);
-    // Cursor moves naturally at constant speed (progress-based), no beat sync
-    final cursorX = (progress * width).clamp(0.0, width);
-    final cursorY = centerY;
-    final shipLen = size.height * 0.8; // Reduced from 0.95 (approx 15% smaller)
-    // Ensure the tail/nozzle X is clamped so clipping/shaders don't paint the whole canvas
-    final rawTail = cursorX - (shipLen * 0.45);
-    final tailX = rawTail.clamp(0.0, width);
-
-    // Sample waveform amplitude near the cursor to drive thruster intensity
-    final cursorIdx = (progress * (waveformData.length - 1)).round().clamp(0, waveformData.length - 1);
-    final exitAmplitude = waveformData[cursorIdx];
-    final windowStart = max(0, cursorIdx - 4);
-    double plumeEnergy = 0;
-    for (int i = windowStart; i <= cursorIdx; i++) {
-      plumeEnergy = max(plumeEnergy, waveformData[i]);
+    final height = size.height;
+    if (width <= 1 || height <= 1 || !width.isFinite || !height.isFinite) {
+      return;
     }
-    final waveformAmplitude = (exitAmplitude * 0.6 + plumeEnergy * 0.4).clamp(0.0, 1.0);
+    final centerY = height / 2;
+    final shipScale = switch (displayMode) {
+      WaveformDisplayMode.compact => NowPlayingLayoutMetrics.shipFillCompact,
+      WaveformDisplayMode.calm => NowPlayingLayoutMetrics.shipFillCalm,
+      WaveformDisplayMode.standard => NowPlayingLayoutMetrics.shipFillStandard,
+    };
+    final shipLen = height * shipScale;
+    final metrics = TorchPlumeEngine.engineMetrics(shipLen);
+    final budget = displayMode == WaveformDisplayMode.calm
+        ? TorchEffectBudget.resolve(profile: TorchContentProfile.audiobook)
+        : TorchEffectBudget.resolveForWaveform();
+    final blendScale = TorchPlumeEngine.waveformBlendScale *
+        (displayMode == WaveformDisplayMode.calm
+            ? 0.50
+            : displayMode == WaveformDisplayMode.compact
+                ? 0.72
+                : 1.0);
+    final drawDiamonds = displayMode == WaveformDisplayMode.standard;
 
-    // Draw Played (Waveform + Plasma Trail)
-    canvas.save();
-    // Clip cleanly at the nozzle so the waveform appears to emerge from the thrusters
-    canvas.clipRect(Rect.fromLTWH(0, 0, tailX, size.height));
-
-    // Engine plume behind the ship ÔÇö amplitude-modulated by the waveform
-    _drawEnginePlume(
-      canvas: canvas,
-      nozzleX: tailX,
-      centerY: centerY,
-      height: size.height,
-      baseColor: playedColor,
-      t: timeSeconds,
+    final beatStrength = PlaybackMotion.beatDrive(timeSeconds, bpm);
+    final waveformAmplitude = TorchPlumeEngine.computeWaveformDrive(
+      waveformData: waveformData,
+      progress: progress,
       beatStrength: beatStrength,
-      waveformAmplitude: waveformAmplitude,
+    );
+    final thrust = waveformAmplitude;
+
+    final cursorX = (progress * width).clamp(0.0, width);
+    final nozzleX =
+        (cursorX - metrics.engineFaceOffset).clamp(0.0, width);
+
+    final path = TorchPlumeEngine.buildExhaustWaveformPath(
+      waveformData: waveformData,
+      width: width,
+      height: height,
+      centerY: centerY,
+      nozzleX: nozzleX,
+      shipLen: shipLen,
     );
 
-    // 1. Amplitude-responsive Plasma-to-Track Gradient
-    // Louder sections produce a longer, hotter plasma transition
-    final transitionWidth = shipLen * (0.8 + 0.8 * waveformAmplitude);
-    final gradStartX = tailX.clamp(0.0, width);
-    final gradEndX = (tailX - transitionWidth).clamp(0.0, width);
+    final transitionWidth = shipLen * (0.55 + 0.85 * waveformAmplitude);
+    final gradStartX = nozzleX.clamp(0.0, width);
+    final gradEndX = max(
+      0.0,
+      min(gradStartX - max(1.0, transitionWidth), width),
+    );
+    final glowIntensity = (0.22 + 0.78 * waveformAmplitude) *
+        (displayMode == WaveformDisplayMode.calm ? 0.55 : 1.0);
 
-    // Hotter gradient when amplitude is high ÔÇö more white/cyan at the nozzle
-    final hotStop = 0.25 * (1.0 - waveformAmplitude);
-    final coolStop = 0.2 + 0.15 * (1.0 - waveformAmplitude);
+    final core = TorchPlumeEngine.raptorCore(playedColor);
+    final sheath = TorchPlumeEngine.raptorSheath(playedColor);
+
+    // --- Exhaust plume + waveform ribbon (played region) ---
+    canvas.save();
+    canvas.clipRect(Rect.fromLTWH(0, 0, nozzleX + 3, height));
+
+    TorchPlumeEngine.paintHorizontalPlume(
+      canvas: canvas,
+      nozzleX: nozzleX,
+      centerY: centerY,
+      height: height,
+      shipLen: shipLen,
+      baseColor: playedColor,
+      animTimeSeconds: timeSeconds,
+      beatStrength: beatStrength,
+      waveformAmplitude: waveformAmplitude,
+      budget: budget,
+      drawDiamonds: false,
+      blendScale: blendScale,
+    );
 
     final mainShader = ui.Gradient.linear(
-      Offset(gradStartX, 0),
-      Offset(gradEndX, 0),
-      [
-        Colors.white,
+      Offset(gradStartX, centerY),
+      Offset(gradEndX, centerY),
+      TorchPlumeEngine.exhaustWaveformGradientColors(
         playedColor,
-        playedColor,
-      ],
-      [0.0, coolStop, 1.0],
+        waveformAmplitude: waveformAmplitude,
+      ),
+      TorchPlumeEngine.exhaustWaveformGradientStops,
       TileMode.clamp,
     );
 
@@ -441,358 +436,139 @@ class PreciseWaveformPainter extends CustomPainter {
         ..style = PaintingStyle.fill,
     );
 
-    // Base solid-ish fill (scaled with amplitude)
     canvas.drawPath(
       path,
       Paint()
-        ..color = playedColor.withValues(alpha: (0.10 + 0.12 * waveformAmplitude).clamp(0.0, 1.0))
+        ..color = playedColor.withValues(
+          alpha: (0.08 + 0.10 * waveformAmplitude).clamp(0.0, 1.0),
+        )
         ..style = PaintingStyle.fill,
     );
 
-    // 2. Amplitude-responsive Plasma Glow Overlay (Bloom)
-    final glowIntensity = 0.2 + 0.8 * waveformAmplitude;
-    final glowStartX = tailX.clamp(0.0, width);
-    final glowEndX = (tailX - transitionWidth * 0.5).clamp(0.0, width);
     final glowShader = ui.Gradient.linear(
-      Offset(glowStartX, 0),
-      Offset(glowEndX, 0),
+      Offset(gradStartX, centerY),
+      Offset((nozzleX - transitionWidth * 0.55).clamp(0.0, width), centerY),
       [
-        Colors.white.withValues(alpha: (0.65 * glowIntensity).clamp(0.0, 1.0)),
-        playedColor.withValues(alpha: (0.35 * glowIntensity).clamp(0.0, 1.0)),
+        core.withValues(alpha: (0.52 * glowIntensity).clamp(0.0, 1.0)),
+        sheath.withValues(alpha: (0.28 * glowIntensity).clamp(0.0, 1.0)),
         Colors.transparent,
       ],
-      [0.0, 0.35, 1.0],
+      const [0.0, 0.32, 1.0],
     );
 
-    // Stronger outer glow layer
     canvas.drawPath(
       path,
       Paint()
         ..shader = glowShader
         ..style = PaintingStyle.fill
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 11.0)
-        ..blendMode = BlendMode.plus,
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10.0)
+        ..blendMode = BlendMode.screen,
     );
 
-    // Inner tighter glow
     canvas.drawPath(
       path,
       Paint()
         ..shader = glowShader
         ..style = PaintingStyle.fill
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.0)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.5)
         ..blendMode = BlendMode.plus,
     );
 
-    // 3. Turbulence / Heat Haze ÔÇö intensity follows amplitude
-    final turbulenceAlpha = (0.1 * waveformAmplitude).clamp(0.0, 1.0);
-    final turbulenceShader = ui.Gradient.linear(
-      Offset(tailX, 0),
-      Offset(tailX - transitionWidth, 0),
-      [
-        Colors.white.withValues(alpha: 0.0),
-        Colors.white.withValues(alpha: turbulenceAlpha),
-        Colors.white.withValues(alpha: 0.0),
-      ],
-      [0.0, 0.5, 1.0],
-      TileMode.repeated,
-    );
-
-    canvas.drawPath(
-      path,
+    // Nozzle bloom — bridges plume core into the ribbon throat.
+    final bloomR = metrics.bellHalfW * (1.05 + 0.25 * thrust);
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(nozzleX, centerY),
+        width: bloomR * 2.2,
+        height: metrics.throatHalfW * 2.8 * (0.85 + 0.15 * thrust),
+      ),
       Paint()
-        ..shader = turbulenceShader
-        ..style = PaintingStyle.fill
-        ..blendMode = BlendMode.overlay,
+        ..shader = ui.Gradient.radial(
+          Offset(nozzleX, centerY),
+          bloomR,
+          [
+            core.withValues(alpha: (0.55 * glowIntensity).clamp(0.0, 1.0)),
+            sheath.withValues(alpha: (0.22 * glowIntensity).clamp(0.0, 1.0)),
+            Colors.transparent,
+          ],
+          const [0.0, 0.48, 1.0],
+        )
+        ..blendMode = BlendMode.plus
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6.0),
     );
 
-    // Subtle outline/stroke ÔÇö brighter when loud
     canvas.drawPath(
       path,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.15
-        ..color = Colors.white.withValues(alpha: (0.12 + 0.15 * waveformAmplitude).clamp(0.0, 1.0))
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 0.9),
+        ..strokeWidth = 1.0
+        ..color = core.withValues(
+          alpha: (0.10 + 0.14 * waveformAmplitude).clamp(0.0, 1.0),
+        )
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 0.8),
     );
 
-    // === Fixed throat: waveform exits the bell at bell's width ===
-    // Pinch zone extends LEFT from the nozzle into the played area
-    const throatScale = 0.10;
-    final throatDist = shipLen * 0.35;
-    final throatStartX = (tailX - throatDist).clamp(0.0, width);
-    final throatEndX = tailX;
+    canvas.restore();
 
-    // Stage 1: Tight throat right at the nozzle
-    if (throatEndX > throatStartX) {
-      canvas.save();
-      canvas.clipRect(Rect.fromLTWH(throatStartX, 0, throatDist, size.height));
-
-      canvas.save();
-      canvas.translate(0, centerY);
-      canvas.scale(1.0, throatScale);
-      canvas.translate(0, -centerY);
-
-      final throatShader = ui.Gradient.linear(
-        Offset(gradStartX, 0),
-        Offset(gradEndX, 0),
-        [
-          Colors.white,
-          playedColor,
-          playedColor.withValues(alpha: 0.9),
-        ],
-        [0.0, hotStop, 1.0],
+    if (drawDiamonds) {
+      TorchPlumeEngine.paintHorizontalPlumeDiamonds(
+        canvas: canvas,
+        nozzleX: nozzleX,
+        centerY: centerY,
+        height: height,
+        shipLen: shipLen,
+        baseColor: playedColor,
+        animTimeSeconds: timeSeconds,
+        beatStrength: beatStrength,
+        waveformAmplitude: waveformAmplitude,
+        budget: budget,
+        blendScale: blendScale,
       );
-
-      canvas.drawPath(
-        path,
-        Paint()
-          ..shader = throatShader
-          ..style = PaintingStyle.fill,
-      );
-      canvas.restore();
-      canvas.restore();
     }
 
-    canvas.restore();
-
-    // === Full un-pinched section (played area past the throat) ===
-    canvas.save();
-    canvas.clipRect(Rect.fromLTWH(0, 0, throatStartX, size.height));
-
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = playedColor.withValues(alpha: (0.10 + 0.12 * waveformAmplitude).clamp(0.0, 1.0))
-        ..style = PaintingStyle.fill,
-    );
-
-    final fullMainShader = ui.Gradient.linear(
-      Offset(gradStartX, 0),
-      Offset(gradEndX, 0),
-      [
-        Colors.white,
-        playedColor,
-        playedColor,
-      ],
-      [0.0, coolStop, 1.0],
-      TileMode.clamp,
-    );
-
-    canvas.drawPath(
-      path,
-      Paint()
-        ..shader = fullMainShader
-        ..style = PaintingStyle.fill,
-    );
-
-    final fullGlowShader = ui.Gradient.linear(
-      Offset(gradStartX, 0),
-      Offset(gradEndX, 0),
-      [
-        Colors.white.withValues(alpha: (0.55 * glowIntensity).clamp(0.0, 1.0)),
-        playedColor.withValues(alpha: (0.25 * glowIntensity).clamp(0.0, 1.0)),
-        Colors.transparent,
-      ],
-      [0.0, 0.3, 1.0],
-    );
-
-    canvas.drawPath(
-      path,
-      Paint()
-        ..shader = fullGlowShader
-        ..style = PaintingStyle.fill
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9.0)
-        ..blendMode = BlendMode.plus,
-    );
-
-    canvas.restore();
+    final pitch = 0.010 * thrust;
+    final bob = PlaybackMotion.shipBobOffset(timeSeconds, height, thrust);
+    final shipSize = Size(shipLen, shipLen);
 
     canvas.save();
-    canvas.translate(cursorX, cursorY);
-    canvas.rotate(pi / 2);
+    canvas.translate(cursorX, centerY + bob);
+    canvas.rotate(pi / 2 + pitch);
     TorchShipPainter(
-      height: size.height * 0.8,
+      height: shipLen,
       progress: progress,
       playbackTimeSeconds: timeSeconds,
       animTimeSeconds: timeSeconds,
       color: playedColor,
       bpm: bpm,
       drawPlume: false,
-      budget: TorchEffectBudget.resolve(profile: TorchContentProfile.music),
-    ).paint(canvas, Size(size.height * 0.8, size.height * 0.8));
+      thrustLevel: thrust,
+      pitchRadians: pitch,
+      budget: budget,
+    ).paint(canvas, shipSize);
     canvas.restore();
-  }
 
-  double _computeBeatStrength(double timeSeconds, double? bpm) {
-    final effectiveBpm = (bpm != null && bpm > 0) ? bpm : 120.0;
-    final cycle = 60.0 / effectiveBpm;
-    final phase = (timeSeconds % cycle) / cycle;
-    return 0.35 + 0.65 * ((cos(2 * pi * phase) + 1.0) / 2.0);
-  }
-
-  void _drawEnginePlume({
-    required Canvas canvas,
-    required double nozzleX,
-    required double centerY,
-    required double height,
-    required Color baseColor,
-    required double t,
-    required double beatStrength,
-    required double waveformAmplitude,
-  }) {
-    final shipLen = height * 0.8;
-    // Plume intensity scales with waveform amplitude
-    final ampFactor = 0.3 + 0.7 * waveformAmplitude;
-    final flicker = ampFactor * (1.0 + 0.08 * beatStrength + 0.035 * sin(t * 22.0) + 0.02 * cos(t * 41.0));
-    final wobble = 1.0 + 0.045 * sin(t * 9.0) + 0.03 * sin(t * 15.0 + 0.9);
-    final oscillation = sin(t * 7.0) * height * (0.02 + 0.008 * beatStrength);
-
-    final plumeLen = shipLen * 2.25 * flicker;
-    final coreHalfWidth = height * 0.11 * ampFactor;
-    final haloHalfWidth = height * 0.26 * ampFactor;
-
-    Path buildDrivePlume({
-      required double halfWidth,
-      required double lenScale,
-    }) {
-      final len = plumeLen * lenScale;
-      final tipX = nozzleX - len;
-      final c1x = nozzleX - len * 0.28;
-      final c2x = nozzleX - len * 0.72;
-
-      final p = Path();
-      p.moveTo(nozzleX, centerY - halfWidth);
-      p.cubicTo(
-        c1x,
-        centerY - halfWidth * 0.65,
-        c2x,
-        centerY - halfWidth * 0.25 * wobble,
-        tipX,
-        centerY + oscillation,
-      );
-      p.cubicTo(
-        c2x,
-        centerY + halfWidth * 0.25 * wobble,
-        c1x,
-        centerY + halfWidth * 0.65,
-        nozzleX,
-        centerY + halfWidth,
-      );
-      p.close();
-      return p;
-    }
-
-    final haloPath = buildDrivePlume(halfWidth: haloHalfWidth, lenScale: 1.18);
-    final corePath = buildDrivePlume(halfWidth: coreHalfWidth, lenScale: 0.98);
-
-    // Enhanced Nozzle Flare + Energy Burst ÔÇö modulated by waveform amplitude
-    final flareIntensity = (0.9 + 0.6 * beatStrength) * ampFactor;
-    final flareRadius = height * (0.09 + 0.04 * beatStrength) * ampFactor;
-
-    // Stronger central burst
-    canvas.drawCircle(
-      Offset(nozzleX, centerY),
-      flareRadius,
-      Paint()
-        ..shader = ui.Gradient.radial(
-          Offset(nozzleX, centerY),
-          height * 0.22 * ampFactor,
-          [
-            Colors.white.withValues(alpha: 0.95 * ampFactor.clamp(0.0, 1.0)),
-            baseColor.withValues(alpha: (0.55 * flareIntensity).clamp(0.0, 1.0)),
-            Colors.transparent,
-          ],
-          [0.0, 0.35, 1.0],
-        )
-        ..blendMode = BlendMode.plus
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
+    // --- Engine throat on bell mouth (hull → exhaust hand-off) ---
+    TorchPlumeEngine.paintEngineThroat(
+      canvas: canvas,
+      nozzleX: nozzleX,
+      centerY: centerY,
+      shipLen: shipLen,
+      baseColor: playedColor,
+      seekPulse: 0,
+      budget: budget,
+      beatStrength: beatStrength,
+      waveformAmplitude: waveformAmplitude,
+      blendScale: blendScale,
     );
 
-    // Wider outer halo for more "power coming out" feel
-    canvas.drawCircle(
-      Offset(nozzleX, centerY),
-      flareRadius * 1.6,
-      Paint()
-        ..shader = ui.Gradient.radial(
-          Offset(nozzleX, centerY),
-          height * 0.32 * ampFactor,
-          [
-            baseColor.withValues(alpha: (0.25 * flareIntensity).clamp(0.0, 1.0)),
-            Colors.transparent,
-          ],
-          [0.0, 1.0],
-        )
-        ..blendMode = BlendMode.plus
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14),
-    );
-
-    // Ion halo
-    canvas.drawPath(
-      haloPath,
-      Paint()
-        ..shader = ui.Gradient.linear(
-          Offset(nozzleX, centerY),
-          Offset(nozzleX - plumeLen * 1.25, centerY),
-          [
-            baseColor.withValues(alpha: (0.28 * ampFactor).clamp(0.0, 1.0)),
-            baseColor.withValues(alpha: (0.16 * ampFactor).clamp(0.0, 1.0)),
-            baseColor.withValues(alpha: 0.0),
-          ],
-          [0.0, 0.55, 1.0],
-        )
-        ..blendMode = BlendMode.plus
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14),
-    );
-
-    // White-hot core
-    canvas.drawPath(
-      corePath,
-      Paint()
-        ..shader = ui.Gradient.linear(
-          Offset(nozzleX, centerY),
-          Offset(nozzleX - plumeLen * 0.95, centerY),
-          [
-            Colors.white.withValues(alpha: (0.98 * ampFactor).clamp(0.0, 1.0)),
-            baseColor.withValues(alpha: (0.72 * ampFactor).clamp(0.0, 1.0)),
-            baseColor.withValues(alpha: 0.0),
-          ],
-          [0.0, 0.26, 1.0],
-        )
-        ..blendMode = BlendMode.plus
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
-    );
-
-    // Shock diamonds (Mach disks) - scale with amplitude
-    final diamondPaint =
-        Paint()
-          ..blendMode = BlendMode.plus
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.6);
-    const diamondCount = 6;
-    for (int i = 1; i <= diamondCount; i++) {
-      final ratio = i / (diamondCount + 1);
-      final x = nozzleX - plumeLen * (0.14 + 0.70 * ratio);
-      final y = centerY + sin(t * 6.5 + i) * height * 0.012;
-      final intensity = (1.0 - ratio) * 0.55 * ampFactor;
-
-      final w =
-          height *
-          0.06 *
-          (1.0 - 0.25 * ratio) *
-          (0.85 + 0.2 * sin(t * 7.0 + i));
-      final h = w * 2.15;
-      diamondPaint.color = Colors.white.withValues(alpha: intensity.clamp(0.0, 1.0));
-      canvas.drawOval(
-        Rect.fromCenter(center: Offset(x, y), width: w, height: h),
-        diamondPaint,
-      );
-    }
   }
 
   @override
   bool shouldRepaint(covariant PreciseWaveformPainter oldDelegate) =>
       progress != oldDelegate.progress ||
+      timeSeconds != oldDelegate.timeSeconds ||
       playedColor != oldDelegate.playedColor ||
-      unplayedColor != oldDelegate.unplayedColor ||
-      waveformData != oldDelegate.waveformData;
+      waveformData != oldDelegate.waveformData ||
+      bpm != oldDelegate.bpm ||
+      displayMode != oldDelegate.displayMode;
 }

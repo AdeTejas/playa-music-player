@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:on_audio_query/on_audio_query.dart' as oaq;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
@@ -22,9 +23,7 @@ import '../models/listening_progress.dart';
 import '../widgets/continue_listening_section.dart';
 import '../utils/content_mode.dart';
 
-// Design System (Phase 3 Migration)
 import '../design/design_system.dart';
-import '../ui/tokens.dart';
 
 class LibraryPage extends StatefulWidget {
   final bool isVisible;
@@ -46,7 +45,28 @@ class _LibraryPageState extends State<LibraryPage> {
   bool _isSelectionMode = false;
   final Set<String> _selectedIds = {};
 
-  List<ListeningProgress> _continueListening = [];
+  List<ListeningProgress> _allContinueListening = [];
+
+  String _trackedSortType = SettingsService.instance.librarySortType;
+  int _trackedSortOrder = SettingsService.instance.librarySortOrder;
+  LibraryBrowseFilter _trackedBrowseFilter =
+      SettingsService.instance.libraryBrowseFilter;
+
+  List<ListeningProgress> get _filteredContinueListening =>
+      _filterContinueListening(_allContinueListening);
+
+  void _applySongList(List<oaq.SongModel> songs, {required bool loading}) {
+    final seen = <String>{};
+    _allSongs = songs
+        .where((s) => s.data.isNotEmpty)
+        .where((s) {
+          final key = Platform.isWindows ? s.data.toLowerCase() : s.data;
+          return seen.add(key);
+        })
+        .toList();
+    _songs = _computeFiltered(_searchCtrl.text);
+    _loading = loading;
+  }
 
   @override
   void dispose() {
@@ -78,16 +98,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
     if (scan.phase == LibraryScanPhase.done) {
       final songs = ServiceLocator.instance.playerController.librarySongs;
-      setState(() {
-        final seen = <String>{};
-        _allSongs =
-            songs.where((s) => (s.data).isNotEmpty).where((s) {
-              final key = Platform.isWindows ? s.data.toLowerCase() : s.data;
-              return seen.add(key);
-            }).toList();
-        _songs = _computeFiltered(_searchCtrl.text);
-        _loading = false;
-      });
+      setState(() => _applySongList(songs, loading: false));
     } else if (scan.phase == LibraryScanPhase.error) {
       setState(() {
         _loading = false;
@@ -97,67 +108,94 @@ class _LibraryPageState extends State<LibraryPage> {
 
   void _onSettingsChanged() {
     if (!mounted) return;
-    final resorted = LibraryScanService.instance.sortSongs(_allSongs);
+
+    final settings = SettingsService.instance;
+    final sortChanged =
+        _trackedSortType != settings.librarySortType ||
+        _trackedSortOrder != settings.librarySortOrder;
+    final filterChanged = _trackedBrowseFilter != settings.libraryBrowseFilter;
+    if (!sortChanged && !filterChanged) return;
+
+    _trackedSortType = settings.librarySortType;
+    _trackedSortOrder = settings.librarySortOrder;
+    _trackedBrowseFilter = settings.libraryBrowseFilter;
+
     setState(() {
-      _allSongs = resorted;
+      if (sortChanged) {
+        _allSongs = LibraryScanService.instance.sortSongs(_allSongs);
+      }
       _songs = _computeFiltered(_searchCtrl.text);
     });
-    _loadContinueListening();
+    if (filterChanged) {
+      unawaited(_loadContinueListening());
+    }
   }
 
   Future<void> _bootstrap() async {
+    final cached = ServiceLocator.instance.playerController.librarySongs;
+    if (cached.isNotEmpty) {
+      setState(() => _applySongList(cached, loading: false));
+      unawaited(_loadContinueListening());
+    }
+
     final granted = await _requestPermissions();
     if (!mounted) return;
-    if (granted) {
-      try {
-        await _loadSongs();
-      } catch (e) {
-        if (mounted) {
-          setState(() => _loading = false);
-        }
-      }
-    } else {
-      setState(() => _loading = false);
+    if (!granted) {
+      if (cached.isEmpty) setState(() => _loading = false);
+      return;
+    }
+
+    if (cached.isNotEmpty && !LibraryScanService.instance.isScanning) {
+      return;
+    }
+
+    try {
+      await _loadSongs(force: true);
+    } catch (_) {
+      if (mounted && cached.isEmpty) setState(() => _loading = false);
     }
   }
 
   Future<bool> _requestPermissions() async {
     if (Platform.isAndroid) {
-      Map<Permission, PermissionStatus> statuses =
-          await [
-            Permission.audio,
-            Permission.photos,
-            Permission.videos,
-          ].request();
+      if (await Permission.audio.isGranted) return true;
 
-      if (statuses[Permission.audio] == PermissionStatus.granted) {
-        return true;
+      final audioStatus = await Permission.audio.request();
+      if (audioStatus.isGranted) return true;
+
+      // READ_EXTERNAL_STORAGE only applies on Android 12 and below.
+      final sdk = (await DeviceInfoPlugin().androidInfo).version.sdkInt;
+      if (sdk < 33) {
+        final storageStatus = await Permission.storage.request();
+        return storageStatus.isGranted;
       }
-
-      final storageStatus = await Permission.storage.request();
-      if (storageStatus.isGranted) return true;
 
       return false;
     }
     return true;
   }
 
-  Future<void> _loadSongs() async {
+  Future<void> _loadSongs({bool force = false}) async {
     try {
-      if (mounted) {
+      final cached = ServiceLocator.instance.playerController.librarySongs;
+      if (!force &&
+          cached.isNotEmpty &&
+          LibraryScanService.instance.phase == LibraryScanPhase.done) {
+        if (mounted) setState(() => _applySongList(cached, loading: false));
+        return;
+      }
+
+      if (mounted && _allSongs.isEmpty) {
         setState(() => _loading = true);
       }
 
       final songs = await LibraryScanService.instance.scanLibrary(
         restorePlayerState: true,
+        force: force,
       );
 
       if (!mounted) return;
-      setState(() {
-        _allSongs = songs.where((s) => (s.data).isNotEmpty).toList();
-        _songs = _computeFiltered(_searchCtrl.text);
-        _loading = false;
-      });
+      setState(() => _applySongList(songs, loading: false));
       await _loadContinueListening();
     } catch (e) {
       if (!mounted) return;
@@ -171,7 +209,7 @@ class _LibraryPageState extends State<LibraryPage> {
           await ServiceLocator.instance.playerController.getRecentListening();
       if (!mounted) return;
       setState(() {
-        _continueListening = _filterContinueListening(items);
+        _allContinueListening = items;
       });
     } catch (_) {}
   }
@@ -527,8 +565,8 @@ class _LibraryPageState extends State<LibraryPage> {
             child: Padding(
               padding: const EdgeInsets.all(PlayaSpacing.md),
               child: GlassPanel(
-                borderRadius: BorderRadius.circular(20),
-                color: kColorGlassBlackTint,
+                useStrongVariant: true,
+                borderRadius: BorderRadius.circular(PlayaRadii.lg),
                 padding: const EdgeInsets.all(PlayaSpacing.sm * 2),
                 child: SingleChildScrollView(
                   physics: const ClampingScrollPhysics(),
@@ -548,7 +586,7 @@ class _LibraryPageState extends State<LibraryPage> {
                       _buildSortOption(label: 'Title', value: 'TITLE'),
                       _buildSortOption(label: 'Artist', value: 'ARTIST'),
                       _buildSortOption(label: 'Album', value: 'ALBUM'),
-                      const Divider(color: Colors.white10),
+                      Divider(color: PlayaColors.borderSubtle),
                       ListTile(
                         dense: true,
                         title: const Text('Ascending'),
@@ -630,7 +668,7 @@ class _LibraryPageState extends State<LibraryPage> {
             color: isSelected
                 ? accentColor.withValues(alpha: 0.15)
                 : (isPlaying ? accentColor.withValues(alpha: 0.10) : null),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(PlayaRadii.xs),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
           child: Row(
@@ -666,7 +704,7 @@ class _LibraryPageState extends State<LibraryPage> {
                   height: 44,
                   child: DecoratedBox(
                     decoration: const BoxDecoration(
-                      color: PlayaColors.glassLight,
+                      color: PlayaColors.surfaceVariant,
                     ),
                     child: ArtworkImage(
                       id: s.id,
@@ -1054,7 +1092,7 @@ class _LibraryPageState extends State<LibraryPage> {
                         borderRadius: BorderRadius.circular(999),
                         child: LinearProgressIndicator(
                           value: scan.progress == 0 ? null : scan.progress,
-                          backgroundColor: Colors.white10,
+                          backgroundColor: PlayaColors.trackMuted,
                           color: accentColor,
                           minHeight: 6,
                         ),
@@ -1067,7 +1105,7 @@ class _LibraryPageState extends State<LibraryPage> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(PlayaSpacing.sm * 2, PlayaSpacing.sm, PlayaSpacing.sm * 2, 0),
                   child: GlassPanel(
-                    borderRadius: BorderRadius.circular(kRadius),
+                    borderRadius: BorderRadius.circular(PlayaRadii.kRadius),
                     padding: const EdgeInsets.all(PlayaSpacing.sm),
                     child: Row(
                       children: [
@@ -1089,7 +1127,10 @@ class _LibraryPageState extends State<LibraryPage> {
                           ),
                         ),
                         TextButton(
-                          onPressed: scan.isScanning ? null : _loadSongs,
+                          onPressed:
+                              scan.isScanning
+                                  ? null
+                                  : () => _loadSongs(force: true),
                           child: const Text('Retry'),
                         ),
                       ],
@@ -1097,9 +1138,9 @@ class _LibraryPageState extends State<LibraryPage> {
                   ),
                 ),
 
-              if (!_isSelectionMode && !_loading && _continueListening.isNotEmpty)
+              if (!_isSelectionMode && _filteredContinueListening.isNotEmpty)
                 ContinueListeningSection(
-                  items: _continueListening,
+                  items: _filteredContinueListening,
                   ctrl: ServiceLocator.instance.playerController,
                   librarySongs: _allSongs,
                   onResume: () {
@@ -1114,17 +1155,13 @@ class _LibraryPageState extends State<LibraryPage> {
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(PlayaSpacing.sm * 2, 0, PlayaSpacing.sm * 2, 0),
                   child: GlassPanel(
-                    borderRadius: BorderRadius.circular(18),
-                    color: PlayaColors.glassLight,
-                    boxShadow: const [],
+                    useDeepVariant: true,
+                    borderRadius: BorderRadius.circular(PlayaRadii.lg),
                     padding: const EdgeInsets.all(PlayaSpacing.sm),
                     child: Column(
                       children: [
-                        GlassPanel(
-                          borderRadius: BorderRadius.circular(999),
-                          color: PlayaColors.glassLight,
-                          boxShadow: const [],
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                        DecoratedBox(
+                          decoration: PlayaEffects.insetField(),
                           child: TextField(
                             controller: _searchCtrl,
                             onChanged: _filterSongs,
@@ -1249,7 +1286,10 @@ class _LibraryPageState extends State<LibraryPage> {
                                               onPressed:
                                                   scan.isScanning
                                                       ? null
-                                                      : _loadSongs,
+                                                      : () =>
+                                                          _loadSongs(
+                                                            force: true,
+                                                          ),
                                               child: const Text(
                                                 'Refresh Library',
                                               ),
@@ -1270,9 +1310,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                         ),
                                         child: Container(
                                           height: 1,
-                                          color: Colors.white.withValues(
-                                            alpha: 0.06,
-                                          ),
+                                          color: PlayaColors.borderSubtle,
                                         ),
                                       );
                                     },

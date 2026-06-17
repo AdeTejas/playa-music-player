@@ -159,19 +159,6 @@ class _EqualizerScreenState extends State<EqualizerScreen>
     }
   }
 
-  String _formatHz(int hz) {
-    if (hz >= 1000) {
-      final v = hz / 1000.0;
-      return v >= 10 ? '${v.toStringAsFixed(0)}k' : '${v.toStringAsFixed(1)}k';
-    }
-    return hz.toString();
-  }
-
-  String _formatDb(int milliBels) {
-    final db = milliBels / 100.0;
-    return db.toStringAsFixed(1);
-  }
-
   @override
   Widget build(BuildContext context) {
     final accentColor = Theme.of(context).colorScheme.primary;
@@ -702,7 +689,6 @@ class _EQSliderStripPainter extends CustomPainter {
     final bandWidth = size.width / bands;
     final trackLeft = bandWidth * 0.42;
     final trackRight = bandWidth * 0.58;
-    final trackCenter = (trackLeft + trackRight) / 2;
     final trackW = trackRight - trackLeft;
     final thumbR = 5.0;
     final topPad = 12.0;
@@ -772,7 +758,7 @@ class _EQSliderStripPainter extends CustomPainter {
         fontWeight: FontWeight.w700,
       );
       final dbTp = TextPainter(
-        text: TextSpan(text: '${db.toStringAsFixed(1)}', style: dbStyle),
+        text: TextSpan(text: db.toStringAsFixed(1), style: dbStyle),
         textDirection: TextDirection.ltr,
       )..layout();
       dbTp.paint(

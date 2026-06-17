@@ -3,15 +3,21 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:on_audio_query/on_audio_query.dart' as oaq;
 
-import '../ui/tokens.dart';
+import '../design/design_system.dart';
 
 void showToast(BuildContext context, String msg) {
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
-      content: Text(msg, style: const TextStyle(color: Colors.white)),
-      backgroundColor: kColorCard,
+      content: Text(
+        msg,
+        style: const TextStyle(color: PlayaColors.onSurface),
+      ),
+      backgroundColor: PlayaColors.glassStrong,
       behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(PlayaRadii.sm),
+        side: const BorderSide(color: PlayaColors.borderSubtle),
+      ),
       duration: const Duration(seconds: 2),
     ),
   );

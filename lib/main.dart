@@ -22,6 +22,7 @@ import 'services/database_service.dart';
 import 'services/service_locator.dart';
 import 'services/player_controller.dart';
 import 'services/library_scan_service.dart';
+import 'services/analytics_service.dart';
 
 // UI & Screens
 
@@ -57,9 +58,19 @@ Future<void> main([List<String> args = const []]) async {
   FlutterError.onError = (details) {
     FlutterError.presentError(details);
     debugPrint('FLUTTER ERROR: ${details.exception}');
+    unawaited(
+      AnalyticsService.instance.logFlutterError(details),
+    );
   };
   PlatformDispatcher.instance.onError = (error, stack) {
     debugPrint('PLATFORM ERROR: $error');
+    unawaited(
+      AnalyticsService.instance.logError(
+        title: 'Platform error',
+        message: error.toString(),
+        stackTrace: stack.toString(),
+      ),
+    );
     return true;
   };
 
@@ -72,6 +83,7 @@ Future<void> main([List<String> args = const []]) async {
   WidgetsFlutterBinding.ensureInitialized();
   await SettingsService.instance.init(); // Initialize Settings
   await DatabaseService.instance.init(); // Initialize Database
+  await AnalyticsService.instance.init();
 
   if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
     try {
@@ -308,6 +320,8 @@ class _ShellState extends State<_Shell> {
     final ctrl = ServiceLocator.instance.playerController;
     final settings = SettingsService.instance;
     final scan = LibraryScanService.instance;
+    final immersiveSpace =
+        !settings.lowPerformanceMode && !settings.batterySaver;
 
     return PlayerProvider(
       ctrl: ctrl,
@@ -324,8 +338,9 @@ class _ShellState extends State<_Shell> {
               Positioned.fill(
                 child: RepaintBoundary(
                   child: DeepSpaceBackground(
-                    subtle: _tab == 0,
-                    starDensity: _tab == 0 ? 0.80 : 0.49,
+                    subtle: !immersiveSpace,
+                    hdrBoost: immersiveSpace,
+                    starDensity: _tab == 0 ? 0.96 : 0.62,
                     mode: DeepSpaceMode.background,
                   ),
                 ),
@@ -336,8 +351,8 @@ class _ShellState extends State<_Shell> {
               Positioned.fill(
                 child: RepaintBoundary(
                   child: DeepSpaceBackground(
-                    subtle: _tab == 0,
-                    starDensity: _tab == 0 ? 0.80 : 0.49,
+                    subtle: !immersiveSpace,
+                    starDensity: _tab == 0 ? 0.96 : 0.62,
                     mode: DeepSpaceMode.overlay,
                   ),
                 ),
@@ -420,9 +435,9 @@ class _ShellState extends State<_Shell> {
                     ),
                     child: GlassPanel(
                       borderRadius: BorderRadius.circular(32),
-                      borderWidth: 1.5,
+                      borderWidth: 1.25,
                       borderColor: PlayaColors.border,
-                      backgroundColor: PlayaColors.glassSubtle,
+                      useStrongVariant: true,
                       child: SizedBox(
                         height: 48,
                       child: Row(
@@ -516,6 +531,7 @@ class _ShellState extends State<_Shell> {
                                               LibraryScanService.instance
                                                   .scanLibrary(
                                                     restorePlayerState: false,
+                                                    force: true,
                                                   ),
                                             );
                                           },
@@ -530,14 +546,14 @@ class _ShellState extends State<_Shell> {
                       if (!scan.isScanning) return const SizedBox.shrink();
                       return Container(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: kSp * 2,
-                          vertical: kSp,
+                          horizontal: PlayaSpacing.kSp * 2,
+                          vertical: PlayaSpacing.kSp,
                         ),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(999),
                           child: LinearProgressIndicator(
                             value: scan.progress == 0 ? null : scan.progress,
-                            backgroundColor: Colors.white10,
+                            backgroundColor: PlayaColors.trackMuted,
                             color: SettingsService.instance.accentFor(),
                             minHeight: 6,
                           ),

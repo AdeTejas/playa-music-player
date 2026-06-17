@@ -23,7 +23,7 @@ class PlayaCard extends StatelessWidget {
     required this.child,
     this.padding,
     this.borderRadius,
-    this.elevation = 0,
+    this.elevation = 1,
     this.useStrongVariant = false,
     this.onTap,
     this.color,

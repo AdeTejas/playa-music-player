@@ -4,7 +4,7 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../models/playlist.dart';
 import '../repositories/playlist_repository.dart';
 import '../services/player_controller.dart';
-import '../ui/tokens.dart';
+import '../design/design_system.dart';
 import '../widgets/artwork_image.dart';
 
 class PlaylistDetailScreen extends StatefulWidget {
@@ -118,12 +118,12 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                     Icon(
                       PhosphorIconsRegular.musicNotes,
                       size: 64,
-                      color: kColorOn2,
+                      color: PlayaColors.onSurfaceVariant,
                     ),
                     SizedBox(height: 16),
                     Text(
                       'No songs yet',
-                      style: TextStyle(color: kColorOn2, fontSize: 18),
+                      style: TextStyle(color: PlayaColors.onSurfaceVariant, fontSize: 18),
                     ),
                     SizedBox(height: 8),
                     Text(
@@ -140,7 +140,8 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                   return Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                     child: GlassPanel(
-                      borderRadius: BorderRadius.circular(14),
+                      useStrongVariant: true,
+                      borderRadius: BorderRadius.circular(PlayaRadii.kRadius),
                       borderColor: PlayaColors.border,
                       child: Material(
                         color: Colors.transparent,
@@ -160,7 +161,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                               ),
                               child: const Icon(
                                 Icons.music_note,
-                                color: kColorOn2,
+                                color: PlayaColors.onSurfaceVariant,
                               ),
                             ),
                           ),
@@ -168,18 +169,18 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                             song.title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: kColorOn),
+                            style: const TextStyle(color: PlayaColors.onSurface),
                           ),
                           subtitle: Text(
                             song.artist ?? 'Unknown',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: kColorOn2),
+                            style: const TextStyle(color: PlayaColors.onSurfaceVariant),
                           ),
                           trailing: IconButton(
                             icon: const Icon(
                               Icons.remove_circle_outline,
-                              color: Colors.white38,
+                              color: PlayaColors.onSurfaceVariant,
                             ),
                             onPressed: () => _removeSong(song),
                           ),

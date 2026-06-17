@@ -17,6 +17,7 @@ import '../services/artwork_cache_service.dart';
 import '../services/settings_service.dart';
 import '../utils/content_mode.dart';
 import 'high_tech_speaker.dart';
+import 'playback_motion.dart';
 
 class TurntableDeck extends StatefulWidget {
   final PlayerController ctrl;
@@ -789,19 +790,24 @@ class _TurntableDeckState extends State<TurntableDeck>
 
     final audiobookCalm = _isAudiobookMode;
     final bpm = _currentBpm.clamp(60.0, 220.0);
-    final beatFreq = audiobookCalm ? 0.0 : bpm / 60.0;
-    _beatPulse = disableAnimations || audiobookCalm
-        ? 0.0
-        : (sin(seconds * beatFreq * 2 * pi) + 1) / 2;
-    _tonearmPulse = disableAnimations || audiobookCalm
-        ? 0.0
-        : sin(seconds * beatFreq * pi * 0.35) * 0.012;
-    if (_neuralMixActive && !audiobookCalm) {
+    if (disableAnimations || audiobookCalm) {
+      _beatPulse = 0.0;
+      _tonearmPulse = 0.0;
+      _groovePulse = 0.0;
+      _neuralPhase = 0.0;
+    } else if (_neuralMixActive) {
       _neuralPhase += dt * 4.0;
-      _groovePulse = (sin(_neuralPhase) + 1) / 2;
+      _beatPulse = PlaybackMotion.beatPulse(seconds, bpm);
+      _tonearmPulse = sin(seconds * (bpm / 60.0) * pi * 0.35) * 0.012;
+      _groovePulse = PlaybackMotion.breathNormalized(_neuralPhase);
     } else {
       _neuralPhase = 0.0;
-      _groovePulse = 0.0;
+      _beatPulse = PlaybackMotion.beatPulse(seconds, bpm);
+      _tonearmPulse =
+          PlaybackMotion.breath(seconds) * 0.012 * (0.5 + 0.5 * _beatPulse);
+      _groovePulse = widget.ctrl.player.playing
+          ? PlaybackMotion.breathNormalized(seconds)
+          : 0.0;
     }
   }
 
@@ -1165,6 +1171,9 @@ class _TurntableDeckState extends State<TurntableDeck>
     return LayoutBuilder(
       builder: (context, constraints) {
         final size = min(constraints.maxWidth, constraints.maxHeight);
+        if (size <= 0 || !size.isFinite) {
+          return const SizedBox.shrink();
+        }
         if (perfTier == 2) _ensureDustTexture(size: 512, seed: widget.item?.id.hashCode ?? 424242);
 
         // Trigger static base caching (major perf win)
@@ -1288,6 +1297,12 @@ class _TurntableBasePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 ||
+        size.height <= 0 ||
+        !size.width.isFinite ||
+        !size.height.isFinite) {
+      return;
+    }
     final w = size.width;
     final h = size.height;
     final isWindows = Platform.isWindows;
@@ -1295,9 +1310,9 @@ class _TurntableBasePainter extends CustomPainter {
     final plinthRRect = RRect.fromRectAndRadius(plinthRect, Radius.circular(w * 0.04));
     final platterRadius = w * 0.33;
     final platterCenter = Offset(w * 0.42, h * 0.45);
-    final c1 = Color.lerp(const Color(0xFF2A2A2A), accentColor, 0.24)!;
-    final c2 = Color.lerp(const Color(0xFF1A1A1A), accentColor, 0.18)!;
-    final c3 = Color.lerp(const Color(0xFF0F0F0F), accentColor, 0.12)!;
+    final c1 = Color.lerp(const Color(0xFF2A3038), accentColor, 0.10)!;
+    final c2 = Color.lerp(const Color(0xFF1A1E24), accentColor, 0.07)!;
+    final c3 = Color.lerp(const Color(0xFF0E1013), accentColor, 0.04)!;
 
     canvas.drawRRect(plinthRRect, Paint()..shader = ui.Gradient.linear(plinthRect.topLeft, plinthRect.bottomRight, [c1, c2, c3], [0.0, 0.6, 1.0]));
 
@@ -1323,25 +1338,47 @@ class _TurntableBasePainter extends CustomPainter {
     canvas.restore();
 
     final speakerSize = w * 0.24;
-    final speakerRect = Rect.fromLTWH(plinthRect.right - speakerSize - w * 0.05, plinthRect.bottom - speakerSize - w * 0.05, speakerSize, speakerSize);
-    canvas.drawRRect(RRect.fromRectAndRadius(speakerRect, Radius.circular(w * 0.02)), Paint()..color = Color.lerp(const Color(0xFF222222), accentColor, 0.15)!);
-    canvas.drawRRect(RRect.fromRectAndRadius(speakerRect.deflate(w * 0.01), Radius.circular(w * 0.01)), Paint()..color = Color.lerp(const Color(0xFF000000), accentColor, 0.10)!);
-
-    final grillInner = speakerRect.deflate(w * 0.018);
-    canvas.save();
-    canvas.clipRRect(RRect.fromRectAndRadius(grillInner, Radius.circular(w * 0.014)));
-    canvas.drawRect(grillInner, Paint()..shader = ui.Gradient.radial(grillInner.center, grillInner.shortestSide * 0.65, [const Color(0xFF0A0A0A), const Color(0xFF000000)], [0.0, 1.0]));
-    final holeSpacing = w * (isWindows ? 0.013 : 0.016);
-    final holeR = w * (isWindows ? 0.0032 : 0.0038);
-    for (double y = grillInner.top; y <= grillInner.bottom; y += holeSpacing) {
-      for (double x = grillInner.left; x <= grillInner.right; x += holeSpacing) {
-        final p = Offset(x, y);
-        if ((p - grillInner.center).distance > grillInner.shortestSide * 0.48) continue;
-        canvas.drawCircle(p, holeR, Paint()..color = const Color(0xFF000000));
-        canvas.drawCircle(p.translate(-holeR * 0.35, -holeR * 0.35), holeR * 0.55, Paint()..color = Colors.white.withValues(alpha: 0.05)..blendMode = BlendMode.plus);
-      }
-    }
-    canvas.restore();
+    final speakerRect = Rect.fromLTWH(
+      plinthRect.right - speakerSize - w * 0.05,
+      plinthRect.bottom - speakerSize - w * 0.05,
+      speakerSize,
+      speakerSize,
+    );
+    final speakerRRect = RRect.fromRectAndRadius(
+      speakerRect,
+      Radius.circular(w * 0.035),
+    );
+    canvas.drawRRect(
+      speakerRRect,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          speakerRect.topLeft,
+          speakerRect.bottomRight,
+          [
+            Color.lerp(const Color(0xFF2A3038), accentColor, 0.06)!,
+            const Color(0xFF121418),
+            const Color(0xFF0A0B0D),
+          ],
+          const [0.0, 0.5, 1.0],
+        ),
+    );
+    canvas.drawRRect(
+      speakerRRect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = w * 0.0025
+        ..color = Colors.white.withValues(alpha: 0.08),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        speakerRect.deflate(w * 0.012),
+        Radius.circular(w * 0.028),
+      ),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = w * 0.002
+        ..color = Colors.black.withValues(alpha: 0.45),
+    );
 
     final basePlateRect = Rect.fromCenter(center: Offset(w * 0.84, h * 0.38), width: w * 0.17, height: h * 0.47);
     canvas.drawRRect(RRect.fromRectAndRadius(basePlateRect, Radius.circular(w * 0.07)), Paint()..color = Colors.black.withValues(alpha: 0.3)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5));
@@ -1416,6 +1453,12 @@ class _TurntableSpinnerPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 ||
+        size.height <= 0 ||
+        !size.width.isFinite ||
+        !size.height.isFinite) {
+      return;
+    }
     final w = size.width;
     final h = size.height;
     final effectiveProgress = (armProgressOverride ?? progress).clamp(0.0, 1.0);
@@ -1532,17 +1575,30 @@ class _TurntableSpinnerPainter extends CustomPainter {
       canvas.drawCircle(plPos, w * 0.015, Paint()..color = gc.withValues(alpha: inte));
     }
 
-    final pivot = Offset(w * 0.84, h * 0.38); final pivotToSpindle = (platterCenter - pivot).distance; final armLength = pivotToSpindle + (w * 0.04);
-    final ra = atan2(platterCenter.dy - pivot.dy, platterCenter.dx - pivot.dx) - 0.4; final rs = pivot + Offset.fromDirection(ra, armLength);
+    final pivot = Offset(w * 0.84, h * 0.38);
+    final pivotToSpindle = (platterCenter - pivot).distance;
+    final armLength = pivotToSpindle + (w * 0.04);
+    final ra = atan2(platterCenter.dy - pivot.dy, platterCenter.dx - pivot.dx) - 0.4;
+    final rs = pivot + Offset.fromDirection(ra, armLength);
     final ar = recordR * ui.lerpDouble(0.92, 0.35, effectiveProgress)!;
     Offset sty;
-    if (cueLift >= 0.95 && armProgressOverride == null) sty = rs;
-    else if (pivotToSpindle > armLength + ar || pivotToSpindle < (armLength - ar).abs()) sty = rs;
-    else {
-      final a_ = (pivotToSpindle * pivotToSpindle - ar * ar + armLength * armLength) / (2 * pivotToSpindle);
-      final h_ = sqrt(max(0, armLength * armLength - a_ * a_)); final p2_ = pivot + (platterCenter - pivot) * (a_ / pivotToSpindle);
-      sty = Offset(p2_.dx + h_ * (platterCenter.dy - pivot.dy) / pivotToSpindle, p2_.dy - h_ * (platterCenter.dx - pivot.dx) / pivotToSpindle);
+    if (cueLift >= 0.95 && armProgressOverride == null) {
+      sty = rs;
+    } else if (pivotToSpindle < 1e-6 ||
+        pivotToSpindle > armLength + ar ||
+        pivotToSpindle < (armLength - ar).abs()) {
+      sty = rs;
+    } else {
+      final a_ = (pivotToSpindle * pivotToSpindle - ar * ar + armLength * armLength) /
+          (2 * pivotToSpindle);
+      final h_ = sqrt(max(0, armLength * armLength - a_ * a_));
+      final p2_ = pivot + (platterCenter - pivot) * (a_ / pivotToSpindle);
+      sty = Offset(
+        p2_.dx + h_ * (platterCenter.dy - pivot.dy) / pivotToSpindle,
+        p2_.dy - h_ * (platterCenter.dx - pivot.dx) / pivotToSpindle,
+      );
     }
+    if (!sty.dx.isFinite || !sty.dy.isFinite) sty = rs;
     Offset rot(Offset p, Offset c, double a) { final dx = p.dx - c.dx; final dy = p.dy - c.dy; return Offset(c.dx + (dx * cos(a) - dy * sin(a)), c.dy + (dx * sin(a) + dy * cos(a))); }
     var adj = rot(sty, pivot, tonearmPulse * 0.25); final aAng = atan2(adj.dy - pivot.dy, adj.dx - pivot.dx);
     final lif = cueLift.clamp(0.0, 1.0); final lo = Offset(0, -lif * 10 - tonearmPulse * 3);
@@ -1585,7 +1641,12 @@ class _CachedStaticBasePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Draw the cached image to fill the canvas exactly
+    if (size.width <= 0 ||
+        size.height <= 0 ||
+        !size.width.isFinite ||
+        !size.height.isFinite) {
+      return;
+    }
     canvas.drawImageRect(
       image,
       Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),

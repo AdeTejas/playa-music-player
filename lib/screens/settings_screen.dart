@@ -6,7 +6,6 @@ import '../services/settings_service.dart';
 import '../services/library_scan_service.dart';
 import '../utils/content_mode.dart';
 import 'diagnostics_screen.dart';
-import '../ui/tokens.dart';
 import '../design/design_system.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -138,6 +137,14 @@ class SettingsScreen extends StatelessWidget {
                 onChanged: settings.setShowSpaceBackground,
                 icon: PhosphorIconsBold.planet,
               ),
+              _buildSwitchTile(
+                context: context,
+                title: 'Frosted Glass Blur',
+                subtitle: 'Panels stay see-through; enable to add blur',
+                value: settings.frostedGlassBlur,
+                onChanged: settings.setFrostedGlassBlur,
+                icon: PhosphorIconsBold.dropHalf,
+              ),
               const SizedBox(height: PlayaSpacing.md),
 
               // Accent Color Selector (improved)
@@ -253,8 +260,8 @@ class SettingsScreen extends StatelessWidget {
                     padding: const EdgeInsets.only(bottom: PlayaSpacing.sm),
                     child: PlayaSettingsTile(
                       leading: const Icon(PhosphorIconsBold.funnel),
-                      title: const Text('Default Browse Filter'),
-                      subtitle: Text(settings.libraryBrowseFilter.label),
+                      title: 'Default Browse Filter',
+                      subtitle: settings.libraryBrowseFilter.label,
                       trailing: DropdownButton<LibraryBrowseFilter>(
                         value: settings.libraryBrowseFilter,
                         dropdownColor: PlayaColors.surface,
@@ -281,7 +288,7 @@ class SettingsScreen extends StatelessWidget {
                 title: const Text('Rescan Library'),
                 subtitle: const Text('Refresh your music collection'),
                 onTap: () async {
-                  await LibraryScanService.instance.scanLibrary();
+                  await LibraryScanService.instance.scanLibrary(force: true);
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Library scan complete')),
@@ -390,7 +397,7 @@ class SettingsScreen extends StatelessWidget {
             color: isSelected ? accent.withValues(alpha: 0.12) : PlayaColors.surface,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isSelected ? accent : Colors.white.withValues(alpha: 0.1),
+              color: isSelected ? accent : PlayaColors.borderSubtle,
               width: isSelected ? 2 : 1,
             ),
           ),

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -13,6 +14,11 @@ class WaveformEnvelopeService {
   static final WaveformEnvelopeService instance = WaveformEnvelopeService._();
 
   static const int defaultSamples = 300;
+
+  /// Full-file decode above this size is too slow for Now Playing (audiobooks).
+  static const int maxNativeExtractBytes = 24 * 1024 * 1024;
+
+  static const Duration _extractTimeout = Duration(seconds: 4);
 
   final Map<String, List<double>> _memory = {};
   final Map<String, Future<List<double>>> _inFlight = {};
@@ -31,43 +37,74 @@ class WaveformEnvelopeService {
     int samples = defaultSamples,
   }) async {
     final normalizedPath = _normalizePath(path);
-    final key = await _cacheKey(normalizedPath, samples);
-    final cached = _memory[key];
-    if (cached != null && cached.isNotEmpty) return cached;
-
-    final disk = await _readDisk(key);
-    if (disk != null && disk.isNotEmpty) {
-      _memory[key] = disk;
-      return disk;
+    if (normalizedPath.isEmpty) {
+      return _generateProceduralEnvelope('unknown', samples);
     }
 
-    return _inFlight.putIfAbsent(key, () async {
-      try {
-        final extracted = await _extractFromFile(normalizedPath, samples);
-        if (extracted.isNotEmpty) {
-          _memory[key] = extracted;
-          await _writeDisk(key, extracted);
-          return extracted;
-        }
-      } on PlatformException catch (e, st) {
-        debugPrint(
-          '[WaveformEnvelope] platform extract failed code=${e.code} '
-          'message=${e.message} path=$normalizedPath\n$st',
-        );
-      } on MissingPluginException catch (e, st) {
-        debugPrint(
-          '[WaveformEnvelope] native extractor unavailable: $e\n$st',
-        );
-      } catch (e, st) {
-        debugPrint('[WaveformEnvelope] extract failed for $normalizedPath: $e\n$st');
-      } finally {
-        _inFlight.remove(key);
+    try {
+      final key = await _cacheKey(normalizedPath, samples);
+      final cached = _memory[key];
+      if (cached != null && cached.isNotEmpty) return cached;
+
+      final disk = await _readDisk(key);
+      if (disk != null && disk.isNotEmpty) {
+        _memory[key] = disk;
+        return disk;
       }
 
-      final fallback = _generateProceduralEnvelope(normalizedPath, samples);
-      _memory[key] = fallback;
-      return fallback;
-    });
+      // Desktop / web: skip native extractor — procedural envelope is instant.
+      if (!_supportsNativeExtract) {
+        final fallback = _generateProceduralEnvelope(normalizedPath, samples);
+        _memory[key] = fallback;
+        unawaited(_writeDisk(key, fallback));
+        return fallback;
+      }
+
+      return _inFlight.putIfAbsent(
+        key,
+        () => _loadEnvelopeMobile(key, normalizedPath, samples),
+      );
+    } catch (e, st) {
+      debugPrint('[WaveformEnvelope] loadEnvelope failed for $normalizedPath: $e\n$st');
+      return _generateProceduralEnvelope(normalizedPath, samples);
+    }
+  }
+
+  Future<List<double>> _loadEnvelopeMobile(
+    String key,
+    String normalizedPath,
+    int samples,
+  ) async {
+    debugPrint('[WaveformEnvelope] extracting path=$normalizedPath');
+    try {
+      final extracted = await _extractFromFile(normalizedPath, samples);
+      if (extracted.isNotEmpty) {
+        debugPrint(
+          '[WaveformEnvelope] native ok samples=${extracted.length} path=$normalizedPath',
+        );
+        _memory[key] = extracted;
+        await _writeDisk(key, extracted);
+        return extracted;
+      }
+      debugPrint('[WaveformEnvelope] native empty, using procedural: $normalizedPath');
+    } on PlatformException catch (e, st) {
+      debugPrint(
+        '[WaveformEnvelope] platform extract failed code=${e.code} '
+        'message=${e.message} path=$normalizedPath\n$st',
+      );
+    } on MissingPluginException catch (e, st) {
+      debugPrint(
+        '[WaveformEnvelope] native extractor unavailable: $e\n$st',
+      );
+    } catch (e, st) {
+      debugPrint('[WaveformEnvelope] extract failed for $normalizedPath: $e\n$st');
+    } finally {
+      _inFlight.remove(key);
+    }
+
+    final fallback = _generateProceduralEnvelope(normalizedPath, samples);
+    _memory[key] = fallback;
+    return fallback;
   }
 
   List<double> proceduralFallback(String path, {int samples = defaultSamples}) {
@@ -84,12 +121,33 @@ class WaveformEnvelopeService {
       return const [];
     }
 
+    try {
+      final size = await file.length();
+      if (size > maxNativeExtractBytes) {
+        debugPrint(
+          '[WaveformEnvelope] skip native extract (${size ~/ (1024 * 1024)}MB): $path',
+        );
+        return const [];
+      }
+    } catch (e) {
+      debugPrint('[WaveformEnvelope] stat failed for $path: $e');
+      return const [];
+    }
+
     // audio_waveforms expects a filesystem path; keep a long-lived controller so
     // PlatformStreams are not torn down after every track.
-    final raw = await _extractorController.extractWaveformData(
-      path: path,
-      noOfSamples: samples,
-    );
+    final raw = await _extractorController
+        .extractWaveformData(
+          path: path,
+          noOfSamples: samples,
+        )
+        .timeout(
+          _extractTimeout,
+          onTimeout: () {
+            debugPrint('[WaveformEnvelope] extract timed out: $path');
+            return <double>[];
+          },
+        );
     return _normalize(raw);
   }
 

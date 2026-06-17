@@ -26,6 +26,7 @@ const kColorSurface = PlayaColors.surface;
 const kColorCard = PlayaColors.card;
 const kColorOn = PlayaColors.onSurface;
 const kColorOn2 = PlayaColors.onSurfaceVariant;
+const kColorDeepPanel = PlayaColors.deepPanel;
 const kColorAppAccent = PlayaColors.accent;
 const kColorGlassBlackTint = PlayaColors.glass;
 const kColorGlassClear = PlayaColors.glassSubtle;

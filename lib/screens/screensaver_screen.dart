@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../ui/deep_space_background.dart';
 import '../ui/screensaver_torch_cruiser.dart';
-import '../ui/tokens.dart';
+import '../design/design_system.dart';
 
 class ScreensaverScreen extends StatelessWidget {
   const ScreensaverScreen({super.key});
@@ -23,14 +23,14 @@ class ScreensaverScreen extends StatelessWidget {
             const Positioned.fill(
               child: DeepSpaceBackground(
                 subtle: false,
-                starDensity: 0.54,
+                starDensity: 0.72,
                 mode: DeepSpaceMode.background,
               ),
             ),
             const Positioned.fill(
               child: DeepSpaceBackground(
                 subtle: false,
-                starDensity: 0.54,
+                starDensity: 0.72,
                 mode: DeepSpaceMode.overlay,
               ),
             ),
@@ -58,7 +58,7 @@ class ScreensaverScreen extends StatelessWidget {
                     child: Text(
                       'Tap anywhere to exit',
                       style: TextStyle(
-                        color: kColorOn.withOpacity(0.88),
+                        color: PlayaColors.onSurface.withValues(alpha: 0.88),
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
                       ),

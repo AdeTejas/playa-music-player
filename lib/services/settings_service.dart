@@ -21,7 +21,7 @@ class SettingsService extends ChangeNotifier {
   /// Accent presets — each hue separated by ≥22° on the color wheel.
   static const Map<String, int> colorPresets = {
     'Ruby Red':        0xFFDC2626, // ~0°
-    'Coruscant Paint': 0xFFFF9F40, // ~33° default
+    'Champagne Gold':  0xFFC9A86A, // ~38° default
     'Lime Shock':      0xFF84CC16, // ~84°
     'Acid Green':      0xFF22C55E, // ~142°
     'Arctic Teal':     0xFF14B8A6, // ~174°
@@ -48,6 +48,7 @@ class SettingsService extends ChangeNotifier {
   bool _lowPerformanceMode = false;
   bool _showSpaceBackground = true;
   bool _highQualityBlur = true;
+  bool _frostedGlassBlur = false;
   bool _showWaveforms = true;
   bool _screensaverEnabled = false;
   int _screensaverIdleSeconds = 60;
@@ -61,7 +62,7 @@ class SettingsService extends ChangeNotifier {
   int _seekSkipSeconds = 10;
   bool _replayGainEnabled = false;
   bool _smartVolumeLimiterEnabled = false;
-  int _accentColor = 0xFFFF9F40; // Default (Jedi Survivor Coruscant Paint)
+  int _accentColor = 0xFFC9A86A; // Default champagne gold
   String _themeMode = themeClassic;
 
   // Turntable settings
@@ -109,6 +110,7 @@ class SettingsService extends ChangeNotifier {
   bool get lowPerformanceMode => _lowPerformanceMode;
   bool get showSpaceBackground => _showSpaceBackground;
   bool get highQualityBlur => _highQualityBlur;
+  bool get frostedGlassBlur => _frostedGlassBlur;
   bool get showWaveforms => _showWaveforms;
   bool get screensaverEnabled => _screensaverEnabled;
   int get screensaverIdleSeconds => _screensaverIdleSeconds;
@@ -147,6 +149,8 @@ class SettingsService extends ChangeNotifier {
       _showSpaceBackground && expensiveEffectsEnabled;
   bool get effectiveHighQualityBlur =>
       _highQualityBlur && expensiveEffectsEnabled;
+  bool get effectiveFrostedGlassBlur =>
+      _frostedGlassBlur && expensiveEffectsEnabled;
   bool get effectiveShowWaveforms => _showWaveforms && expensiveEffectsEnabled;
   bool get effectiveScreensaverEnabled =>
       _screensaverEnabled && expensiveEffectsEnabled;
@@ -157,6 +161,7 @@ class SettingsService extends ChangeNotifier {
     _batterySaver = _prefs.getBool('batterySaver') ?? false;
     _showSpaceBackground = _prefs.getBool('showSpaceBackground') ?? true;
     _highQualityBlur = _prefs.getBool('highQualityBlur') ?? true;
+    _frostedGlassBlur = _prefs.getBool('frostedGlassBlur') ?? false;
     _showWaveforms = _prefs.getBool('showWaveforms') ?? true;
     _screensaverEnabled = _prefs.getBool('screensaverEnabled') ?? false;
     _screensaverIdleSeconds = (_prefs.getInt('screensaverIdleSeconds') ?? 60)
@@ -177,7 +182,7 @@ class SettingsService extends ChangeNotifier {
     _replayGainEnabled = _prefs.getBool('replayGainEnabled') ?? false;
     _smartVolumeLimiterEnabled =
         _prefs.getBool('smartVolumeLimiterEnabled') ?? false;
-    _accentColor = _prefs.getInt('accentColor') ?? 0xFFFF9F40;
+    _accentColor = _prefs.getInt('accentColor') ?? 0xFFC9A86A;
     _themeMode = _prefs.getString('themeMode') ?? themeClassic;
     _validatePresetHues();
     AlbumArtAccentService.instance.addListener(notifyListeners);
@@ -302,10 +307,12 @@ class SettingsService extends ChangeNotifier {
   Future<void> _disableHeavyVisualEffects() async {
     _showSpaceBackground = false;
     _highQualityBlur = false;
+    _frostedGlassBlur = false;
     _showWaveforms = false;
     _screensaverEnabled = false;
     await _prefs.setBool('showSpaceBackground', false);
     await _prefs.setBool('highQualityBlur', false);
+    await _prefs.setBool('frostedGlassBlur', false);
     await _prefs.setBool('showWaveforms', false);
     await _prefs.setBool('screensaverEnabled', false);
   }
@@ -313,9 +320,11 @@ class SettingsService extends ChangeNotifier {
   Future<void> _restoreDefaultVisualEffects() async {
     _showSpaceBackground = true;
     _highQualityBlur = true;
+    _frostedGlassBlur = true;
     _showWaveforms = true;
     await _prefs.setBool('showSpaceBackground', true);
     await _prefs.setBool('highQualityBlur', true);
+    await _prefs.setBool('frostedGlassBlur', true);
     await _prefs.setBool('showWaveforms', true);
   }
 
@@ -413,6 +422,12 @@ class SettingsService extends ChangeNotifier {
   Future<void> setHighQualityBlur(bool value) async {
     _highQualityBlur = value;
     await _prefs.setBool('highQualityBlur', value);
+    notifyListeners();
+  }
+
+  Future<void> setFrostedGlassBlur(bool value) async {
+    _frostedGlassBlur = value;
+    await _prefs.setBool('frostedGlassBlur', value);
     notifyListeners();
   }
 
@@ -527,6 +542,7 @@ class SettingsService extends ChangeNotifier {
     await setLowPerformanceMode(false);
     await setBatterySaver(false);
     await setHighQualityBlur(true);
+    await setFrostedGlassBlur(false);
     await setShowSpaceBackground(true);
     await setShowWaveforms(true);
     await setScreensaverEnabled(false);
@@ -543,9 +559,9 @@ class SettingsService extends ChangeNotifier {
     await setAudioFocusMode('pause');
 
     // Appearance
-    await setAccentColor(0xFFFF9F40); // Jedi Survivor Coruscant Paint
+    await setAccentColor(0xFFC9A86A);
     await setThemeMode(themeClassic);
-    await setGlowColor(0xFFFF9F40);
+    await setGlowColor(0xFFC9A86A);
     await setVinylColor(0xFF1A1A1A);
     await setPlinthColor(0xFF2A2A2A);
 

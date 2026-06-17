@@ -1,12 +1,16 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 
+import '../../services/settings_service.dart';
 import '../tokens/effects.dart';
 import '../tokens/radii.dart';
 
 /// Playa Design System - GlassPanel
 ///
-/// The foundational surface component for the entire app.
-/// This version includes compatibility fields for the legacy UI migration.
+/// Panels are **transparent glass** by default so the deep-space background
+/// shows through. When [SettingsService.effectiveFrostedGlassBlur] is enabled,
+/// a backdrop blur is applied for a frosted look.
 class GlassPanel extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry? padding;
@@ -18,7 +22,8 @@ class GlassPanel extends StatelessWidget {
   final List<BoxShadow>? boxShadow;
   final bool useStrongVariant;
   final bool useSubtleVariant;
-  final double? backdropBlurSigma; // Legacy compatibility
+  final bool useDeepVariant;
+  final double? backdropBlurSigma;
   final bool useShader; // Legacy compatibility
 
   const GlassPanel({
@@ -33,46 +38,74 @@ class GlassPanel extends StatelessWidget {
     this.boxShadow,
     this.useStrongVariant = false,
     this.useSubtleVariant = false,
+    this.useDeepVariant = false,
     this.backdropBlurSigma,
     this.useShader = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final BorderRadius radius =
-        borderRadius ?? BorderRadius.circular(PlayaRadii.md);
+    return AnimatedBuilder(
+      animation: SettingsService.instance,
+      builder: (context, _) {
+        final frosted = SettingsService.instance.effectiveFrostedGlassBlur;
+        final BorderRadius radius =
+            borderRadius ?? BorderRadius.circular(PlayaRadii.md);
+        final Color? tint = color ?? backgroundColor;
 
-    final Color? effectiveColor = color ?? backgroundColor;
+        BoxDecoration decoration;
 
-    BoxDecoration decoration;
+        if (useDeepVariant) {
+          decoration = PlayaEffects.glassDeep(
+            borderRadius: radius,
+            color: tint,
+          );
+        } else if (useStrongVariant) {
+          decoration = PlayaEffects.glassStrong(
+            borderRadius: radius,
+            color: tint,
+          );
+        } else if (useSubtleVariant) {
+          decoration = PlayaEffects.glassSubtle(borderRadius: radius);
+        } else {
+          decoration = PlayaEffects.glass(
+            borderRadius: radius,
+            color: tint,
+            borderWidth: borderWidth ?? 1.0,
+          );
+        }
 
-    if (useStrongVariant) {
-      decoration = PlayaEffects.glassStrong(borderRadius: radius);
-    } else if (useSubtleVariant) {
-      decoration = PlayaEffects.glassSubtle(borderRadius: radius);
-    } else {
-      decoration = PlayaEffects.glass(
-        borderRadius: radius,
-        color: effectiveColor,
-        borderWidth: borderWidth ?? 1.0,
-      );
-    }
+        if (borderColor != null) {
+          decoration = decoration.copyWith(
+            border: Border.all(color: borderColor!, width: borderWidth ?? 1.0),
+          );
+        }
 
-    // Apply custom border color if provided
-    if (borderColor != null) {
-      decoration = decoration.copyWith(
-        border: Border.all(color: borderColor!, width: borderWidth ?? 1.0),
-      );
-    }
+        if (boxShadow != null) {
+          decoration = decoration.copyWith(boxShadow: boxShadow);
+        }
 
-    if (boxShadow != null) {
-      decoration = decoration.copyWith(boxShadow: boxShadow);
-    }
+        Widget panel = Container(
+          padding: padding,
+          decoration: decoration,
+          child: child,
+        );
 
-    return Container(
-      padding: padding,
-      decoration: decoration,
-      child: child,
+        panel = ClipRRect(
+          borderRadius: radius,
+          child: frosted
+              ? BackdropFilter(
+                  filter: ImageFilter.blur(
+                    sigmaX: backdropBlurSigma ?? 12.0,
+                    sigmaY: backdropBlurSigma ?? 12.0,
+                  ),
+                  child: panel,
+                )
+              : panel,
+        );
+
+        return panel;
+      },
     );
   }
 }

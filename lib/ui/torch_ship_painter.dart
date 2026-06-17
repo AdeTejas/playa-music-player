@@ -2,6 +2,7 @@ import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
+import 'playback_motion.dart';
 import 'torch_plume_engine.dart';
 
 class TorchShipPainter extends CustomPainter {
@@ -14,6 +15,10 @@ class TorchShipPainter extends CustomPainter {
   final bool drawPlume;
   final TorchEffectBudget budget;
   final double seekPulse;
+  /// 0–1 thrust from waveform / beat — drives engine heat and hull vibration.
+  final double thrustLevel;
+  /// Nose-up pitch under acceleration (radians).
+  final double pitchRadians;
 
   const TorchShipPainter({
     required this.height,
@@ -25,22 +30,33 @@ class TorchShipPainter extends CustomPainter {
     this.bpm,
     this.drawPlume = true,
     this.seekPulse = 0.0,
+    this.thrustLevel = 0.5,
+    this.pitchRadians = 0.0,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     final shipLen = height;
     final shipWidth = shipLen * 0.25;
+    final thrust = thrustLevel.clamp(0.0, 1.0);
 
     final accent = color;
     final accentCool = Color.lerp(accent, const Color(0xFF80D8FF), 0.35) ?? accent;
     final accentWarm = Color.lerp(const Color(0xFFD84315), accent, 0.45) ?? accent;
+    final raptorCore = TorchPlumeEngine.raptorCore(accent);
+    final raptorSheath = TorchPlumeEngine.raptorSheath(accent);
 
     final beatStrength =
         TorchPlumeEngine.beatStrength(playbackTimeSeconds, bpm);
     final seekBoost = 1.0 + 0.28 * seekPulse.clamp(0.0, 1.0);
     final journeyHeat =
         (0.82 + 0.18 * progress.clamp(0.0, 1.0)) * seekBoost;
+    final engineHeat = journeyHeat * (0.55 + 0.45 * thrust);
+
+    canvas.save();
+    if (pitchRadians.abs() > 1e-4) {
+      canvas.rotate(pitchRadians);
+    }
 
     TorchPlumeEngine.paintVerticalSideIons(
       canvas: canvas,
@@ -121,12 +137,222 @@ class TorchShipPainter extends CustomPainter {
       shipLen,
       shipWidth,
       accentWarm,
+      raptorCore,
+      raptorSheath,
       animTimeSeconds,
-      journeyHeat,
+      engineHeat,
       beatStrength * seekBoost,
+      thrust,
     );
 
     _drawNavLights(canvas, shipLen, shipWidth, animTimeSeconds);
+
+    // RCS on top so plumes read clearly against hull + nav lights.
+    _drawRcsThrusters(
+      canvas,
+      shipLen,
+      shipWidth,
+      accentCool,
+      animTimeSeconds,
+      thrust,
+      pitchRadians,
+    );
+
+    canvas.restore();
+  }
+
+  /// RCS pods locked to [_buildTorchHull] vertices (nose −Y, engines +Y).
+  List<({
+    Offset pos,
+    Offset dir,
+    double phase,
+    double demandBias,
+  })> _rcsPodLayout(double shipLen, double shipWidth, double pitch) {
+    final pitchUp = pitch > 0.001;
+    final pitchDown = pitch < -0.001;
+
+    return [
+      // Forward chine — roll (outward ±X).
+      (
+        pos: Offset(-shipWidth * 0.25, -shipLen * 0.40),
+        dir: const Offset(-1, 0),
+        phase: 0.0,
+        demandBias: 0.75,
+      ),
+      (
+        pos: Offset(shipWidth * 0.25, -shipLen * 0.40),
+        dir: const Offset(1, 0),
+        phase: 1.4,
+        demandBias: 0.75,
+      ),
+      // Forward flare — roll / yaw trim.
+      (
+        pos: Offset(-shipWidth * 0.35, -shipLen * 0.15),
+        dir: const Offset(-1, 0),
+        phase: 2.8,
+        demandBias: 0.85,
+      ),
+      (
+        pos: Offset(shipWidth * 0.35, -shipLen * 0.15),
+        dir: const Offset(1, 0),
+        phase: 4.1,
+        demandBias: 0.85,
+      ),
+      // Max-beam mid-body — lateral hold during main burn.
+      (
+        pos: Offset(-shipWidth * 0.40, shipLen * 0.10),
+        dir: const Offset(-1, 0),
+        phase: 0.7,
+        demandBias: 1.0,
+      ),
+      (
+        pos: Offset(shipWidth * 0.40, shipLen * 0.10),
+        dir: const Offset(1, 0),
+        phase: 2.0,
+        demandBias: 1.0,
+      ),
+      // Grid-fin root (aft flare apex) — roll + aft moment.
+      (
+        pos: Offset(-shipWidth * 0.35, shipLen * 0.45),
+        dir: const Offset(-0.88, 0.22),
+        phase: 3.5,
+        demandBias: 0.95,
+      ),
+      (
+        pos: Offset(shipWidth * 0.35, shipLen * 0.45),
+        dir: const Offset(0.88, 0.22),
+        phase: 5.2,
+        demandBias: 0.95,
+      ),
+      // Dorsal aft — pitch-down correction when nose is up under thrust.
+      (
+        pos: Offset(0, shipLen * 0.36),
+        dir: const Offset(0, 1),
+        phase: 1.1,
+        demandBias: pitchUp ? 1.25 : 0.45,
+      ),
+      // Forward dorsal — counters nose-up (push nose down).
+      (
+        pos: Offset(0, -shipLen * 0.38),
+        dir: const Offset(0, -1),
+        phase: 2.6,
+        demandBias: pitchUp ? 1.15 : 0.35,
+      ),
+      // Ventral forward — pitch-up assist when nose is down.
+      (
+        pos: Offset(0, -shipLen * 0.22),
+        dir: const Offset(0, 1),
+        phase: 4.8,
+        demandBias: pitchDown ? 1.1 : 0.3,
+      ),
+    ];
+  }
+
+  void _drawRcsThrusters(
+    Canvas canvas,
+    double shipLen,
+    double shipWidth,
+    Color accentCool,
+    double t,
+    double thrust,
+    double pitch,
+  ) {
+    if (budget.tier == TorchEffectTier.minimal) return;
+
+    final pitchTrim = pitch.abs() * 18.0;
+    final stabDemand = (thrust * 0.65 + pitchTrim * 0.55).clamp(0.0, 1.0);
+
+    final ion = TorchPlumeEngine.ionCool(accentCool);
+    final core = TorchPlumeEngine.raptorCore(accentCool);
+    final portR = shipLen * 0.011;
+    final plumeLen = shipLen * 0.092;
+    final pods = _rcsPodLayout(shipLen, shipWidth, pitch);
+
+    for (final pod in pods) {
+      final intensity = PlaybackMotion.rcsPuffIntensity(
+        timeSeconds: t,
+        podPhase: pod.phase,
+        stabDemand: stabDemand,
+        demandBias: pod.demandBias,
+        pitchRadians: pitch,
+        podDirection: pod.dir,
+      );
+      final firing = intensity >= 0.06;
+
+      // Nozzle port — always visible at hull hardpoints.
+      canvas.drawCircle(
+        pod.pos,
+        portR * 1.45,
+        Paint()..color = const Color(0xFF121212),
+      );
+      canvas.drawCircle(
+        pod.pos,
+        portR * 1.45,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.6
+          ..color = Colors.white.withValues(alpha: 0.14),
+      );
+      canvas.drawCircle(
+        pod.pos,
+        portR,
+        Paint()
+          ..color = ion.withValues(
+            alpha: firing ? 0.35 + 0.45 * intensity : 0.12,
+          )
+          ..blendMode = BlendMode.plus,
+      );
+
+      if (!firing) continue;
+
+      final dir = pod.dir;
+      final len = dir.distance;
+      final norm = Offset(dir.dx / len, dir.dy / len);
+      final exhaustEnd =
+          pod.pos + norm * plumeLen * (0.82 + 0.18 * intensity);
+
+      final blur = budget.coreBlur > 0
+          ? MaskFilter.blur(BlurStyle.normal, budget.coreBlur * 0.85)
+          : null;
+
+      // Outer puff halo.
+      canvas.drawCircle(
+        exhaustEnd,
+        portR * (2.2 + 1.4 * intensity),
+        Paint()
+          ..color = ion.withValues(alpha: (0.38 * intensity).clamp(0.0, 1.0))
+          ..blendMode = BlendMode.plus
+          ..maskFilter = blur,
+      );
+
+      final plumePaint = Paint()
+        ..strokeWidth = max(1.4, portR * 2.0)
+        ..strokeCap = StrokeCap.round
+        ..blendMode = BlendMode.plus
+        ..maskFilter = blur;
+
+      plumePaint.shader = ui.Gradient.linear(
+        pod.pos,
+        exhaustEnd,
+        [
+          Colors.white.withValues(alpha: (0.82 * intensity).clamp(0.0, 1.0)),
+          core.withValues(alpha: (0.78 * intensity).clamp(0.0, 1.0)),
+          ion.withValues(alpha: (0.58 * intensity).clamp(0.0, 1.0)),
+          ion.withValues(alpha: 0.0),
+        ],
+        const [0.0, 0.22, 0.58, 1.0],
+      );
+      canvas.drawLine(pod.pos, exhaustEnd, plumePaint);
+
+      canvas.drawCircle(
+        exhaustEnd,
+        portR * (1.2 + 0.9 * intensity),
+        Paint()
+          ..color = Colors.white.withValues(alpha: (0.55 * intensity).clamp(0.0, 1.0))
+          ..blendMode = BlendMode.plus
+          ..maskFilter = blur,
+      );
+    }
   }
 
   void _drawMarkings(
@@ -330,14 +556,20 @@ class TorchShipPainter extends CustomPainter {
     double shipLen,
     double shipWidth,
     Color accentWarm,
+    Color raptorCore,
+    Color raptorSheath,
     double t,
     double journeyHeat,
     double beatStrength,
+    double thrust,
   ) {
-    final bellW = shipWidth * 0.40;
+    final bellW = TorchPlumeEngine.engineMetrics(shipLen).bellHalfW;
     final bellH = shipLen * 0.08;
     final bellY = shipLen * 0.45;
-    final glow = (0.5 + 0.3 * sin(t * 2.5)) * journeyHeat * (0.85 + 0.15 * beatStrength);
+    final glow = (0.5 + 0.3 * sin(t * 2.5)) *
+        journeyHeat *
+        (0.70 + 0.30 * beatStrength) *
+        (0.65 + 0.35 * thrust);
 
     final bellPath = Path();
     bellPath.moveTo(-bellW, bellY);
@@ -416,7 +648,8 @@ class TorchShipPainter extends CustomPainter {
           Offset(0, bellY + bellH * 0.15),
           [
             Colors.transparent,
-            accentWarm.withValues(alpha: 0.25 * glow * budget.glowAlphaMul),
+            Color.lerp(raptorSheath, accentWarm, 0.35)!
+                .withValues(alpha: 0.32 * glow * budget.glowAlphaMul),
             Colors.transparent,
           ],
           [0.0, 0.5, 1.0],
@@ -429,16 +662,17 @@ class TorchShipPainter extends CustomPainter {
 
     canvas.drawCircle(
       Offset(0, bellY),
-      bellW * 0.3,
+      bellW * (0.28 + 0.08 * thrust),
       Paint()
         ..shader = ui.Gradient.radial(
           Offset(0, bellY),
-          bellW * 0.35,
+          bellW * (0.38 + 0.06 * thrust),
           [
-            Colors.white.withValues(alpha: 0.08 * glow * budget.glowAlphaMul),
+            raptorCore.withValues(alpha: 0.22 * glow * budget.glowAlphaMul),
+            raptorSheath.withValues(alpha: 0.10 * glow * budget.glowAlphaMul),
             Colors.transparent,
           ],
-          [0.0, 1.0],
+          [0.0, 0.55, 1.0],
         )
         ..blendMode = BlendMode.plus,
     );
@@ -500,5 +734,7 @@ class TorchShipPainter extends CustomPainter {
       bpm != oldDelegate.bpm ||
       budget != oldDelegate.budget ||
       drawPlume != oldDelegate.drawPlume ||
-      seekPulse != oldDelegate.seekPulse;
+      seekPulse != oldDelegate.seekPulse ||
+      thrustLevel != oldDelegate.thrustLevel ||
+      pitchRadians != oldDelegate.pitchRadians;
 }

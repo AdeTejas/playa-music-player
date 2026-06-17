@@ -63,7 +63,7 @@ class AppTheme {
       // Input
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: PlayaColors.glass,
+        fillColor: PlayaColors.surfaceVariant,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(PlayaRadii.md),
           borderSide: const BorderSide(color: PlayaColors.borderSubtle),

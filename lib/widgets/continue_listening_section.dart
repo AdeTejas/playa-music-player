@@ -9,6 +9,12 @@ import '../services/player_controller.dart';
 import '../utils/content_mode.dart';
 
 class ContinueListeningSection extends StatelessWidget {
+  /// Carousel lane height — must match [_ContinueCard] height.
+  static const double carouselHeight = 140;
+
+  /// Card width in the horizontal carousel.
+  static const double cardWidth = 220;
+
   final List<ListeningProgress> items;
   final PlayerController ctrl;
   final List<oaq.SongModel> librarySongs;
@@ -59,7 +65,7 @@ class ContinueListeningSection extends StatelessWidget {
           ),
         ),
         SizedBox(
-          height: 140,
+          height: carouselHeight,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: PlayaSpacing.sm * 2),
@@ -91,24 +97,29 @@ class ContinueListeningSection extends StatelessWidget {
 
               if (onDismiss == null) return card;
 
-              return Dismissible(
-                key: ValueKey('continue-${item.seriesKey}'),
-                direction: DismissDirection.endToStart,
-                onDismissed: (_) => onDismiss!(item.seriesKey),
-                background: Container(
-                  alignment: Alignment.centerRight,
-                  padding: const EdgeInsets.only(right: PlayaSpacing.sm),
-                  decoration: BoxDecoration(
-                    color: Colors.redAccent.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(PlayaRadii.md),
+              // Swipe up to dismiss — avoids fighting horizontal scroll.
+              return SizedBox(
+                width: cardWidth,
+                height: carouselHeight,
+                child: Dismissible(
+                  key: ValueKey('continue-${item.seriesKey}'),
+                  direction: DismissDirection.up,
+                  onDismissed: (_) => onDismiss!(item.seriesKey),
+                  background: Container(
+                    alignment: Alignment.bottomCenter,
+                    padding: const EdgeInsets.only(bottom: PlayaSpacing.sm),
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(PlayaRadii.md),
+                    ),
+                    child: const Icon(
+                      Icons.delete_outline,
+                      color: Colors.redAccent,
+                      size: 22,
+                    ),
                   ),
-                  child: const Icon(
-                    Icons.delete_outline,
-                    color: Colors.redAccent,
-                    size: 22,
-                  ),
+                  child: card,
                 ),
-                child: card,
               );
             },
           ),
@@ -144,55 +155,63 @@ class _ContinueCard extends StatelessWidget {
 
     final progressFraction = _progressFraction(progress.positionMs, durationMs);
 
+    final detailLine = progressFraction != null
+        ? '$subtitle · ${(progressFraction * 100).round()}%'
+        : subtitle;
+
     return SizedBox(
-      width: 220,
+      width: ContinueListeningSection.cardWidth,
+      height: ContinueListeningSection.carouselHeight,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(PlayaRadii.md),
           child: GlassPanel(
+            useStrongVariant: true,
             borderRadius: BorderRadius.circular(PlayaRadii.md),
-            borderColor: accent.withValues(alpha: 0.25),
-            backgroundColor: PlayaColors.glass,
+            borderColor: accent.withValues(alpha: 0.35),
             child: Padding(
-              padding: const EdgeInsets.all(PlayaSpacing.sm * 1.5),
+              padding: const EdgeInsets.all(PlayaSpacing.sm),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      PhosphorIcon(
-                        PhosphorIconsFill.playCircle,
-                        color: accent,
-                        size: 28,
-                      ),
-                      const Spacer(),
-                      if (onDismiss != null)
-                        IconButton(
-                          tooltip: 'Remove',
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 28,
-                            minHeight: 28,
-                          ),
-                          icon: Icon(
-                            Icons.close,
-                            size: 16,
-                            color: PlayaColors.onSurfaceVariant,
-                          ),
-                          onPressed: () => onDismiss!(),
-                        ),
-                      Text(
-                        _formatResumeTime(progress.positionMs),
-                        style: TextStyle(
+                  SizedBox(
+                    height: 24,
+                    child: Row(
+                      children: [
+                        PhosphorIcon(
+                          PhosphorIconsFill.playCircle,
                           color: accent,
-                          fontSize: PlayaTypography.xs,
-                          fontFamily: 'monospace',
+                          size: 22,
                         ),
-                      ),
-                    ],
+                        const Spacer(),
+                        if (onDismiss != null)
+                          SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: IconButton(
+                              tooltip: 'Remove',
+                              visualDensity: VisualDensity.compact,
+                              padding: EdgeInsets.zero,
+                              icon: const Icon(
+                                Icons.close,
+                                size: 16,
+                                color: PlayaColors.onSurfaceVariant,
+                              ),
+                              onPressed: () => onDismiss!(),
+                            ),
+                          ),
+                        Text(
+                          _formatResumeTime(progress.positionMs),
+                          style: TextStyle(
+                            color: accent,
+                            fontSize: PlayaTypography.xs,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   if (progressFraction != null) ...[
                     const SizedBox(height: 6),
@@ -200,38 +219,40 @@ class _ContinueCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(999),
                       child: LinearProgressIndicator(
                         value: progressFraction,
-                        minHeight: 4,
-                        backgroundColor: Colors.white12,
+                        minHeight: 3,
+                        backgroundColor: PlayaColors.trackMuted,
                         color: accent.withValues(alpha: 0.85),
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${(progressFraction * 100).round()}% through chapter',
-                      style: const TextStyle(
-                        color: PlayaColors.onSurfaceVariant,
-                        fontSize: 10,
-                      ),
-                    ),
                   ],
-                  const Spacer(),
-                  Text(
-                    progress.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: PlayaTypography.sm,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: PlayaColors.onSurfaceVariant,
-                      fontSize: PlayaTypography.xs,
+                  const SizedBox(height: 6),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Text(
+                          progress.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: PlayaTypography.sm,
+                            height: 1.2,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          detailLine,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: PlayaColors.onSurfaceVariant,
+                            fontSize: PlayaTypography.xs,
+                            height: 1.2,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],

@@ -81,6 +81,19 @@ class AnalyticsService {
     await _persistErrors();
   }
 
+  /// Log a Flutter framework error (from [FlutterError.onError]).
+  Future<void> logFlutterError(FlutterErrorDetails details) async {
+    await logError(
+      title: 'Flutter error',
+      message: details.exceptionAsString(),
+      stackTrace: details.stack?.toString() ?? '',
+      context: {
+        'library': details.library ?? '',
+        'context': details.context?.toDescription() ?? '',
+      },
+    );
+  }
+
   /// Convenience method to log exceptions
   Future<void> logException(
     Object exception,

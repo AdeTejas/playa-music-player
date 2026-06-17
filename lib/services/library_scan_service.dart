@@ -152,8 +152,20 @@ class LibraryScanService extends ChangeNotifier {
   Future<List<oaq.SongModel>> scanLibrary({
     String? path,
     bool restorePlayerState = true,
+    bool force = false,
   }) async {
     if (kIsWeb) return [];
+
+    if (!force && path == null && !isScanning) {
+      final cached = ServiceLocator.instance.playerController.librarySongs;
+      if (cached.isNotEmpty &&
+          _phase == LibraryScanPhase.done &&
+          _lastScanAt != null &&
+          DateTime.now().difference(_lastScanAt!) <
+              const Duration(minutes: 30)) {
+        return cached;
+      }
+    }
 
     // Cancel any in-flight scan and start a new generation.
     cancelScan();

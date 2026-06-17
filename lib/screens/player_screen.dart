@@ -14,6 +14,7 @@ import '../services/settings_service.dart';
 import '../services/database_service.dart';
 import '../models/song_metadata.dart';
 import '../design/design_system.dart';
+import '../ui/now_playing_layout.dart';
 import '../ui/turntable_widget.dart';
 import '../ui/waveform_widget.dart';
 import '../ui/lyrics_sheet.dart';
@@ -23,6 +24,17 @@ import '../utils/ui_utils.dart';
 import '../widgets/audiobook_controls.dart';
 import '../widgets/bookmarks_sheet.dart';
 import '../widgets/player_provider.dart';
+
+class _NowPlayingSpacing {
+  const _NowPlayingSpacing._();
+
+  static const double screenX = PlayaSpacing.sm;
+  /// Between major blocks (metadata / scrub / transport).
+  static const double section = PlayaSpacing.xxs;
+  /// Within a related group (e.g. speed pills, transport extras).
+  static const double group = PlayaSpacing.xxs;
+  static const double tight = PlayaSpacing.xxs;
+}
 
 class PlayerScreen extends StatefulWidget {
   final bool isVisible;
@@ -78,141 +90,146 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   return StreamBuilder<PlayerState>(
                     stream: p.playerStateStream,
                     builder: (context, _) {
+                      final isAudiobook =
+                          ctrl.currentContentMode == ContentMode.audiobook;
+
                       return OrientationBuilder(
                         builder: (context, orientation) {
-                          if (orientation == Orientation.landscape) {
-                            // Landscape Layout
-                            return Row(
-                              children: [
-                                // Left: Turntable
-                                Expanded(
-                                  flex: 6,
-                                  child: Center(
-                                    child: AspectRatio(
-                                      aspectRatio: 1.0,
-                                      child: RepaintBoundary(
-                                        child: TurntableDeck(
-                                          ctrl: ctrl,
-                                          item: tag,
-                                          isVisible: widget.isVisible,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                // Right: Controls
-                                Expanded(
-                                  flex: 3,
-                                  child: SingleChildScrollView(
-                                    padding: const EdgeInsets.all(PlayaSpacing.kSp),
-                                    child: Column(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        // Track Info
-                                        _TrackInfoPanel(item: tag, playerCtrl: ctrl),
-                                        const SizedBox(height: PlayaSpacing.kSp * 2),
-                                        _WaveformSection(
-                                          item: tag,
-                                          player: p,
-                                          height: 80,
-                                        ),
-                                        const SizedBox(height: PlayaSpacing.kSp * 2),
+                          final isLandscape =
+                              orientation == Orientation.landscape;
+                          final hasWaveform = SettingsService.instance
+                                  .showWaveforms &&
+                              tag != null &&
+                              tag.extras?['path'] is String &&
+                              (tag.extras!['path'] as String).isNotEmpty;
 
-                                        // Transport
-                                        _PlayerControlsSection(ctrl: ctrl),
-                                        const SizedBox(height: PlayaSpacing.kSp),
-                                        // Favorite Button
-                                        ValueListenableBuilder<List<String>>(
-                                          valueListenable:
-                                              ctrl.favoritesNotifier,
-                                          builder: (context, favorites, _) {
-                                             final isFav =
-                                                 tag != null &&
-                                                 favorites.contains(tag.id);
-                                             final accent =
-                                                 Theme.of(context)
-                                                     .colorScheme
-                                                     .primary;
-                                             return IconButton(
-                                              onPressed:
-                                                  tag == null
-                                                      ? null
-                                                      : () =>
-                                                          ctrl.toggleFavorite(
-                                                            tag.id,
-                                                          ),
-                                              icon: Icon(
-                                                 isFav
-                                                     ? PhosphorIconsFill.heart
-                                                     : PhosphorIconsRegular
-                                                         .heart,
-                                                 color:
-                                                     isFav
-                                                         ? accent
-                                                        : PlayaColors.onSurfaceVariant,
-                                                size: 28,
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                      ],
-                                    ),
-                                  ),
+                          final layout = NowPlayingLayoutMetrics(
+                            isLandscape: isLandscape,
+                            isAudiobook: isAudiobook,
+                            hasWaveform: hasWaveform,
+                          );
+
+                          final controls = _NowPlayingControlsColumn(
+                            item: tag,
+                            ctrl: ctrl,
+                            player: p,
+                            waveformHeight: layout.waveformHeight,
+                            waveformMode: layout.waveformMode,
+                          );
+
+                          Widget scaledDock({
+                            required double width,
+                            required double availableHeight,
+                            Alignment alignment = Alignment.topCenter,
+                          }) {
+                            return SizedBox(
+                              width: width,
+                              height: availableHeight,
+                              child: FittedBox(
+                                fit: BoxFit.contain,
+                                alignment: alignment,
+                                child: SizedBox(
+                                  width: width,
+                                  child: controls,
                                 ),
-                              ],
-                            );
-                          } else {
-                            // Portrait Layout
-                            return LayoutBuilder(
-                              builder: (context, constraints) {
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: PlayaSpacing.kSp * 1.5,
-                                  ),
-                                  child: Column(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.start,
-                                    children: [
-                                      const SizedBox(height: PlayaSpacing.kSp),
-                                      Expanded(
-                                        flex: 7,
-                                        child: Center(
-                                          child: AspectRatio(
-                                            aspectRatio: 1.0,
-                                            child: RepaintBoundary(
-                                            child: Stack(
-                                              children: [
-                                                Positioned.fill(
-                                                  child: TurntableDeck(
-                                                    ctrl: ctrl,
-                                                    item: tag,
-                                                    isVisible: widget.isVisible,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: PlayaSpacing.kSp),
-                                      _TrackInfoPanel(item: tag, playerCtrl: ctrl),
-                                      const SizedBox(height: PlayaSpacing.kSp * 0.75),
-                                      _WaveformSection(
-                                        item: tag,
-                                        player: p,
-                                        height: 56,
-                                      ),
-                                      const SizedBox(height: PlayaSpacing.kSp * 0.75),
-                                      _PlayerControlsSection(ctrl: ctrl),
-                                      const SizedBox(height: PlayaSpacing.kSp),
-                                    ],
-                                  ),
-                                );
-                              },
+                              ),
                             );
                           }
+
+                          Widget turntableHero(double side) {
+                            if (side <= 0) {
+                              return const SizedBox.shrink();
+                            }
+                            return SizedBox(
+                              width: side,
+                              height: side,
+                              child: RepaintBoundary(
+                                child: TurntableDeck(
+                                  ctrl: ctrl,
+                                  item: tag,
+                                  isVisible: widget.isVisible,
+                                ),
+                              ),
+                            );
+                          }
+
+                          if (isLandscape) {
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: _NowPlayingSpacing.screenX,
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    flex: 5,
+                                    child: LayoutBuilder(
+                                      builder: (context, panel) {
+                                        final side = layout.turntableSide(
+                                          maxWidth: panel.maxWidth,
+                                          maxHeight: panel.maxHeight,
+                                        );
+                                        return Center(
+                                          child: turntableHero(side),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                  Expanded(
+                                    flex: 4,
+                                    child: LayoutBuilder(
+                                      builder: (context, panel) {
+                                        return scaledDock(
+                                          width: panel.maxWidth,
+                                          availableHeight: panel.maxHeight,
+                                          alignment: Alignment.center,
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
+
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: _NowPlayingSpacing.screenX,
+                            ),
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                final side = layout.turntableSide(
+                                  maxWidth: constraints.maxWidth,
+                                  maxHeight: constraints.maxHeight,
+                                  viewportHeight: constraints.maxHeight,
+                                );
+
+                                return Column(
+                                  children: [
+                                    SizedBox(
+                                      height: side,
+                                      width: double.infinity,
+                                      child: Center(
+                                        child: turntableHero(side),
+                                      ),
+                                    ),
+                                    SizedBox(
+                                      height: _NowPlayingSpacing.tight,
+                                    ),
+                                    Expanded(
+                                      child: LayoutBuilder(
+                                        builder: (context, dockBox) {
+                                          return scaledDock(
+                                            width: constraints.maxWidth,
+                                            availableHeight: dockBox.maxHeight,
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                          );
                         },
                       );
                     },
@@ -227,23 +244,120 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 }
 
+class _NowPlayingControlsColumn extends StatelessWidget {
+  final MediaItem? item;
+  final PlayerController ctrl;
+  final AudioPlayer player;
+  final double waveformHeight;
+  final WaveformDisplayMode waveformMode;
+
+  const _NowPlayingControlsColumn({
+    required this.item,
+    required this.ctrl,
+    required this.player,
+    required this.waveformHeight,
+    this.waveformMode = WaveformDisplayMode.compact,
+  });
+
+  bool get _hasWaveform {
+    if (!SettingsService.instance.showWaveforms || item == null) {
+      return false;
+    }
+    final path = item!.extras?['path'];
+    return path is String && path.isNotEmpty;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isAudiobook = ctrl.currentContentMode == ContentMode.audiobook;
+
+    final metadata = _TrackInfoPanel(
+      item: item,
+      playerCtrl: ctrl,
+      compact: true,
+    );
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (_hasWaveform)
+          _WaveformSection(
+            item: item,
+            player: player,
+            height: waveformHeight,
+            showDuration: false,
+            displayMode: waveformMode,
+          ),
+        if (_hasWaveform) const SizedBox(height: _NowPlayingSpacing.tight),
+        _PlaybackTimeRow(ctrl: ctrl),
+        const SizedBox(height: _NowPlayingSpacing.section),
+        metadata,
+        if (isAudiobook) ...[
+          const SizedBox(height: _NowPlayingSpacing.group),
+          AudiobookSpeedRow(ctrl: ctrl, compact: true),
+        ],
+        const SizedBox(height: _NowPlayingSpacing.section),
+        _PlayerControlsSection(ctrl: ctrl, compact: true),
+      ],
+    );
+  }
+}
+
+class _NowPlayingFavoriteButton extends StatelessWidget {
+  final MediaItem? item;
+  final PlayerController ctrl;
+
+  const _NowPlayingFavoriteButton({
+    required this.item,
+    required this.ctrl,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<List<String>>(
+      valueListenable: ctrl.favoritesNotifier,
+      builder: (context, favorites, _) {
+        final isFav = item != null && favorites.contains(item!.id);
+        final accent = Theme.of(context).colorScheme.primary;
+        return IconButton(
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+          onPressed: item == null ? null : () => ctrl.toggleFavorite(item!.id),
+          icon: Icon(
+            isFav ? PhosphorIconsFill.heart : PhosphorIconsRegular.heart,
+            color: isFav ? accent : PlayaColors.onSurfaceVariant,
+            size: 20,
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _PlayerControlsSection extends StatelessWidget {
   final PlayerController ctrl;
-  const _PlayerControlsSection({required this.ctrl});
+  final bool compact;
+
+  const _PlayerControlsSection({
+    required this.ctrl,
+    this.compact = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     final mode = ctrl.currentContentMode;
     final isAudiobook = mode == ContentMode.audiobook;
+    final gap = compact ? _NowPlayingSpacing.group : _NowPlayingSpacing.section;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _TransportBar(ctrl: ctrl),
-        SizedBox(height: isAudiobook ? PlayaSpacing.kSp : PlayaSpacing.kSp * 0.75),
+        _TransportBar(ctrl: ctrl, compact: compact),
         if (isAudiobook) ...[
-          AudiobookQuickBar(ctrl: ctrl),
-          const SizedBox(height: PlayaSpacing.kSp * 0.75),
+          SizedBox(height: gap),
+          AudiobookActionRow(ctrl: ctrl, compact: compact),
+          SizedBox(height: gap),
           MusicToolsExpansion(
             ctrl: ctrl,
             child: _SecondaryControls(
@@ -257,8 +371,10 @@ class _PlayerControlsSection extends StatelessWidget {
               },
             ),
           ),
-        ] else
+        ] else ...[
+          if (compact) SizedBox(height: gap),
           _SecondaryControls(ctrl: ctrl),
+        ],
       ],
     );
   }
@@ -266,7 +382,9 @@ class _PlayerControlsSection extends StatelessWidget {
 
 class _TransportBar extends StatelessWidget {
   final PlayerController ctrl;
-  const _TransportBar({required this.ctrl});
+  final bool compact;
+
+  const _TransportBar({required this.ctrl, this.compact = false});
 
   @override
   Widget build(BuildContext context) {
@@ -291,7 +409,7 @@ class _TransportBar extends StatelessWidget {
           if (p.hasPrevious) {
             await p.seekToPrevious();
           } else {
-            final len = p.sequenceState?.sequence.length ?? 0;
+            final len = p.sequenceState.sequence.length;
             if (len > 0) {
               await p.seek(Duration.zero, index: len - 1);
             }
@@ -325,9 +443,10 @@ class _TransportBar extends StatelessWidget {
           style: ElevatedButton.styleFrom(
             backgroundColor: accent,
             shape: const CircleBorder(),
-            padding: const EdgeInsets.all(14),
-            elevation: 6,
+            padding: EdgeInsets.all(compact ? 11 : 14),
+            elevation: compact ? 4 : 6,
             shadowColor: Colors.black54,
+            minimumSize: Size(compact ? 46 : 52, compact ? 46 : 52),
           ),
           child: StreamBuilder<bool>(
             stream: p.playingStream,
@@ -339,7 +458,7 @@ class _TransportBar extends StatelessWidget {
                 child: PhosphorIcon(
                   playing ? PhosphorIconsFill.pause : PhosphorIconsFill.play,
                   key: ValueKey(playing),
-                  size: 30,
+                  size: compact ? 26 : 30,
                   color: Colors.white,
                 ),
               );
@@ -365,7 +484,7 @@ class _TransportBar extends StatelessWidget {
           if (p.hasNext) {
             await p.seekToNext();
           } else {
-            final len = p.sequenceState?.sequence.length ?? 0;
+            final len = p.sequenceState.sequence.length;
             if (len > 0) {
               await p.seek(Duration.zero, index: 0);
             }
@@ -807,21 +926,139 @@ class _IconBtn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final button = IconButton(
-      tooltip: tooltip,
-      icon: PhosphorIcon(icon, size: 26, color: PlayaColors.onSurface),
-      onPressed: onTap,
-    );
-    if (label == null) return button;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        button,
-        Text(
-          label!,
-          style: const TextStyle(color: PlayaColors.onSurfaceVariant, fontSize: 10),
+    if (label == null) {
+      return IconButton(
+        tooltip: tooltip,
+        icon: PhosphorIcon(icon, size: 24, color: PlayaColors.onSurface),
+        onPressed: onTap,
+        visualDensity: VisualDensity.compact,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+      );
+    }
+
+    return Tooltip(
+      message: tooltip ?? label!,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const CircleBorder(),
+          child: SizedBox(
+            width: 42,
+            height: 42,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Positioned(
+                  top: 7,
+                  child: PhosphorIcon(
+                    icon,
+                    size: 22,
+                    color: PlayaColors.onSurface,
+                  ),
+                ),
+                Positioned(
+                  bottom: 5,
+                  child: Text(
+                    label!,
+                    style: const TextStyle(
+                      color: PlayaColors.onSurfaceVariant,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w600,
+                      height: 1,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
-      ],
+      ),
+    );
+  }
+}
+
+String _formatPlaybackTime(Duration d) {
+  final h = d.inHours;
+  final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+  final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+  if (h > 0) return '$h:$m:$s';
+  return '$m:$s';
+}
+
+class _PlaybackTimeRow extends StatelessWidget {
+  final PlayerController ctrl;
+
+  const _PlaybackTimeRow({required this.ctrl});
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    final player = ctrl.player;
+
+    return StreamBuilder<Duration>(
+      stream: player.positionStream,
+      initialData: player.position,
+      builder: (context, posSnap) {
+        final position = posSnap.data ?? Duration.zero;
+        return StreamBuilder<Duration?>(
+          stream: player.durationStream,
+          initialData: player.duration,
+          builder: (context, durSnap) {
+            final duration = durSnap.data ?? Duration.zero;
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                final narrow = constraints.maxWidth < 180;
+                final fontSize = narrow ? 10.0 : 11.0;
+                final timeStyle = TextStyle(
+                  fontSize: fontSize,
+                  fontFamily: 'monospace',
+                  height: 1,
+                );
+
+                return SizedBox(
+                  height: 16,
+                  width: double.infinity,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            _formatPlaybackTime(position),
+                            maxLines: 1,
+                            style: timeStyle.copyWith(
+                              color: accent,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerRight,
+                          child: Text(
+                            _formatPlaybackTime(duration),
+                            maxLines: 1,
+                            textAlign: TextAlign.right,
+                            style: timeStyle.copyWith(
+                              color: PlayaColors.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
     );
   }
 }
@@ -829,23 +1066,37 @@ class _IconBtn extends StatelessWidget {
 class _TrackInfoPanel extends StatelessWidget {
   final MediaItem? item;
   final PlayerController playerCtrl;
+  final bool compact;
 
-  const _TrackInfoPanel({required this.item, required this.playerCtrl});
+  const _TrackInfoPanel({
+    required this.item,
+    required this.playerCtrl,
+    this.compact = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    final titleStyle = TextStyle(
+      fontSize: compact ? 14 : 16,
+      fontWeight: FontWeight.w700,
+      letterSpacing: -0.3,
+      height: 1.15,
+    );
+    final artistStyle = TextStyle(
+      color: PlayaColors.onSurfaceVariant,
+      fontSize: compact ? 11 : 13,
+      height: 1.15,
+    );
+
+    final metadata = Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           item?.title ?? '—',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.3,
-          ),
+          style: titleStyle,
         ),
         const SizedBox(height: 2),
         Text(
@@ -853,32 +1104,23 @@ class _TrackInfoPanel extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: PlayaColors.onSurfaceVariant,
-            fontSize: 13,
-          ),
+          style: artistStyle,
         ),
-        if (item != null &&
-            playerCtrl.currentContentMode == ContentMode.music)
+        if (!compact &&
+            item != null &&
+            playerCtrl.currentContentMode == ContentMode.music) ...[
+          const SizedBox(height: PlayaSpacing.xs),
           _SonicDnaBadge(songId: item!.id),
-        const SizedBox(height: 4),
-        ValueListenableBuilder<List<String>>(
-          valueListenable: playerCtrl.favoritesNotifier,
-          builder: (context, favorites, _) {
-            final isFav = item != null && favorites.contains(item!.id);
-            final accent = Theme.of(context).colorScheme.primary;
-            return IconButton(
-              onPressed: item == null
-                  ? null
-                  : () => playerCtrl.toggleFavorite(item!.id),
-              icon: Icon(
-                isFav ? PhosphorIconsFill.heart : PhosphorIconsRegular.heart,
-                color: isFav ? accent : PlayaColors.onSurfaceVariant,
-                size: 28,
-              ),
-            );
-          },
-        ),
+        ],
+      ],
+    );
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        const SizedBox(width: 32),
+        Expanded(child: metadata),
+        _NowPlayingFavoriteButton(item: item, ctrl: playerCtrl),
       ],
     );
   }
@@ -888,11 +1130,15 @@ class _WaveformSection extends StatelessWidget {
   final MediaItem? item;
   final AudioPlayer player;
   final double height;
+  final bool showDuration;
+  final WaveformDisplayMode displayMode;
 
   const _WaveformSection({
     required this.item,
     required this.player,
     this.height = 80,
+    this.showDuration = false,
+    this.displayMode = WaveformDisplayMode.compact,
   });
 
   @override
@@ -921,6 +1167,8 @@ class _WaveformSection extends StatelessWidget {
                   player: player,
                   playedColor: SettingsService.instance.rawAccent,
                   item: item,
+                  showDuration: showDuration,
+                  displayMode: displayMode,
                 ),
               ),
             );
@@ -996,7 +1244,7 @@ class _ReorderableChipIconState extends State<_ReorderableChipIcon> {
                   ? accent
                   : (widget.isSelected
                       ? Colors.orange
-                      : (widget.isReordering ? Colors.blue.withValues(alpha: 0.5) : Colors.white10)),
+                      : (widget.isReordering ? Colors.blue.withValues(alpha: 0.5) : PlayaColors.trackMuted)),
             ),
             boxShadow: _isDragging ? [
               BoxShadow(
@@ -1110,7 +1358,7 @@ class _QueueSheetState extends State<QueueSheet>
     final accent = Theme.of(context).colorScheme.primary;
     return GlassPanel(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-      borderColor: Colors.white.withValues(alpha: 0.14),
+      borderColor: PlayaColors.border,
       backgroundColor: PlayaColors.glass,
       child: Column(
         children: [
@@ -1207,7 +1455,7 @@ class _QueueSheetState extends State<QueueSheet>
                 color: PlayaColors.onSurfaceVariant,
               ),
               filled: true,
-              fillColor: Colors.white10,
+              fillColor: PlayaColors.trackMuted,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
                 borderSide: BorderSide.none,
@@ -1333,7 +1581,7 @@ class _SonicDnaBadge extends StatelessWidget {
           decoration: BoxDecoration(
             color: PlayaColors.surfaceVariant,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white10),
+            border: Border.all(color: PlayaColors.borderSubtle),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
