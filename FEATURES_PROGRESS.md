@@ -114,6 +114,7 @@
 - **Identity**: a stable, anonymous **per-install UUID** (never a device identifier) is minted once and shared as PostHog `install_id` super-property + Sentry tag/user for cross-tool correlation. No accounts, no emails.
 - **Privacy posture**: PostHog runs with session replay/surveys/feature flags/push tracking/error tracking **disabled**, `personProfiles = never`, a `beforeSend` sanitizer that strips content-metadata keys and absolute file paths (unit-tested), and `sendDefaultPii = false` on Sentry with performance tracing off (`tracesSampleRate = 0`).
 - **SDK keys are build-time only** via `--dart-define` (`PLAYA_SENTRY_DSN`, `PLAYA_POSTHOG_KEY`, `PLAYA_POSTHOG_HOST`) — never committed. Telemetry is also suppressed in debug builds unless `PLAYA_TELEMETRY_DEBUG=true`.
+- **Key wiring**: `scripts\run_with_telemetry.ps1` forwards keys from the gitignored `.env.local` (blank template at repo root) into `flutter run`/`build`/`drive` via `--dart-define-from-file`. Fill in `PLAYA_SENTRY_DSN` / `PLAYA_POSTHOG_KEY` / `PLAYA_POSTHOG_HOST`, then e.g. `scripts\run_with_telemetry.ps1 -Mode release -Device <id>`. Blank keys stay inert.
 - **Event surface** (retention-ready): `app_open` + `app_foreground`/`app_background` (with `session_seconds`) via `TelemetryLifecycleObserver`, native `$app_installed`/`$app_updated` lifecycle events, and a coarse privacy-safe `track_play_started` (content_type + duration only — no titles/artists/paths) from `player_controller`. Existing on-device local error logging (`AnalyticsService`) now also mirrors to Sentry behind consent.
 - **Tests**: `test/telemetry_service_test.dart` (consent gate inertness, sanitizer strips sensitive keys/paths, install-id stability) + onboarding consent-flow coverage — suite 151/151, `flutter analyze` clean, Windows + Android debug builds green.
 
@@ -123,7 +124,7 @@
 3. **Roci pass 2**: after on-device review — tune bow droop, command-deck height, dorsal-fin sweep (knobs + render matrix ready; awaiting picks), and drive-cone ↔ exhaust ribbon alignment at compact/calm scales.
 4. **Audio effects**: on-device A/B on a real handset (headphone spatialization + bass boost + reverb) — persistence is in; eyeball the new hero screenshot. (Rendered at `assets\screenshots\now_playing_hero.png` and the temp opencode dir.)
 5. **HDR grade**: eyeball `temp\opencode\deep_space_hdr_off.png` vs `deep_space_hdr_on.png`; tune `hdrIntensity` targets (1.0 Now Playing / 0.75 Library) if the bloom or corner shadow reads too hot or too dark.
-6. **Telemetry live**: create the Sentry project + PostHog project, pass keys via `--dart-define` (see #15), install on a real device, and start reading retention cohorts + crash-free sessions. Then decide: add a soft re-prompt for consent-decliners, or ship as-is.
+6. **Telemetry live**: create the Sentry project + PostHog project, fill the keys into the gitignored `.env.local` (see #15), and install on a real device via `scripts\run_with_telemetry.ps1`. Then start reading retention cohorts + crash-free sessions and decide: add a soft re-prompt for consent-decliners, or ship as-is.
 
 ## 📝 Notes
 - `PlaylistRepository` uses `uuid` for unique IDs.
