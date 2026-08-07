@@ -34,9 +34,9 @@ class NowPlayingLayoutMetrics {
   static const double dockMinScale = 0.82;
 
   /// Ship fill inside the waveform slot (must match [PreciseWaveformPainter]).
-  static const double shipFillStandard = 0.80;
-  static const double shipFillCompact = 0.52;
-  static const double shipFillCalm = 0.62;
+  static const double shipFillStandard = 0.7125;
+  static const double shipFillCompact = 0.45;
+  static const double shipFillCalm = 0.7125;
 
   double get waveformHeight =>
       isLandscape ? waveformLandscape : waveformPortrait;

@@ -221,6 +221,26 @@ class TorchPlumeEngine {
         (offset: bellHalfW * 0.72, scale: 0.58),
       ];
 
+  /// Twin Epstein drive cluster offsets (Rocinante stern cowl).
+  static List<({double offset, double scale})> rocinanteCluster(double bellHalfW) => [
+        (offset: -bellHalfW * 0.48, scale: 0.55),
+        (offset: bellHalfW * 0.48, scale: 0.55),
+      ];
+
+  /// Center-dominant Epstein cluster (Epstein torch cruiser).
+  /// One large main bell flanked by two smaller bells peeking past its sides.
+  static List<({double offset, double scale})> epsteinCluster(double bellHalfW) => [
+        (offset: 0.0, scale: 1.0),
+        (offset: -bellHalfW * 0.95, scale: 0.50),
+        (offset: bellHalfW * 0.95, scale: 0.50),
+      ];
+
+  /// Faithful Rocinante drive: a single large center Epstein bell.
+  /// The Roci's propulsion is one main drive cone, not a cluster.
+  static List<({double offset, double scale})> rociDriveCluster(double bellHalfW) => [
+        (offset: 0.0, scale: 1.0),
+      ];
+
   static double _raptorWobble(double animTimeSeconds) =>
       1.0 +
       0.012 * sin(animTimeSeconds * 9.0) +
@@ -251,8 +271,8 @@ class TorchPlumeEngine {
 
   static const List<double> exhaustWaveformGradientStops = [
     0.0,
-    0.14,
-    0.38,
+    0.08,
+    0.26,
     1.0,
   ];
 
@@ -320,8 +340,6 @@ class TorchPlumeEngine {
     required double nozzleX,
     required double shipLen,
   }) {
-    if (nozzleX <= 0) return 1.0;
-
     final dist = (nozzleX - x).clamp(0.0, nozzleX);
     final throatDist = shipLen * 0.35;
     const throatExit = 0.40;
@@ -354,7 +372,7 @@ class TorchPlumeEngine {
       shipWidth: shipWidth,
       bellHalfW: bellHalfW,
       throatHalfW: bellHalfW * 0.44,
-      engineFaceOffset: shipLen * 0.45,
+      engineFaceOffset: shipLen * 0.50,
     );
   }
 
@@ -371,6 +389,7 @@ class TorchPlumeEngine {
     double waveformAmplitude = 0.5,
     bool vertical = false,
     double blendScale = 1.0,
+    List<({double offset, double scale})>? cluster,
   }) {
     if (budget.tier == TorchEffectTier.minimal) return;
 
@@ -383,7 +402,7 @@ class TorchPlumeEngine {
     final amp =
         (0.45 + 0.55 * waveformAmplitude) * budget.plumeAlphaMul * blendScale;
 
-    for (final engine in raptorCluster(metrics.bellHalfW)) {
+    for (final engine in (cluster ?? raptorCluster(metrics.bellHalfW))) {
       _paintSingleEngineThroat(
         canvas: canvas,
         nozzleX: nozzleX,
@@ -598,6 +617,48 @@ class TorchPlumeEngine {
     );
   }
 
+  /// White heat-haze shimmer across the played waveform ribbon (legacy
+  /// turbulence layer). Gated by [TorchEffectBudget.drawTurbulence] so music
+  /// tiers get the shimmer while calm audiobook scrubbers stay clean.
+  static void paintWaveformTurbulence({
+    required Canvas canvas,
+    required Path path,
+    required double nozzleX,
+    required double transitionWidth,
+    required double waveformAmplitude,
+    required TorchEffectBudget budget,
+  }) {
+    if (!budget.drawTurbulence || budget.tier == TorchEffectTier.minimal) {
+      return;
+    }
+    final alpha = (0.10 * waveformAmplitude.clamp(0.0, 1.0)).clamp(0.0, 1.0);
+    if (alpha <= 0.001) return;
+
+    final startX = nozzleX.clamp(0.0, 1e9);
+    final endX = max(0.0, startX - transitionWidth);
+    if (endX >= startX) return;
+
+    final shader = ui.Gradient.linear(
+      Offset(startX, 0),
+      Offset(endX, 0),
+      [
+        Colors.white.withValues(alpha: 0.0),
+        Colors.white.withValues(alpha: alpha),
+        Colors.white.withValues(alpha: 0.0),
+      ],
+      const [0.0, 0.5, 1.0],
+      TileMode.repeated,
+    );
+
+    canvas.drawPath(
+      path,
+      Paint()
+        ..shader = shader
+        ..style = PaintingStyle.fill
+        ..blendMode = BlendMode.overlay,
+    );
+  }
+
   /// Playhead-local drive signal for waveform + plume reactivity (Now Playing).
   static double computeWaveformDrive({
     required List<double> waveformData,
@@ -769,6 +830,18 @@ class TorchPlumeEngine {
         [0.0, 0.45, 1.0],
       );
       canvas.drawOval(innerRect, corePaint);
+      
+      // --- Visual: Shockdisk Chromatic Aberration (CEO Polish) ---
+      if (budget.tier == TorchEffectTier.full && intensity > 0.6) {
+        canvas.drawOval(
+          innerRect.shift(const Offset(1, 0)),
+          Paint()..color = Colors.cyanAccent.withValues(alpha: 0.12 * intensity)..blendMode = BlendMode.plus,
+        );
+        canvas.drawOval(
+          innerRect.shift(const Offset(-1, 0)),
+          Paint()..color = Colors.redAccent.withValues(alpha: 0.12 * intensity)..blendMode = BlendMode.plus,
+        );
+      }
     }
   }
 
@@ -845,11 +918,26 @@ class TorchPlumeEngine {
     required double waveformAmplitude,
     bool drawDiamonds = true,
     double blendScale = 1.0,
+    bool waveformTinted = false,
   }) {
-    final core = raptorCore(baseColor);
-    final sheath = raptorSheath(baseColor);
-    final fringe = raptorFringe(baseColor);
-    final effectiveAmp = ampFactor * blendScale.clamp(0.0, 1.0);
+    final List<Color>? tinted = waveformTinted
+        ? exhaustWaveformGradientColors(
+            baseColor,
+            waveformAmplitude: waveformAmplitude,
+          )
+        : null;
+    final core = tinted?[0] ?? raptorCore(baseColor);
+    final coreMid = tinted?[1] ??
+        Color.lerp(raptorCore(baseColor), raptorSheath(baseColor), 0.55)!;
+    final sheath = tinted?[2] ?? raptorSheath(baseColor);
+    final fringe = tinted?[3] ?? raptorFringe(baseColor);
+    final sheathDeep = tinted != null
+        ? Color.lerp(sheath, fringe, 0.30)!
+        : raptorSheathDeep(baseColor);
+    final effectiveAmp =
+        ampFactor * blendScale.clamp(0.0, 1.0) * (tinted != null ? 1.45 : 1.0);
+    final haloHead = tinted != null ? core : sheath;
+    final haloMid = tinted != null ? coreMid : fringe;
     final plumeBlend = blendScale < 0.85 ? BlendMode.screen : BlendMode.plus;
     final wobbleVal = _raptorWobble(animTimeSeconds);
     final oscillation =
@@ -857,8 +945,10 @@ class TorchPlumeEngine {
 
     final scaledThroat = throatHalfW * engineScale;
     final scaledBell = bellHalfW * engineScale;
-    final haloHalfW = scaledBell * (1.56 + 0.24 * effectiveAmp);
-    final coreHalfW = scaledThroat * (0.94 + 0.10 * effectiveAmp);
+    final haloHalfW =
+        scaledBell * (1.56 + 0.24 * effectiveAmp) * (tinted != null ? 1.35 : 1.0);
+    final coreHalfW =
+        scaledThroat * (0.94 + 0.10 * effectiveAmp) * (tinted != null ? 1.40 : 1.0);
 
     final haloPath =
         _buildRaptorPlumePath(
@@ -897,8 +987,8 @@ class TorchPlumeEngine {
           Offset(nozzleX, axisY),
           Offset(nozzleX - plumeLen * 1.18, axisY),
           [
-            sheath.withValues(alpha: (0.22 * effectiveAmp).clamp(0.0, 1.0)),
-            fringe.withValues(alpha: (0.10 * effectiveAmp).clamp(0.0, 1.0)),
+            haloHead.withValues(alpha: (0.22 * effectiveAmp).clamp(0.0, 1.0)),
+            haloMid.withValues(alpha: (0.10 * effectiveAmp).clamp(0.0, 1.0)),
             fringe.withValues(alpha: 0.0),
           ],
           [0.0, 0.55, 1.0],
@@ -926,8 +1016,7 @@ class TorchPlumeEngine {
             Offset(nozzleX, axisY),
             Offset(nozzleX - plumeLen * 1.35, axisY),
             [
-              raptorSheathDeep(baseColor)
-                  .withValues(alpha: (0.07 * effectiveAmp).clamp(0.0, 1.0)),
+              sheathDeep.withValues(alpha: (0.07 * effectiveAmp).clamp(0.0, 1.0)),
               Colors.transparent,
             ],
           )
@@ -991,6 +1080,7 @@ class TorchPlumeEngine {
     double seekPulse = 0.0,
     double? shipLen,
     double blendScale = 1.0,
+    List<({double offset, double scale})>? cluster,
   }) {
     if (budget.diamondCount <= 0) return;
 
@@ -1013,7 +1103,7 @@ class TorchPlumeEngine {
         metrics.throatHalfW * (0.92 + 0.08 * ampFactor) * raptorExhaustSizeMul;
     final bellHalfW = metrics.bellHalfW;
 
-    for (final engine in raptorCluster(bellHalfW)) {
+    for (final engine in (cluster ?? raptorCluster(bellHalfW))) {
       paintMachDiamonds(
         canvas: canvas,
         axisX: nozzleX,
@@ -1047,6 +1137,8 @@ class TorchPlumeEngine {
     double? shipLen,
     bool drawDiamonds = false,
     double blendScale = 1.0,
+    List<({double offset, double scale})>? cluster,
+    bool waveformTinted = false,
   }) {
     final effectiveShipLen = shipLen ?? height * 0.8;
     final metrics = engineMetrics(effectiveShipLen);
@@ -1060,13 +1152,14 @@ class TorchPlumeEngine {
     );
 
     final plumeLen =
-        effectiveShipLen * 2.42 * flickerVal * budget.plumeLengthMul * seekBoost;
+        effectiveShipLen * 2.42 * flickerVal * budget.plumeLengthMul * seekBoost *
+        (waveformTinted ? 1.18 : 1.0);
     final throatHalfW =
         metrics.throatHalfW * (0.92 + 0.08 * ampFactor) * raptorExhaustSizeMul;
     final bellHalfW =
         metrics.bellHalfW * (0.95 + 0.12 * ampFactor) * raptorExhaustSizeMul;
 
-    for (final engine in raptorCluster(metrics.bellHalfW)) {
+    for (final engine in (cluster ?? raptorCluster(metrics.bellHalfW))) {
       _paintSingleHorizontalRaptor(
         canvas: canvas,
         nozzleX: nozzleX,
@@ -1084,6 +1177,7 @@ class TorchPlumeEngine {
         waveformAmplitude: waveformAmplitude,
         drawDiamonds: drawDiamonds,
         blendScale: blendScale,
+        waveformTinted: waveformTinted,
       );
     }
   }
@@ -1394,6 +1488,7 @@ class TorchPlumeEngine {
     required double animTimeSeconds,
     required double beatStrength,
     required TorchEffectBudget budget,
+    List<({double offset, double scale})>? cluster,
   }) {
     final flickerVal = flicker(
       animTimeSeconds: animTimeSeconds,
@@ -1409,7 +1504,7 @@ class TorchPlumeEngine {
     final bellHalfW = metrics.bellHalfW;
     final baseY = shipLen * 0.45;
 
-    for (final engine in raptorCluster(metrics.bellHalfW)) {
+    for (final engine in (cluster ?? raptorCluster(metrics.bellHalfW))) {
       _paintSingleVerticalRaptor(
         canvas: canvas,
         axisX: engine.offset,

@@ -20,16 +20,16 @@ class SettingsService extends ChangeNotifier {
 
   /// Accent presets — each hue separated by ≥22° on the color wheel.
   static const Map<String, int> colorPresets = {
-    'Ruby Red':        0xFFDC2626, // ~0°
-    'Champagne Gold':  0xFFC9A86A, // ~38° default
-    'Lime Shock':      0xFF84CC16, // ~84°
-    'Acid Green':      0xFF22C55E, // ~142°
-    'Arctic Teal':     0xFF14B8A6, // ~174°
-    'Ocean Blue':      0xFF0EA5E9, // ~199°
-    'Electric Indigo': 0xFF6366F1, // ~239°
-    'Nebula Purple':   0xFFA855F7, // ~271°
-    'Magenta':         0xFFC026D3, // ~305°
-    'Neon Pink':       0xFFF472B6, // ~330°
+    'Ruby Red': 0xFFEF4444,
+    'Champagne Gold': 0xFFC9A86A,
+    'Lime Shock': 0xFF84CC16,
+    'Acid Green': 0xFF22C55E,
+    'Arctic Teal': 0xFF14B8A6,
+    'Ocean Blue': 0xFF0EA5E9,
+    'Electric Indigo': 0xFF6366F1,
+    'Nebula Purple': 0xFFA855F7,
+    'Magenta': 0xFFC026D3,
+    'Neon Pink': 0xFFF472B6,
   };
 
   static void _validatePresetHues() {
@@ -49,6 +49,10 @@ class SettingsService extends ChangeNotifier {
   bool _showSpaceBackground = true;
   bool _highQualityBlur = true;
   bool _frostedGlassBlur = false;
+  double _glassBlurSigma = 10.0;
+  bool _libraryFrostedBackground = false;
+  double _libraryBlurSigma = 14.0;
+  double _glassOpacity = 0.22;
   bool _showWaveforms = true;
   bool _screensaverEnabled = false;
   int _screensaverIdleSeconds = 60;
@@ -62,6 +66,15 @@ class SettingsService extends ChangeNotifier {
   int _seekSkipSeconds = 10;
   bool _replayGainEnabled = false;
   bool _smartVolumeLimiterEnabled = false;
+
+  // Audio effects (Virtualizer / BassBoost / PresetReverb)
+  bool _virtualizerEnabled = false;
+  int _virtualizerStrength = 500;
+  bool _bassBoostEnabled = false;
+  int _bassBoostStrength = 500;
+  bool _presetReverbEnabled = false;
+  int _presetReverbPreset = 0;
+
   int _accentColor = 0xFFC9A86A; // Default champagne gold
   String _themeMode = themeClassic;
 
@@ -106,11 +119,25 @@ class SettingsService extends ChangeNotifier {
   int _vinylColor = 0xFF1A1A1A; // Default dark vinyl
   int _plinthColor = 0xFF2A2A2A; // Default dark plinth
 
+  // Onboarding
+  bool _onboardingComplete = false;
+  bool get onboardingComplete => _onboardingComplete;
+
+  // Privacy / telemetry consent (opt-in, off by default)
+  bool _telemetryConsent = false;
+  bool _telemetryConsentSeen = false;
+  bool get telemetryConsent => _telemetryConsent;
+  bool get telemetryConsentSeen => _telemetryConsentSeen;
+
   bool get batterySaver => _batterySaver;
   bool get lowPerformanceMode => _lowPerformanceMode;
   bool get showSpaceBackground => _showSpaceBackground;
   bool get highQualityBlur => _highQualityBlur;
   bool get frostedGlassBlur => _frostedGlassBlur;
+  double get glassBlurSigma => _glassBlurSigma;
+  bool get libraryFrostedBackground => _libraryFrostedBackground;
+  double get libraryBlurSigma => _libraryBlurSigma;
+  double get glassOpacity => _glassOpacity;
   bool get showWaveforms => _showWaveforms;
   bool get screensaverEnabled => _screensaverEnabled;
   int get screensaverIdleSeconds => _screensaverIdleSeconds;
@@ -124,6 +151,12 @@ class SettingsService extends ChangeNotifier {
   static const List<int> seekSkipOptions = [5, 10, 15, 20, 30, 45, 60];
   bool get replayGainEnabled => _replayGainEnabled;
   bool get smartVolumeLimiterEnabled => _smartVolumeLimiterEnabled;
+  bool get virtualizerEnabled => _virtualizerEnabled;
+  int get virtualizerStrength => _virtualizerStrength;
+  bool get bassBoostEnabled => _bassBoostEnabled;
+  int get bassBoostStrength => _bassBoostStrength;
+  bool get presetReverbEnabled => _presetReverbEnabled;
+  int get presetReverbPreset => _presetReverbPreset;
   int get accentColor => _accentColor;
   String get themeMode => _themeMode;
   bool get isClassicTheme => _themeMode == themeClassic;
@@ -150,7 +183,11 @@ class SettingsService extends ChangeNotifier {
   bool get effectiveHighQualityBlur =>
       _highQualityBlur && expensiveEffectsEnabled;
   bool get effectiveFrostedGlassBlur =>
-      _frostedGlassBlur && expensiveEffectsEnabled;
+      _frostedGlassBlur && expensiveEffectsEnabled && _glassBlurSigma > 0;
+  bool get effectiveLibraryFrostedBackground =>
+      _libraryFrostedBackground &&
+      expensiveEffectsEnabled &&
+      _libraryBlurSigma > 0;
   bool get effectiveShowWaveforms => _showWaveforms && expensiveEffectsEnabled;
   bool get effectiveScreensaverEnabled =>
       _screensaverEnabled && expensiveEffectsEnabled;
@@ -162,12 +199,17 @@ class SettingsService extends ChangeNotifier {
     _showSpaceBackground = _prefs.getBool('showSpaceBackground') ?? true;
     _highQualityBlur = _prefs.getBool('highQualityBlur') ?? true;
     _frostedGlassBlur = _prefs.getBool('frostedGlassBlur') ?? false;
+    _glassBlurSigma = _prefs.getDouble('glassBlurSigma') ?? 12.0;
+    _libraryFrostedBackground =
+        _prefs.getBool('libraryFrostedBackground') ?? false;
+    _libraryBlurSigma = _prefs.getDouble('libraryBlurSigma') ?? 20.0;
+    _glassOpacity = _prefs.getDouble('glassOpacity') ?? 0.45;
     _showWaveforms = _prefs.getBool('showWaveforms') ?? true;
     _screensaverEnabled = _prefs.getBool('screensaverEnabled') ?? false;
     _screensaverIdleSeconds = (_prefs.getInt('screensaverIdleSeconds') ?? 60)
         .clamp(15, 600);
     _keepScreenOn = _prefs.getBool('keepScreenOn') ?? false;
-    if (_keepScreenOn) {
+    if (_keepScreenOn && !_batterySaver) {
       WakelockPlus.enable();
     }
     _audioFocusMode = _prefs.getString('audioFocusMode') ?? 'pause';
@@ -182,6 +224,21 @@ class SettingsService extends ChangeNotifier {
     _replayGainEnabled = _prefs.getBool('replayGainEnabled') ?? false;
     _smartVolumeLimiterEnabled =
         _prefs.getBool('smartVolumeLimiterEnabled') ?? false;
+    _virtualizerEnabled = _prefs.getBool('virtualizerEnabled') ?? false;
+    _virtualizerStrength = (_prefs.getInt('virtualizerStrength') ?? 500).clamp(
+      0,
+      1000,
+    );
+    _bassBoostEnabled = _prefs.getBool('bassBoostEnabled') ?? false;
+    _bassBoostStrength = (_prefs.getInt('bassBoostStrength') ?? 500).clamp(
+      0,
+      1000,
+    );
+    _presetReverbEnabled = _prefs.getBool('presetReverbEnabled') ?? false;
+    _presetReverbPreset = (_prefs.getInt('presetReverbPreset') ?? 0).clamp(
+      0,
+      6,
+    );
     _accentColor = _prefs.getInt('accentColor') ?? 0xFFC9A86A;
     _themeMode = _prefs.getString('themeMode') ?? themeClassic;
     _validatePresetHues();
@@ -205,7 +262,8 @@ class SettingsService extends ChangeNotifier {
     _windowsScanExtensions =
         _prefs.getStringList('windowsScanExtensions') ?? _windowsScanExtensions;
 
-    _controlChipOrder = _prefs.getStringList('controlChipOrder') ??
+    _controlChipOrder =
+        _prefs.getStringList('controlChipOrder') ??
         const <String>[
           'shuffle',
           'repeat',
@@ -218,6 +276,9 @@ class SettingsService extends ChangeNotifier {
     _glowColor = _prefs.getInt('glowColor') ?? 0xFFFF9F40;
     _vinylColor = _prefs.getInt('vinylColor') ?? 0xFF1A1A1A;
     _plinthColor = _prefs.getInt('plinthColor') ?? 0xFF2A2A2A;
+    _onboardingComplete = _prefs.getBool('onboardingComplete') ?? false;
+    _telemetryConsent = _prefs.getBool('telemetryConsent') ?? false;
+    _telemetryConsentSeen = _prefs.getBool('telemetryConsentSeen') ?? false;
 
     // Check for low performance mode preference, or auto-detect if not set
     if (_prefs.containsKey('lowPerformanceMode')) {
@@ -269,6 +330,45 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setVirtualizerEnabled(bool value) async {
+    _virtualizerEnabled = value;
+    await _prefs.setBool('virtualizerEnabled', value);
+    notifyListeners();
+  }
+
+  Future<void> setVirtualizerStrength(int value) async {
+    final v = value.clamp(0, 1000);
+    _virtualizerStrength = v;
+    await _prefs.setInt('virtualizerStrength', v);
+    notifyListeners();
+  }
+
+  Future<void> setBassBoostEnabled(bool value) async {
+    _bassBoostEnabled = value;
+    await _prefs.setBool('bassBoostEnabled', value);
+    notifyListeners();
+  }
+
+  Future<void> setBassBoostStrength(int value) async {
+    final v = value.clamp(0, 1000);
+    _bassBoostStrength = v;
+    await _prefs.setInt('bassBoostStrength', v);
+    notifyListeners();
+  }
+
+  Future<void> setPresetReverbEnabled(bool value) async {
+    _presetReverbEnabled = value;
+    await _prefs.setBool('presetReverbEnabled', value);
+    notifyListeners();
+  }
+
+  Future<void> setPresetReverbPreset(int value) async {
+    final v = value.clamp(0, 6);
+    _presetReverbPreset = v;
+    await _prefs.setInt('presetReverbPreset', v);
+    notifyListeners();
+  }
+
   Future<void> _detectDeviceCapabilities() async {
     try {
       if (Platform.isAndroid) {
@@ -295,37 +395,7 @@ class SettingsService extends ChangeNotifier {
   Future<void> setLowPerformanceMode(bool value) async {
     _lowPerformanceMode = value;
     await _prefs.setBool('lowPerformanceMode', value);
-
-    if (value) {
-      await _disableHeavyVisualEffects();
-    } else {
-      await _restoreDefaultVisualEffects();
-    }
     notifyListeners();
-  }
-
-  Future<void> _disableHeavyVisualEffects() async {
-    _showSpaceBackground = false;
-    _highQualityBlur = false;
-    _frostedGlassBlur = false;
-    _showWaveforms = false;
-    _screensaverEnabled = false;
-    await _prefs.setBool('showSpaceBackground', false);
-    await _prefs.setBool('highQualityBlur', false);
-    await _prefs.setBool('frostedGlassBlur', false);
-    await _prefs.setBool('showWaveforms', false);
-    await _prefs.setBool('screensaverEnabled', false);
-  }
-
-  Future<void> _restoreDefaultVisualEffects() async {
-    _showSpaceBackground = true;
-    _highQualityBlur = true;
-    _frostedGlassBlur = true;
-    _showWaveforms = true;
-    await _prefs.setBool('showSpaceBackground', true);
-    await _prefs.setBool('highQualityBlur', true);
-    await _prefs.setBool('frostedGlassBlur', true);
-    await _prefs.setBool('showWaveforms', true);
   }
 
   Future<void> setKeepScreenOn(bool value) async {
@@ -352,9 +422,8 @@ class SettingsService extends ChangeNotifier {
   }
 
   Future<void> setThemeMode(String value) async {
-    final normalized = (value == themeNeon || value == themeAlbumArt)
-        ? value
-        : themeClassic;
+    final normalized =
+        (value == themeNeon || value == themeAlbumArt) ? value : themeClassic;
     _themeMode = normalized;
     await _prefs.setString('themeMode', normalized);
     notifyListeners();
@@ -382,14 +451,8 @@ class SettingsService extends ChangeNotifier {
   Future<void> setBatterySaver(bool value) async {
     _batterySaver = value;
     await _prefs.setBool('batterySaver', value);
-
     if (value) {
-      await _disableHeavyVisualEffects();
-      _keepScreenOn = false;
-      await _prefs.setBool('keepScreenOn', false);
       WakelockPlus.disable();
-    } else {
-      await _restoreDefaultVisualEffects();
     }
     notifyListeners();
   }
@@ -431,11 +494,53 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setGlassBlurSigma(double value) async {
+    _glassBlurSigma = value;
+    await _prefs.setDouble('glassBlurSigma', value);
+    notifyListeners();
+  }
+
+  Future<void> setLibraryFrostedBackground(bool value) async {
+    _libraryFrostedBackground = value;
+    await _prefs.setBool('libraryFrostedBackground', value);
+    notifyListeners();
+  }
+
+  Future<void> setLibraryBlurSigma(double value) async {
+    _libraryBlurSigma = value;
+    await _prefs.setDouble('libraryBlurSigma', value);
+    notifyListeners();
+  }
+
+  Future<void> setGlassOpacity(double value) async {
+    _glassOpacity = value;
+    await _prefs.setDouble('glassOpacity', value);
+    notifyListeners();
+  }
+
   Future<void> setLibrarySort(String type, int order) async {
     _librarySortType = type;
     _librarySortOrder = order;
     await _prefs.setString('librarySortType', type);
     await _prefs.setInt('librarySortOrder', order);
+    notifyListeners();
+  }
+
+  Future<void> setOnboardingComplete(bool value) async {
+    _onboardingComplete = value;
+    await _prefs.setBool('onboardingComplete', value);
+    notifyListeners();
+  }
+
+  Future<void> setTelemetryConsent(bool value) async {
+    _telemetryConsent = value;
+    await _prefs.setBool('telemetryConsent', value);
+    notifyListeners();
+  }
+
+  Future<void> setTelemetryConsentSeen(bool value) async {
+    _telemetryConsentSeen = value;
+    await _prefs.setBool('telemetryConsentSeen', value);
     notifyListeners();
   }
 
@@ -507,8 +612,7 @@ class SettingsService extends ChangeNotifier {
 
       case themeAlbumArt:
         if (item != null) {
-          final cached =
-              AlbumArtAccentService.instance.cachedColorFor(item.id);
+          final cached = AlbumArtAccentService.instance.cachedColorFor(item.id);
           if (cached != null) return cached;
           AlbumArtAccentService.instance.prefetch(item);
           return AccentHue.fallbackForItem(
@@ -543,6 +647,10 @@ class SettingsService extends ChangeNotifier {
     await setBatterySaver(false);
     await setHighQualityBlur(true);
     await setFrostedGlassBlur(false);
+    await setGlassBlurSigma(12.0);
+    await setLibraryFrostedBackground(false);
+    await setLibraryBlurSigma(20.0);
+    await setGlassOpacity(0.45);
     await setShowSpaceBackground(true);
     await setShowWaveforms(true);
     await setScreensaverEnabled(false);
@@ -557,6 +665,14 @@ class SettingsService extends ChangeNotifier {
     await setReplayGainEnabled(false);
     await setSmartVolumeLimiterEnabled(false);
     await setAudioFocusMode('pause');
+
+    // Audio effects
+    await setVirtualizerEnabled(false);
+    await setVirtualizerStrength(500);
+    await setBassBoostEnabled(false);
+    await setBassBoostStrength(500);
+    await setPresetReverbEnabled(false);
+    await setPresetReverbPreset(0);
 
     // Appearance
     await setAccentColor(0xFFC9A86A);
@@ -576,14 +692,33 @@ class SettingsService extends ChangeNotifier {
     // Reset Windows scan defaults
     await setWindowsScanRecursive(true);
     await setWindowsScanExtensions([
-      'mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus', 'wma', 'aiff', 'alac'
+      'mp3',
+      'm4a',
+      'aac',
+      'wav',
+      'flac',
+      'ogg',
+      'opus',
+      'wma',
+      'aiff',
+      'alac',
     ]);
     await setWindowsScanFolders([]);
 
     // Control chips
     await setControlChipOrder([
-      'shuffle', 'repeat', 'neural_mix', 'speed', 'screensaver', 'bookmark', 'lyrics'
+      'shuffle',
+      'repeat',
+      'neural_mix',
+      'speed',
+      'screensaver',
+      'bookmark',
+      'lyrics',
     ]);
+
+    // Privacy / telemetry (opt-out on reset)
+    await setTelemetryConsent(false);
+    await setTelemetryConsentSeen(false);
 
     notifyListeners();
   }

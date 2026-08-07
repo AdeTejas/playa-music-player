@@ -177,7 +177,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                     db.isInitialized
                         ? 'Initialized\n${db.dbPath ?? ''}'
                         : 'Not initialized',
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 12,
                       color: PlayaColors.onSurfaceVariant,
                     ),
@@ -194,7 +194,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                     'App start: ${perf.appStartAt?.toIso8601String() ?? '-'}\n'
                     'Cold start to first frame: ${perf.coldStartToFirstFrame?.inMilliseconds ?? '-'} ms\n'
                     'Last scan duration: ${scan.lastScanDuration?.inMilliseconds ?? '-'} ms',
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 12,
                       color: PlayaColors.onSurfaceVariant,
                     ),
@@ -214,7 +214,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                         'Progress: ${(scan.progress * 100).toStringAsFixed(0)}%\n'
                         'Last scan: ${scan.lastScanAt?.toIso8601String() ?? '-'}\n'
                         'Last count: ${scan.lastSongCount}',
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 12,
                           color: PlayaColors.onSurfaceVariant,
                         ),
@@ -259,7 +259,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                       subtitle: Text(
                         _storage?.toString() ??
                             (Platform.isAndroid ? 'Unknown' : 'N/A'),
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 12,
                           color: PlayaColors.onSurfaceVariant,
                         ),
@@ -270,7 +270,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                       subtitle: Text(
                         _audio?.toString() ??
                             (Platform.isAndroid ? 'Unknown' : 'N/A'),
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 12,
                           color: PlayaColors.onSurfaceVariant,
                         ),
@@ -291,7 +291,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                         Platform.isAndroid
                             ? 'androidAudioSessionId: ${player.player.androidAudioSessionId ?? 0}'
                             : 'N/A',
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 12,
                           color: PlayaColors.onSurfaceVariant,
                         ),
@@ -301,7 +301,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                       title: const Text('Now playing'),
                       subtitle: Text(
                         player.currentMediaItem?.title ?? '-',
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 12,
                           color: PlayaColors.onSurfaceVariant,
                         ),
@@ -333,7 +333,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                         _soakReport == null
                             ? 'Run synthetic + live checks against recent listening.'
                             : '${_soakReport!.passed} passed, ${_soakReport!.failed} failed',
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 12,
                           color: PlayaColors.onSurfaceVariant,
                         ),
@@ -380,7 +380,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                   title: const Text('Error reports'),
                   subtitle: Text(
                     '${AnalyticsService.instance.getErrors().length} logged this session',
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 12,
                       color: PlayaColors.onSurfaceVariant,
                     ),

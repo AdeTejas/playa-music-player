@@ -3,8 +3,10 @@ import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 
 import '../../services/settings_service.dart';
+import '../tokens/colors.dart';
 import '../tokens/effects.dart';
 import '../tokens/radii.dart';
+import '../utils/design_utils.dart';
 
 /// Playa Design System - GlassPanel
 ///
@@ -25,6 +27,7 @@ class GlassPanel extends StatelessWidget {
   final bool useDeepVariant;
   final double? backdropBlurSigma;
   final bool useShader; // Legacy compatibility
+  final bool isLibraryPanel;
 
   const GlassPanel({
     super.key,
@@ -41,6 +44,7 @@ class GlassPanel extends StatelessWidget {
     this.useDeepVariant = false,
     this.backdropBlurSigma,
     this.useShader = false,
+    this.isLibraryPanel = false,
   });
 
   @override
@@ -48,10 +52,20 @@ class GlassPanel extends StatelessWidget {
     return AnimatedBuilder(
       animation: SettingsService.instance,
       builder: (context, _) {
-        final frosted = SettingsService.instance.effectiveFrostedGlassBlur;
+        final settings = SettingsService.instance;
+        final bool isFrosted = isLibraryPanel 
+            ? settings.effectiveLibraryFrostedBackground 
+            : settings.effectiveFrostedGlassBlur;
+            
+        final double sigma = isLibraryPanel ? settings.libraryBlurSigma : settings.glassBlurSigma;
+        final double effectiveSigma = backdropBlurSigma ?? sigma;
+
         final BorderRadius radius =
             borderRadius ?? BorderRadius.circular(PlayaRadii.md);
-        final Color? tint = color ?? backgroundColor;
+            
+        final baseColor = color ?? backgroundColor;
+        final Color tint = baseColor?.withValues(alpha: settings.glassOpacity) ?? 
+            PlayaColors.glass.withValues(alpha: settings.glassOpacity);
 
         BoxDecoration decoration;
 
@@ -88,16 +102,29 @@ class GlassPanel extends StatelessWidget {
         Widget panel = Container(
           padding: padding,
           decoration: decoration,
-          child: child,
+          child: Stack(
+            children: [
+              if (isFrosted && effectiveSigma > 0)
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: NoisePainter(
+                      opacity: 0.025,
+                      seed: isLibraryPanel ? 123 : 42,
+                    ),
+                  ),
+                ),
+              child,
+            ],
+          ),
         );
 
         panel = ClipRRect(
           borderRadius: radius,
-          child: frosted
+          child: isFrosted
               ? BackdropFilter(
                   filter: ImageFilter.blur(
-                    sigmaX: backdropBlurSigma ?? 12.0,
-                    sigmaY: backdropBlurSigma ?? 12.0,
+                    sigmaX: effectiveSigma,
+                    sigmaY: effectiveSigma,
                   ),
                   child: panel,
                 )

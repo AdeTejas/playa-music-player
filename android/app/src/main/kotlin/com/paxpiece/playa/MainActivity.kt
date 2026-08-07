@@ -1,6 +1,9 @@
 package com.paxpiece.playa
 
+import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
+import android.media.audiofx.PresetReverb
+import android.media.audiofx.Virtualizer
 import com.ryanheise.audioservice.AudioServiceActivity
 import com.paxpiece.playa.sonic.PcmDecode
 import com.paxpiece.playa.sonic.SonicDnaAnalyzer
@@ -10,7 +13,50 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : AudioServiceActivity() {
     private val CHANNEL = "com.paxpiece.playa/equalizer"
     private val SONIC_CHANNEL = "com.paxpiece.playa/sonic_dna"
+    private val WAVEFORM_CHANNEL = "com.paxpiece.playa/fast_waveform"
+
+    // Index-aligned with android.media.audiofx.PresetReverb PRESET_* constants
+    // (PRESET_NONE=0 … PRESET_PLATE=6).
+    private val PRESET_REVERB_NAMES = listOf(
+        "None", "Small Room", "Medium Room", "Large Room",
+        "Medium Hall", "Large Hall", "Plate",
+    )
+
     private var equalizer: Equalizer? = null
+    private var virtualizer: Virtualizer? = null
+    private var bassBoost: BassBoost? = null
+    private var presetReverb: PresetReverb? = null
+
+    private fun releaseAudioEffects() {
+        try { equalizer?.release() } catch (_: Exception) {}
+        try { virtualizer?.release() } catch (_: Exception) {}
+        try { bassBoost?.release() } catch (_: Exception) {}
+        try { presetReverb?.release() } catch (_: Exception) {}
+        equalizer = null
+        virtualizer = null
+        bassBoost = null
+        presetReverb = null
+    }
+
+    private fun initAudioEffects(sessionId: Int) {
+        releaseAudioEffects()
+        try {
+            equalizer = Equalizer(0, sessionId)
+            equalizer?.enabled = true
+        } catch (_: Exception) { equalizer = null }
+        try {
+            virtualizer = Virtualizer(0, sessionId)
+            virtualizer?.enabled = false
+        } catch (_: Exception) { virtualizer = null }
+        try {
+            bassBoost = BassBoost(0, sessionId)
+            bassBoost?.enabled = false
+        } catch (_: Exception) { bassBoost = null }
+        try {
+            presetReverb = PresetReverb(0, sessionId)
+            presetReverb?.enabled = false
+        } catch (_: Exception) { presetReverb = null }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -19,11 +65,7 @@ class MainActivity : AudioServiceActivity() {
                 when (call.method) {
                     "initializeEqualizer" -> {
                         val sessionId = call.argument<Int>("audioSessionId") ?: 0
-                        if (equalizer != null) {
-                            equalizer?.release()
-                        }
-                        equalizer = Equalizer(0, sessionId)
-                        equalizer?.enabled = true
+                        initAudioEffects(sessionId)
                         result.success(null)
                     }
                     "getEqualizerBands" -> {
@@ -87,9 +129,65 @@ class MainActivity : AudioServiceActivity() {
                     "isEnabled" -> {
                         result.success(equalizer?.enabled ?: false)
                     }
+                    "getVirtualizerSupported" -> {
+                        result.success(virtualizer?.strengthSupported ?: false)
+                    }
+                    "getVirtualizerStrength" -> {
+                        result.success(virtualizer?.getRoundedStrength()?.toInt() ?: 0)
+                    }
+                    "setVirtualizerStrength" -> {
+                        val strength = call.argument<Int>("strength") ?: 0
+                        virtualizer?.setStrength(strength.toShort())
+                        result.success(null)
+                    }
+                    "isVirtualizerEnabled" -> {
+                        result.success(virtualizer?.enabled ?: false)
+                    }
+                    "setVirtualizerEnabled" -> {
+                        val enabled = call.argument<Boolean>("enabled") ?: false
+                        virtualizer?.enabled = enabled
+                        result.success(null)
+                    }
+                    "getBassBoostSupported" -> {
+                        result.success(bassBoost?.strengthSupported ?: false)
+                    }
+                    "getBassBoostStrength" -> {
+                        result.success(bassBoost?.getRoundedStrength()?.toInt() ?: 0)
+                    }
+                    "setBassBoostStrength" -> {
+                        val strength = call.argument<Int>("strength") ?: 0
+                        bassBoost?.setStrength(strength.toShort())
+                        result.success(null)
+                    }
+                    "isBassBoostEnabled" -> {
+                        result.success(bassBoost?.enabled ?: false)
+                    }
+                    "setBassBoostEnabled" -> {
+                        val enabled = call.argument<Boolean>("enabled") ?: false
+                        bassBoost?.enabled = enabled
+                        result.success(null)
+                    }
+                    "getPresetReverbPresets" -> {
+                        result.success(PRESET_REVERB_NAMES.toList())
+                    }
+                    "getCurrentPresetReverb" -> {
+                        result.success(presetReverb?.preset?.toInt() ?: 0)
+                    }
+                    "usePresetReverb" -> {
+                        val preset = call.argument<Int>("preset") ?: 0
+                        presetReverb?.preset = preset.toShort()
+                        result.success(null)
+                    }
+                    "isPresetReverbEnabled" -> {
+                        result.success(presetReverb?.enabled ?: false)
+                    }
+                    "setPresetReverbEnabled" -> {
+                        val enabled = call.argument<Boolean>("enabled") ?: false
+                        presetReverb?.enabled = enabled
+                        result.success(null)
+                    }
                     "release" -> {
-                        equalizer?.release()
-                        equalizer = null
+                        releaseAudioEffects()
                         result.success(null)
                     }
                     else -> {
@@ -140,10 +238,31 @@ class MainActivity : AudioServiceActivity() {
                 result.success(mapOf("bpm" to null, "key" to null, "confidence" to 0.0))
             }
         }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WAVEFORM_CHANNEL).setMethodCallHandler { call, result ->
+            try {
+                when (call.method) {
+                    "extractWaveform" -> {
+                        val path = call.argument<String>("path") ?: ""
+                        val samples = call.argument<Int>("samples") ?: 300
+                        val maxMillis = call.argument<Int>("maxMillis")?.toLong() ?: 600_000L
+                        if (path.isBlank()) {
+                            result.error("NO_PATH", "path is required", null)
+                            return@setMethodCallHandler
+                        }
+                        // Decode + RMS bucketing run on a background thread inside the
+                        // extractor; the result resolves exactly once when done.
+                        FastWaveformExtractor(this, path, samples, maxMillis, result).start()
+                    }
+                    else -> result.notImplemented()
+                }
+            } catch (e: Exception) {
+                result.error("WAVEFORM_ERROR", e.message, null)
+            }
+        }
     }
 
     override fun onDestroy() {
-        equalizer?.release()
+        releaseAudioEffects()
         super.onDestroy()
     }
 }

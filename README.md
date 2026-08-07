@@ -54,6 +54,8 @@ Built with Flutter. No account required. No cloud library.
 ### Privacy
 Everything stays on your device — library, bookmarks, playlists, and listening progress. No server-side library sync.
 
+**Telemetry is opt-in.** Playa never sends anything until you explicitly allow it (onboarding → Settings). If enabled, only anonymous crash reports and usage stats are shared (Sentry + PostHog) — never your library, titles, listening history, or personal data. It's off by default and you can change it anytime in **Settings → Privacy & Analytics**.
+
 ---
 
 ## Platforms
@@ -68,7 +70,9 @@ Everything stays on your device — library, bookmarks, playlists, and listening
 
 ## Screenshots
 
-_Add a Now Playing screenshot here when you have one — it helps enormously for first impressions and GitHub social preview._
+Now Playing — the turntable hero, torch-drive ship scrubber, and deep-space background:
+
+![Now Playing](assets/screenshots/now_playing_hero.png)
 
 ---
 
@@ -138,11 +142,11 @@ Play Store checklist: [docs/PLAY_STORE_RELEASE.md](docs/PLAY_STORE_RELEASE.md)
 
 ## Architecture (short)
 
-- **Services** — `PlayerController`, `SettingsService`, `DatabaseService`, `LibraryScanService`  
+- **Services** — `PlayerController`, `SettingsService`, `DatabaseService`, `LibraryScanService`, `TelemetryService` (privacy-gated Sentry + PostHog)  
 - **Persistence** — Sqflite for metadata, playlists, bookmarks, listening progress; SharedPreferences for settings  
 - **UI** — Modular screens; custom painters (`TorchShipPainter`, turntable, waveforms, deep space)  
 - **State** — `PlayerProvider` for playback; `ChangeNotifier` for settings  
-- **Tests** — Bookmarks, resume soak, layout metrics, motion, torch engine, geometry  
+- **Tests** — Bookmarks, resume soak, layout metrics, motion, torch engine, geometry, telemetry consent gate  
 
 ---
 

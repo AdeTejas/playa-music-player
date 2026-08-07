@@ -5,12 +5,12 @@ import 'package:playa_clean/utils/content_mode.dart';
 void main() {
   group('ContentModeDetector', () {
     test('detects m4b as audiobook', () {
-      final item = MediaItem(
+      const item = MediaItem(
         id: '/books/book.m4b',
         title: 'Chapter 1',
         album: 'The Book',
         artist: 'Author',
-        duration: const Duration(minutes: 10),
+        duration: Duration(minutes: 10),
         extras: {'path': '/books/book.m4b'},
       );
 
@@ -21,12 +21,12 @@ void main() {
     });
 
     test('detects long tracks as audiobook', () {
-      final item = MediaItem(
+      const item = MediaItem(
         id: '/books/long.mp3',
         title: 'Part 1',
         album: 'Series',
         artist: 'Narrator',
-        duration: const Duration(hours: 2),
+        duration: Duration(hours: 2),
         extras: {'path': '/books/long.mp3'},
       );
 
@@ -37,12 +37,12 @@ void main() {
     });
 
     test('detects podcast metadata as audiobook', () {
-      final item = MediaItem(
+      const item = MediaItem(
         id: '/podcasts/show/ep12.mp3',
         title: 'Episode 12: Deep Dive',
         album: 'My Favorite Podcast',
         artist: 'Host Name',
-        duration: const Duration(minutes: 35),
+        duration: Duration(minutes: 35),
         extras: {'path': '/podcasts/show/ep12.mp3'},
       );
 
@@ -53,12 +53,12 @@ void main() {
     });
 
     test('detects short tracks as music', () {
-      final item = MediaItem(
+      const item = MediaItem(
         id: '/music/song.mp3',
         title: 'Single',
         album: 'Album',
         artist: 'Band',
-        duration: const Duration(minutes: 3),
+        duration: Duration(minutes: 3),
         extras: {'path': '/music/song.mp3'},
       );
 
@@ -69,7 +69,7 @@ void main() {
     });
 
     test('series key groups by album and artist', () {
-      final item = MediaItem(
+      const item = MediaItem(
         id: '/a.mp3',
         title: 'Track 1',
         album: 'My Book',
@@ -83,7 +83,7 @@ void main() {
     });
 
     test('series key falls back to parent folder', () {
-      final item = MediaItem(
+      const item = MediaItem(
         id: '/audiobooks/expanse/book1/03.mp3',
         title: '03',
         album: 'Unknown Album',

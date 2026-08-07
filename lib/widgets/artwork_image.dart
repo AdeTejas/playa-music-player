@@ -3,7 +3,10 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
+import 'package:phosphor_flutter/phosphor_flutter.dart';
+
 import '../services/artwork_cache_service.dart';
+import '../design/tokens/colors.dart';
 
 class ArtworkImage extends StatelessWidget {
   final int id;
@@ -35,7 +38,7 @@ class ArtworkImage extends StatelessWidget {
         height: height,
         child: ClipRRect(
           borderRadius: artworkBorder ?? BorderRadius.zero,
-          child: nullArtworkWidget ?? const Icon(Icons.music_note),
+          child: nullArtworkWidget ?? const Icon(PhosphorIconsRegular.musicNote, color: PlayaColors.onSurfaceVariant),
         ),
       );
     }
@@ -58,7 +61,7 @@ class ArtworkImage extends StatelessWidget {
             height: h,
             child: ClipRRect(
               borderRadius: artworkBorder ?? BorderRadius.zero,
-              child: nullArtworkWidget ?? const Icon(Icons.music_note),
+              child: nullArtworkWidget ?? const Icon(PhosphorIconsRegular.musicNote, color: PlayaColors.onSurfaceVariant),
             ),
           );
         }

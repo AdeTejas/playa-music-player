@@ -112,6 +112,7 @@ class BookmarksSheet extends StatelessWidget {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             IconButton(
+                              tooltip: 'Edit bookmark',
                               icon: const Icon(Icons.edit_outlined, size: 18),
                               onPressed: () async {
                                 await _editBookmarkNote(
@@ -122,6 +123,7 @@ class BookmarksSheet extends StatelessWidget {
                               },
                             ),
                             IconButton(
+                              tooltip: 'Delete bookmark',
                               icon: const Icon(Icons.delete_outline, size: 18),
                               onPressed: () async {
                                 await ctrl.removeBookmark(index);

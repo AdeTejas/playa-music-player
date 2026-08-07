@@ -143,7 +143,7 @@ class _CompactAudiobookIcon extends StatelessWidget {
       tooltip: tooltip,
       visualDensity: VisualDensity.compact,
       padding: EdgeInsets.zero,
-      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+      constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
       onPressed: onTap,
       onLongPress: onLongPress,
       icon: PhosphorIcon(icon, color: accent, size: 20),
@@ -376,7 +376,7 @@ class _MusicToolsExpansionState extends State<MusicToolsExpansion> {
                 mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  PhosphorIcon(
+                  const PhosphorIcon(
                     PhosphorIconsRegular.musicNotes,
                     size: 16,
                     color: PlayaColors.onSurfaceVariant,
@@ -412,14 +412,20 @@ class _MusicToolsExpansionState extends State<MusicToolsExpansion> {
 void showSleepTimerSheet(BuildContext context, PlayerController ctrl) {
   showModalBottomSheet(
     context: context,
+    backgroundColor: Colors.transparent,
     builder: (ctx) {
       int fadeSeconds = SettingsService.instance.sleepFadeSeconds;
       return StatefulBuilder(
         builder: (ctx, setState) {
           final fade = Duration(seconds: fadeSeconds);
-          return Container(
-            padding: const EdgeInsets.all(PlayaSpacing.kSp * 2),
+          return GlassPanel(
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(16),
+            ),
+            borderColor: Colors.white.withValues(alpha: 0.14),
+            backgroundColor: PlayaColors.glass,
             child: SingleChildScrollView(
+              padding: const EdgeInsets.all(PlayaSpacing.kSp * 2),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [

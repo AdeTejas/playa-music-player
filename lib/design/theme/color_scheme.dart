@@ -5,14 +5,20 @@ ColorScheme playaColorScheme(Color primary) {
   // Matte premium: desaturated companions derived from the accent hue.
   final primaryHsl = HSLColor.fromColor(primary);
 
-  final secondaryHue = (primaryHsl.hue + 28) % 360;
+  final secondaryHue = (primaryHsl.hue + 32) % 360;
   final secondary = HSLColor.fromAHSL(
-    1.0, secondaryHue, primaryHsl.saturation * 0.38, primaryHsl.lightness * 0.78,
+    1.0, 
+    secondaryHue, 
+    (primaryHsl.saturation * 0.45).clamp(0.2, 0.6), 
+    (primaryHsl.lightness * 0.85).clamp(0.4, 0.9),
   ).toColor();
 
-  final tertiaryHue = (primaryHsl.hue + 58) % 360;
+  final tertiaryHue = (primaryHsl.hue - 24) % 360;
   final tertiary = HSLColor.fromAHSL(
-    1.0, tertiaryHue, primaryHsl.saturation * 0.28, primaryHsl.lightness * 0.68,
+    1.0, 
+    tertiaryHue, 
+    (primaryHsl.saturation * 0.35).clamp(0.15, 0.5), 
+    (primaryHsl.lightness * 0.75).clamp(0.3, 0.8),
   ).toColor();
 
   final surfaceTint = primary.withValues(alpha: 0.04);

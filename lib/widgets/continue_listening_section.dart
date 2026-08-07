@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:on_audio_query/on_audio_query.dart' as oaq;
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
@@ -39,31 +40,7 @@ class ContinueListeningSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-            PlayaSpacing.sm * 2,
-            PlayaSpacing.sm,
-            PlayaSpacing.sm * 2,
-            PlayaSpacing.sm,
-          ),
-          child: Row(
-            children: [
-              PhosphorIcon(
-                PhosphorIconsFill.bookOpen,
-                color: accent,
-                size: 18,
-              ),
-              const SizedBox(width: 8),
-              const Text(
-                'Continue Listening',
-                style: TextStyle(
-                  fontSize: PlayaTypography.md,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ),
+        const PlayaSectionHeader(title: 'Continue Listening'),
         SizedBox(
           height: carouselHeight,
           child: ListView.separated(
@@ -110,10 +87,10 @@ class ContinueListeningSection extends StatelessWidget {
                     padding: const EdgeInsets.only(bottom: PlayaSpacing.sm),
                     decoration: BoxDecoration(
                       color: Colors.redAccent.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(PlayaRadii.md),
+                      borderRadius: BorderRadius.circular(PlayaRadii.sm),
                     ),
                     child: const Icon(
-                      Icons.delete_outline,
+                      PhosphorIconsRegular.trash,
                       color: Colors.redAccent,
                       size: 22,
                     ),
@@ -195,11 +172,14 @@ class _ContinueCard extends StatelessWidget {
                               visualDensity: VisualDensity.compact,
                               padding: EdgeInsets.zero,
                               icon: const Icon(
-                                Icons.close,
+                                PhosphorIconsRegular.x,
                                 size: 16,
                                 color: PlayaColors.onSurfaceVariant,
                               ),
-                              onPressed: () => onDismiss!(),
+                              onPressed: () {
+                                HapticFeedback.selectionClick();
+                                onDismiss!();
+                              },
                             ),
                           ),
                         Text(

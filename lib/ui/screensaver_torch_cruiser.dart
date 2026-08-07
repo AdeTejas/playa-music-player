@@ -5,8 +5,8 @@ import 'package:flutter/scheduler.dart';
 
 import '../services/service_locator.dart';
 import '../services/settings_service.dart';
+import 'rocinante_ship_painter.dart';
 import 'torch_plume_engine.dart';
-import 'torch_ship_painter.dart';
 
 /// A small torch ship cruising across the screensaver starfield.
 class ScreensaverTorchCruiser extends StatefulWidget {
@@ -141,7 +141,9 @@ class _ScreensaverTorchPainter extends CustomPainter {
 
     final shipH = (size.height * 0.055).clamp(26.0, 48.0);
     final centerY = size.height * 0.40;
-    final centerX = progress * size.width;
+    // Stern anchored to the progress point (same convention as the waveform
+    // ship) so the hull rides ahead of the trail and leaves the frame stern-last.
+    final centerX = progress * size.width + shipH * 0.45;
     final beatStrength =
         TorchPlumeEngine.beatStrength(playbackTimeSeconds, bpm);
 
@@ -167,15 +169,12 @@ class _ScreensaverTorchPainter extends CustomPainter {
     canvas.save();
     canvas.translate(centerX, centerY);
     canvas.rotate(pi / 2);
-    TorchShipPainter(
-      height: shipH,
-      progress: progress,
-      animTimeSeconds: animTimeSeconds,
-      playbackTimeSeconds: playbackTimeSeconds,
+    RocinanteShipPainter(
+      shipLen: shipH,
       color: accent,
-      bpm: bpm,
+      timeSeconds: animTimeSeconds,
+      beatStrength: beatStrength,
       drawPlume: false,
-      budget: budget,
     ).paint(canvas, Size(shipH, shipH));
     canvas.restore();
 

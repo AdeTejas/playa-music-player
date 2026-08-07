@@ -14,9 +14,9 @@ import '../services/service_locator.dart';
 import '../repositories/song_repository.dart';
 import '../widgets/star_rating.dart';
 import 'settings_screen.dart';
-import 'playlists_screen.dart';
 import '../widgets/player_provider.dart';
 import '../widgets/artwork_image.dart';
+import '../widgets/equalizer_indicator.dart';
 import '../utils/ui_utils.dart';
 import '../repositories/playlist_repository.dart';
 import '../models/listening_progress.dart';
@@ -57,13 +57,11 @@ class _LibraryPageState extends State<LibraryPage> {
 
   void _applySongList(List<oaq.SongModel> songs, {required bool loading}) {
     final seen = <String>{};
-    _allSongs = songs
-        .where((s) => s.data.isNotEmpty)
-        .where((s) {
+    _allSongs =
+        songs.where((s) => s.data.isNotEmpty).where((s) {
           final key = Platform.isWindows ? s.data.toLowerCase() : s.data;
           return seen.add(key);
-        })
-        .toList();
+        }).toList();
     _songs = _computeFiltered(_searchCtrl.text);
     _loading = loading;
   }
@@ -158,6 +156,8 @@ class _LibraryPageState extends State<LibraryPage> {
 
   Future<bool> _requestPermissions() async {
     if (Platform.isAndroid) {
+      // Permission.audio = READ_MEDIA_AUDIO on Android 13+ (declared in the
+      // manifest); older Android falls back to storage access below.
       if (await Permission.audio.isGranted) return true;
 
       final audioStatus = await Permission.audio.request();
@@ -214,7 +214,9 @@ class _LibraryPageState extends State<LibraryPage> {
     } catch (_) {}
   }
 
-  List<ListeningProgress> _filterContinueListening(List<ListeningProgress> items) {
+  List<ListeningProgress> _filterContinueListening(
+    List<ListeningProgress> items,
+  ) {
     final browseFilter = SettingsService.instance.libraryBrowseFilter;
 
     return items
@@ -231,8 +233,9 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Future<void> _dismissContinueListening(String seriesKey) async {
-    await ServiceLocator.instance.playerController
-        .dismissListeningProgress(seriesKey);
+    await ServiceLocator.instance.playerController.dismissListeningProgress(
+      seriesKey,
+    );
     await _loadContinueListening();
   }
 
@@ -255,15 +258,20 @@ class _LibraryPageState extends State<LibraryPage> {
 
     final browseFilter = SettingsService.instance.libraryBrowseFilter;
     if (browseFilter != LibraryBrowseFilter.all) {
-      filtered = filtered
-          .where(
-            (s) => ContentModeDetector.songMatchesBrowseFilter(s, browseFilter),
-          )
-          .toList();
+      filtered =
+          filtered
+              .where(
+                (s) => ContentModeDetector.songMatchesBrowseFilter(
+                  s,
+                  browseFilter,
+                ),
+              )
+              .toList();
     }
 
     if (_showFavoritesOnly) {
-      final favs = ServiceLocator.instance.playerController.favoritesNotifier.value;
+      final favs =
+          ServiceLocator.instance.playerController.favoritesNotifier.value;
       filtered = filtered.where((s) => favs.contains(s.id.toString())).toList();
     }
 
@@ -351,11 +359,15 @@ class _LibraryPageState extends State<LibraryPage> {
     final selected = _selectedSongs;
     if (selected.isEmpty) return;
     final ctrl = ServiceLocator.instance.playerController;
-    for (final song in selected) {
+    // insertNext always inserts at currentIndex + 1, so iterate in reverse
+    // to keep the selection order intact in the queue.
+    for (final song in selected.reversed) {
       await ctrl.insertNext(song);
     }
     _exitSelectionMode();
-    if (mounted) showToast(context, 'Added ${selected.length} song(s) to queue');
+    if (mounted) {
+      showToast(context, 'Added ${selected.length} song(s) to queue');
+    }
     HapticFeedback.selectionClick();
   }
 
@@ -367,7 +379,9 @@ class _LibraryPageState extends State<LibraryPage> {
       await ctrl.addToQueue(song);
     }
     _exitSelectionMode();
-    if (mounted) showToast(context, 'Added ${selected.length} song(s) to queue');
+    if (mounted) {
+      showToast(context, 'Added ${selected.length} song(s) to queue');
+    }
     HapticFeedback.selectionClick();
   }
 
@@ -378,7 +392,9 @@ class _LibraryPageState extends State<LibraryPage> {
     final ctrl = ServiceLocator.instance.playerController;
     final currentFavs = ctrl.favoritesNotifier.value.toSet();
 
-    final anyNotFavorited = selected.any((s) => !currentFavs.contains(s.id.toString()));
+    final anyNotFavorited = selected.any(
+      (s) => !currentFavs.contains(s.id.toString()),
+    );
 
     for (final song in selected) {
       final id = song.id.toString();
@@ -411,56 +427,81 @@ class _LibraryPageState extends State<LibraryPage> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(PlayaSpacing.sm * 2),
-          child: PlayaCard(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: Text(
-                    'Add ${selected.length} song(s) to Playlist',
-                    style: const TextStyle(
-                      color: PlayaColors.onSurface,
-                      fontSize: PlayaTypography.lg,
-                      fontWeight: FontWeight.bold,
+      builder:
+          (ctx) => SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(PlayaSpacing.sm * 2),
+              child: PlayaCard(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: Text(
+                        'Add ${selected.length} song(s) to Playlist',
+                        style: const TextStyle(
+                          color: PlayaColors.onSurface,
+                          fontSize: PlayaTypography.lg,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
-                  ),
+                    if (playlists.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text(
+                          'No playlists found',
+                          style: TextStyle(color: PlayaColors.onSurfaceVariant),
+                        ),
+                      )
+                    else
+                      ...playlists.map(
+                        (p) => ListTile(
+                          leading: const Icon(
+                            PhosphorIconsRegular.playlist,
+                            color: PlayaColors.onSurfaceVariant,
+                          ),
+                          title: Text(
+                            p.name,
+                            style: const TextStyle(
+                              color: PlayaColors.onSurface,
+                            ),
+                          ),
+                          subtitle: Text(
+                            '${p.songCount} songs',
+                            style: const TextStyle(
+                              color: PlayaColors.onSurfaceVariant,
+                            ),
+                          ),
+                          onTap: () async {
+                            for (final song in selected) {
+                              await PlaylistRepository.instance.addSong(
+                                p.id,
+                                song.id.toString(),
+                              );
+                            }
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            if (mounted) {
+                              showToast(
+                                context,
+                                'Added ${selected.length} song(s) to "${p.name}"',
+                              );
+                              _exitSelectionMode();
+                            }
+                          },
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('Cancel'),
+                    ),
+                  ],
                 ),
-                if (playlists.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text('No playlists found', style: TextStyle(color: PlayaColors.onSurfaceVariant)),
-                  )
-                else
-                  ...playlists.map((p) => ListTile(
-                        leading: const Icon(Icons.queue_music, color: PlayaColors.onSurfaceVariant),
-                        title: Text(p.name, style: const TextStyle(color: PlayaColors.onSurface)),
-                        subtitle: Text('${p.songCount} songs', style: const TextStyle(color: PlayaColors.onSurfaceVariant)),
-                        onTap: () async {
-                          for (final song in selected) {
-                            await PlaylistRepository.instance.addSong(p.id, song.id.toString());
-                          }
-                          if (ctx.mounted) Navigator.pop(ctx);
-                          if (mounted) {
-                            showToast(context, 'Added ${selected.length} song(s) to "${p.name}"');
-                            _exitSelectionMode();
-                          }
-                        },
-                      )),
-                const SizedBox(height: 8),
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Cancel'),
-                ),
-              ],
+              ),
             ),
           ),
-        ),
-      ),
     );
   }
 
@@ -522,7 +563,9 @@ class _LibraryPageState extends State<LibraryPage> {
                             tempRating == 0
                                 ? 'No rating'
                                 : '$tempRating star${tempRating > 1 ? "s" : ""}',
-                            style: const TextStyle(color: PlayaColors.onSurfaceVariant),
+                            style: const TextStyle(
+                              color: PlayaColors.onSurfaceVariant,
+                            ),
                           ),
                         ),
                         const SizedBox(height: PlayaSpacing.md),
@@ -582,11 +625,14 @@ class _LibraryPageState extends State<LibraryPage> {
                         ),
                       ),
                       const SizedBox(height: PlayaSpacing.sm),
-                      _buildSortOption(label: 'Date Added', value: 'DATE_ADDED'),
+                      _buildSortOption(
+                        label: 'Date Added',
+                        value: 'DATE_ADDED',
+                      ),
                       _buildSortOption(label: 'Title', value: 'TITLE'),
                       _buildSortOption(label: 'Artist', value: 'ARTIST'),
                       _buildSortOption(label: 'Album', value: 'ALBUM'),
-                      Divider(color: PlayaColors.borderSubtle),
+                      const Divider(color: PlayaColors.borderSubtle),
                       ListTile(
                         dense: true,
                         title: const Text('Ascending'),
@@ -634,9 +680,14 @@ class _LibraryPageState extends State<LibraryPage> {
     return ListTile(
       title: Text(
         label,
-        style: TextStyle(color: current == value ? accentColor : PlayaColors.onSurface),
+        style: TextStyle(
+          color: current == value ? accentColor : PlayaColors.onSurface,
+        ),
       ),
-      trailing: current == value ? Icon(Icons.check, color: accentColor) : null,
+      trailing:
+          current == value
+              ? Icon(PhosphorIconsRegular.check, color: accentColor)
+              : null,
       onTap: () {
         SettingsService.instance.setLibrarySort(
           value,
@@ -649,6 +700,7 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Widget _buildSongTile(oaq.SongModel s, bool isPlaying, Color accentColor) {
+    final player = PlayerProvider.of(context);
     final songId = s.id.toString();
     final isSelected = _selectedIds.contains(songId);
 
@@ -662,15 +714,24 @@ class _LibraryPageState extends State<LibraryPage> {
             _playNow(s);
           }
         },
-        onLongPress: _isSelectionMode ? null : () => _enterSelectionMode(songId),
+        onLongPress:
+            _isSelectionMode ? null : () => _enterSelectionMode(songId),
         child: Container(
           decoration: BoxDecoration(
-            color: isSelected
-                ? accentColor.withValues(alpha: 0.15)
-                : (isPlaying ? accentColor.withValues(alpha: 0.10) : null),
-            borderRadius: BorderRadius.circular(PlayaRadii.xs),
+            color:
+                isSelected
+                    ? accentColor.withValues(alpha: 0.18)
+                    : (isPlaying ? accentColor.withValues(alpha: 0.12) : null),
+            borderRadius: BorderRadius.circular(PlayaRadii.sm),
+            border:
+                isSelected || isPlaying
+                    ? Border.all(
+                      color: accentColor.withValues(alpha: 0.2),
+                      width: 0.5,
+                    )
+                    : null,
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
           child: Row(
             children: [
               // Playing indicator bar or selection checkbox
@@ -681,21 +742,39 @@ class _LibraryPageState extends State<LibraryPage> {
                     value: isSelected,
                     onChanged: (_) => _toggleSelection(songId),
                     activeColor: accentColor,
-                    side: BorderSide(color: PlayaColors.onSurfaceVariant),
+                    side: const BorderSide(color: PlayaColors.onSurfaceVariant),
                   ),
                 )
               else if (isPlaying)
-                Container(
-                  width: 3,
-                  height: 36,
-                  margin: const EdgeInsets.only(right: 6),
-                  decoration: BoxDecoration(
-                    color: accentColor,
-                    borderRadius: BorderRadius.circular(2),
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: StreamBuilder<bool>(
+                    stream: player.player.playingStream,
+                    initialData: player.player.playing,
+                    builder: (context, snap) {
+                      final isActuallyPlaying = snap.data ?? false;
+                      if (!isActuallyPlaying) {
+                        return Container(
+                          width: 3,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: accentColor.withValues(alpha: 0.5),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        );
+                      }
+                      return SizedBox(
+                        width: 12,
+                        height: 36,
+                        child: Center(
+                          child: EqualizerIndicator(color: accentColor),
+                        ),
+                      );
+                    },
                   ),
                 )
               else
-                const SizedBox(width: 9),
+                const SizedBox(width: PlayaSpacing.sm),
 
               ClipRRect(
                 borderRadius: BorderRadius.circular(PlayaRadii.sm),
@@ -710,7 +789,7 @@ class _LibraryPageState extends State<LibraryPage> {
                       id: s.id,
                       type: oaq.ArtworkType.AUDIO,
                       nullArtworkWidget: const Icon(
-                        Icons.music_note,
+                        PhosphorIconsRegular.musicNote,
                         color: PlayaColors.onSurfaceVariant,
                       ),
                       artworkBorder: BorderRadius.circular(PlayaRadii.sm),
@@ -719,7 +798,7 @@ class _LibraryPageState extends State<LibraryPage> {
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: PlayaSpacing.xs),
 
               Expanded(
                 child: Column(
@@ -730,7 +809,10 @@ class _LibraryPageState extends State<LibraryPage> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: (isPlaying || isSelected) ? accentColor : PlayaColors.onSurface,
+                        color:
+                            (isPlaying || isSelected)
+                                ? accentColor
+                                : PlayaColors.onSurface,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -751,7 +833,7 @@ class _LibraryPageState extends State<LibraryPage> {
               if (!_isSelectionMode)
                 PopupMenuButton<String>(
                   icon: const Icon(
-                    Icons.more_vert,
+                    PhosphorIconsRegular.dotsThreeVertical,
                     color: PlayaColors.onSurfaceVariant,
                   ),
                   color: PlayaColors.card,
@@ -768,38 +850,57 @@ class _LibraryPageState extends State<LibraryPage> {
                         break;
                     }
                   },
-                  itemBuilder: (context) => [
-                    const PopupMenuItem(
-                      value: 'play_next',
-                      child: Row(
-                        children: [
-                          Icon(Icons.playlist_add, color: PlayaColors.onSurfaceVariant),
-                          SizedBox(width: 12),
-                          Text('Play Next', style: TextStyle(color: PlayaColors.onSurface)),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'add_playlist',
-                      child: Row(
-                        children: [
-                          Icon(Icons.queue_music, color: PlayaColors.onSurfaceVariant),
-                          SizedBox(width: 12),
-                          Text('Add to Playlist', style: TextStyle(color: PlayaColors.onSurface)),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'rate',
-                      child: Row(
-                        children: [
-                          Icon(Icons.star_outline, color: PlayaColors.onSurfaceVariant),
-                          SizedBox(width: 12),
-                          Text('Rate Song', style: TextStyle(color: PlayaColors.onSurface)),
-                        ],
-                      ),
-                    ),
-                  ],
+                  itemBuilder:
+                      (context) => [
+                        const PopupMenuItem(
+                          value: 'play_next',
+                          child: Row(
+                            children: [
+                              Icon(
+                                PhosphorIconsRegular.playlist,
+                                color: PlayaColors.onSurfaceVariant,
+                              ),
+                              SizedBox(width: 12),
+                              Text(
+                                'Play Next',
+                                style: TextStyle(color: PlayaColors.onSurface),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'add_playlist',
+                          child: Row(
+                            children: [
+                              Icon(
+                                PhosphorIconsRegular.plusCircle,
+                                color: PlayaColors.onSurfaceVariant,
+                              ),
+                              SizedBox(width: 12),
+                              Text(
+                                'Add to Playlist',
+                                style: TextStyle(color: PlayaColors.onSurface),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'rate',
+                          child: Row(
+                            children: [
+                              Icon(
+                                PhosphorIconsRegular.star,
+                                color: PlayaColors.onSurfaceVariant,
+                              ),
+                              SizedBox(width: 12),
+                              Text(
+                                'Rate Song',
+                                style: TextStyle(color: PlayaColors.onSurface),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                 ),
             ],
           ),
@@ -828,11 +929,11 @@ class _LibraryPageState extends State<LibraryPage> {
                       padding: EdgeInsets.only(bottom: 16),
                       child: Text(
                         'Add to Playlist',
-                         style: TextStyle(
-                           color: PlayaColors.onSurface,
-                           fontSize: PlayaTypography.lg,
-                           fontWeight: FontWeight.bold,
-                         ),
+                        style: TextStyle(
+                          color: PlayaColors.onSurface,
+                          fontSize: PlayaTypography.lg,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                     if (playlists.isEmpty)
@@ -840,23 +941,27 @@ class _LibraryPageState extends State<LibraryPage> {
                         padding: EdgeInsets.all(16),
                         child: Text(
                           'No playlists found',
-                           style: TextStyle(color: PlayaColors.onSurfaceVariant),
+                          style: TextStyle(color: PlayaColors.onSurfaceVariant),
                         ),
                       )
                     else
                       ...playlists.map(
                         (p) => ListTile(
                           leading: const Icon(
-                            Icons.queue_music,
+                            PhosphorIconsRegular.playlist,
                             color: PlayaColors.onSurfaceVariant,
                           ),
                           title: Text(
                             p.name,
-                            style: const TextStyle(color: PlayaColors.onSurface),
+                            style: const TextStyle(
+                              color: PlayaColors.onSurface,
+                            ),
                           ),
                           subtitle: Text(
                             '${p.songCount} songs',
-                            style: const TextStyle(color: PlayaColors.onSurfaceVariant),
+                            style: const TextStyle(
+                              color: PlayaColors.onSurfaceVariant,
+                            ),
                           ),
                           onTap: () async {
                             await PlaylistRepository.instance.addSong(
@@ -891,273 +996,273 @@ class _LibraryPageState extends State<LibraryPage> {
         return SafeArea(
           top: true,
           bottom: false,
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(PlayaSpacing.sm * 2, PlayaSpacing.sm, PlayaSpacing.sm * 2, 0),
-                child: SizedBox(
-                  height: 44,
-                  child: NavigationToolbar(
-                    centerMiddle: true,
-                    middleSpacing: 0,
-                    leading: const SizedBox.shrink(),
-                    middle: Text(
-                      _isSelectionMode
-                          ? '${_selectedIds.length} selected'
-                          : 'Library',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: _isSelectionMode ? accentColor : null,
-                      ),
-                    ),
-                    trailing: _isSelectionMode
-                        ? SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                              // Selection controls
-                              IconButton(
-                                tooltip: 'Select all visible',
-                                visualDensity: VisualDensity.compact,
-                                icon: const Icon(PhosphorIconsRegular.checks, size: 20),
-                                onPressed: _selectAllVisible,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              PlayaSpacing.xs,
+              PlayaSpacing.xs,
+              PlayaSpacing.xs,
+              0,
+            ),
+            child: GlassPanel(
+              isLibraryPanel: true,
+              useDeepVariant: true,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(PlayaRadii.lg),
+              ),
+              padding: const EdgeInsets.fromLTRB(
+                PlayaSpacing.sm,
+                PlayaSpacing.xs,
+                PlayaSpacing.sm,
+                PlayaSpacing.sm,
+              ),
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: 44,
+                    child: Column(
+                      children: [
+                        Expanded(
+                          child: NavigationToolbar(
+                            centerMiddle: true,
+                            middleSpacing: 0,
+                            leading: const SizedBox.shrink(),
+                            middle: Text(
+                              _isSelectionMode
+                                  ? '${_selectedIds.length} selected'
+                                  : '${_allSongs.length} TRACKS',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontFamily: 'monospace',
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.5,
+                                color:
+                                    _isSelectionMode
+                                        ? accentColor
+                                        : PlayaColors.onSurfaceVariant
+                                            .withValues(alpha: 0.8),
                               ),
-                              IconButton(
-                                tooltip: 'Clear selection',
-                                visualDensity: VisualDensity.compact,
-                                icon: const Icon(PhosphorIconsRegular.x, size: 20),
-                                onPressed: _clearSelection,
-                              ),
-
-                              const SizedBox(width: 6),
-
-                              // Playback actions
-                              IconButton(
-                                tooltip: 'Play',
-                                visualDensity: VisualDensity.compact,
-                                icon: Icon(PhosphorIconsBold.play, color: accentColor, size: 20),
-                                onPressed: _selectedIds.isEmpty ? null : _playSelected,
-                              ),
-                              IconButton(
-                                tooltip: 'Play Next',
-                                visualDensity: VisualDensity.compact,
-                                icon: const Icon(PhosphorIconsRegular.playlist, size: 20),
-                                onPressed: _selectedIds.isEmpty ? null : _playNextSelected,
-                              ),
-                              IconButton(
-                                tooltip: 'Add to Queue',
-                                visualDensity: VisualDensity.compact,
-                                icon: const Icon(PhosphorIconsRegular.queue, size: 20),
-                                onPressed: _selectedIds.isEmpty ? null : _addSelectedToQueue,
-                              ),
-
-                              const SizedBox(width: 4),
-
-                              // Organization
-                              IconButton(
-                                tooltip: 'Add to Playlist',
-                                visualDensity: VisualDensity.compact,
-                                icon: const Icon(PhosphorIconsBold.playlist, size: 20),
-                                onPressed: _selectedIds.isEmpty ? null : _addSelectedToPlaylist,
-                              ),
-                              IconButton(
-                                tooltip: 'Toggle favorite',
-                                visualDensity: VisualDensity.compact,
-                                icon: const Icon(PhosphorIconsRegular.heart, size: 20),
-                                onPressed: _selectedIds.isEmpty ? null : _toggleFavoriteForSelected,
-                              ),
-
-                              const SizedBox(width: 6),
-
-                              // Exit
-                              IconButton(
-                                tooltip: 'Done',
-                                visualDensity: VisualDensity.compact,
-                                icon: const Icon(PhosphorIconsRegular.check, size: 20),
-                                onPressed: _exitSelectionMode,
-                              ),
-                            ],
-                          ),
-                        )
-                        : SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                ValueListenableBuilder<List<String>>(
-                                  valueListenable:
-                                      ServiceLocator.instance.playerController.favoritesNotifier,
-                                  builder: (context, favs, _) {
-                                    return IconButton(
-                                      tooltip:
-                                          _showFavoritesOnly
-                                              ? 'Show All'
-                                              : 'Show Favorites',
-                                      icon: Icon(
-                                        _showFavoritesOnly
-                                            ? PhosphorIconsFill.heart
-                                            : PhosphorIconsRegular.heart,
-                                         color:
-                                             _showFavoritesOnly
-                                                 ? Theme.of(context).colorScheme.primary
-                                                 : PlayaColors.onSurface,
-                                      ),
-                                      onPressed:
-                                          scan.isScanning
-                                              ? null
-                                         : () {
-                                           _exitSelectionMode();
-                                           setState(() {
-                                             _showFavoritesOnly =
-                                                 !_showFavoritesOnly;
-                                             _songs = _computeFiltered(
-                                               _searchCtrl.text,
-                                             );
-                                           });
-                                         },
-                                    );
-                                  },
-                                ),
-                                IconButton(
-                                  tooltip: 'Playlists',
-                                  icon: const Icon(PhosphorIconsBold.playlist),
-                                  onPressed:
-                                      scan.isScanning
-                                          ? null
-                                          : () => Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (_) => const PlaylistsScreen(),
+                            ),
+                            trailing:
+                                _isSelectionMode
+                                    ? SingleChildScrollView(
+                                      scrollDirection: Axis.horizontal,
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          // Selection controls
+                                          IconButton(
+                                            tooltip: 'Select all visible',
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            icon: const Icon(
+                                              PhosphorIconsRegular.checks,
+                                              size: 20,
                                             ),
+                                            onPressed: _selectAllVisible,
                                           ),
-                                ),
-                                IconButton(
-                                  tooltip: 'Sort',
-                                  icon: const Icon(
-                                    PhosphorIconsRegular.slidersHorizontal,
-                                  ),
-                                  onPressed: scan.isScanning ? null : () {
-                              _exitSelectionMode();
-                              _showSortMenu();
-                            },
-                                ),
-                                IconButton(
-                                  tooltip: 'Settings',
-                                  icon: const Icon(PhosphorIconsBold.gear),
-                                  onPressed:
-                                      () => Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => const SettingsScreen(),
-                                        ),
+                                          IconButton(
+                                            tooltip: 'Clear selection',
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            icon: const Icon(
+                                              PhosphorIconsRegular.x,
+                                              size: 20,
+                                            ),
+                                            onPressed: _clearSelection,
+                                          ),
+
+                                          const SizedBox(width: 6),
+
+                                          // Playback actions
+                                          IconButton(
+                                            tooltip: 'Play',
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            icon: Icon(
+                                              PhosphorIconsBold.play,
+                                              color: accentColor,
+                                              size: 20,
+                                            ),
+                                            onPressed:
+                                                _selectedIds.isEmpty
+                                                    ? null
+                                                    : _playSelected,
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Play Next',
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            icon: const Icon(
+                                              PhosphorIconsRegular.playlist,
+                                              size: 20,
+                                            ),
+                                            onPressed:
+                                                _selectedIds.isEmpty
+                                                    ? null
+                                                    : _playNextSelected,
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Add to Queue',
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            icon: const Icon(
+                                              PhosphorIconsRegular.queue,
+                                              size: 20,
+                                            ),
+                                            onPressed:
+                                                _selectedIds.isEmpty
+                                                    ? null
+                                                    : _addSelectedToQueue,
+                                          ),
+
+                                          const SizedBox(width: 4),
+
+                                          // Organization
+                                          IconButton(
+                                            tooltip: 'Add to Playlist',
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            icon: const Icon(
+                                              PhosphorIconsBold.playlist,
+                                              size: 20,
+                                            ),
+                                            onPressed:
+                                                _selectedIds.isEmpty
+                                                    ? null
+                                                    : _addSelectedToPlaylist,
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Toggle favorite',
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            icon: const Icon(
+                                              PhosphorIconsRegular.heart,
+                                              size: 20,
+                                            ),
+                                            onPressed:
+                                                _selectedIds.isEmpty
+                                                    ? null
+                                                    : _toggleFavoriteForSelected,
+                                          ),
+
+                                          const SizedBox(width: 6),
+
+                                          // Exit
+                                          IconButton(
+                                            tooltip: 'Done',
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            icon: const Icon(
+                                              PhosphorIconsRegular.check,
+                                              size: 20,
+                                            ),
+                                            onPressed: _exitSelectionMode,
+                                          ),
+                                        ],
                                       ),
-                                ),
+                                    )
+                                    : SingleChildScrollView(
+                                      scrollDirection: Axis.horizontal,
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          IconButton(
+                                            tooltip: 'Settings',
+                                            icon: const Icon(
+                                              PhosphorIconsBold.gear,
+                                            ),
+                                            onPressed:
+                                                () => Navigator.push(
+                                                  context,
+                                                  MaterialPageRoute(
+                                                    builder:
+                                                        (_) =>
+                                                            const SettingsScreen(),
+                                                  ),
+                                                ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                          ),
+                        ),
+                        Container(
+                          height: 0.5,
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                Colors.transparent,
+                                accentColor.withValues(alpha: 0.3),
+                                Colors.transparent,
                               ],
                             ),
                           ),
-                  ),
-                ),
-              ),
-              if (scan.isScanning)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(PlayaSpacing.sm * 2, PlayaSpacing.sm, PlayaSpacing.sm * 2, 0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: accentColor,
-                            ),
-                          ),
-                          const SizedBox(width: PlayaSpacing.sm),
-                          Text(
-                            'Scanning… ${scan.phase.name}',
-                            style: const TextStyle(
-                              color: PlayaColors.onSurfaceVariant,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(999),
-                        child: LinearProgressIndicator(
-                          value: scan.progress == 0 ? null : scan.progress,
-                          backgroundColor: PlayaColors.trackMuted,
-                          color: accentColor,
-                          minHeight: 6,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              if (scan.phase == LibraryScanPhase.error &&
-                  scan.lastError != null)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(PlayaSpacing.sm * 2, PlayaSpacing.sm, PlayaSpacing.sm * 2, 0),
-                  child: GlassPanel(
-                    borderRadius: BorderRadius.circular(PlayaRadii.kRadius),
-                    padding: const EdgeInsets.all(PlayaSpacing.sm),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.error_outline,
-                          color: Colors.redAccent,
-                          size: 18,
-                        ),
-                        const SizedBox(width: PlayaSpacing.sm),
-                        Expanded(
-                          child: Text(
-                            'Scan failed. ${scan.lastError}',
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: PlayaColors.onSurfaceVariant,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                        TextButton(
-                          onPressed:
-                              scan.isScanning
-                                  ? null
-                                  : () => _loadSongs(force: true),
-                          child: const Text('Retry'),
                         ),
                       ],
                     ),
                   ),
-                ),
+                  if (scan.isScanning)
+                    Padding(
+                      padding: const EdgeInsets.only(top: PlayaSpacing.xs),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: PlayaColors.accent,
+                                ),
+                              ),
+                              const SizedBox(width: PlayaSpacing.sm),
+                              Text(
+                                'Scanning… ${scan.phase.name}',
+                                style: const TextStyle(
+                                  color: PlayaColors.onSurfaceVariant,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(
+                              PlayaRadii.pill,
+                            ),
+                            child: LinearProgressIndicator(
+                              value: scan.progress == 0 ? null : scan.progress,
+                              backgroundColor: PlayaColors.trackMuted,
+                              color: accentColor,
+                              minHeight: 6,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
 
-              if (!_isSelectionMode && _filteredContinueListening.isNotEmpty)
-                ContinueListeningSection(
-                  items: _filteredContinueListening,
-                  ctrl: ServiceLocator.instance.playerController,
-                  librarySongs: _allSongs,
-                  onResume: () {
-                    if (mounted) {
-                      showToast(context, 'Resuming where you left off');
-                    }
-                  },
-                  onDismiss: (seriesKey) => _dismissContinueListening(seriesKey),
-                ),
+                  if (!_isSelectionMode &&
+                      _filteredContinueListening.isNotEmpty)
+                    ContinueListeningSection(
+                      items: _filteredContinueListening,
+                      ctrl: ServiceLocator.instance.playerController,
+                      librarySongs: _allSongs,
+                      onResume: () {
+                        if (mounted) {
+                          showToast(context, 'Resuming where you left off');
+                        }
+                      },
+                      onDismiss:
+                          (seriesKey) => _dismissContinueListening(seriesKey),
+                    ),
 
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(PlayaSpacing.sm * 2, 0, PlayaSpacing.sm * 2, 0),
-                  child: GlassPanel(
-                    useDeepVariant: true,
-                    borderRadius: BorderRadius.circular(PlayaRadii.lg),
-                    padding: const EdgeInsets.all(PlayaSpacing.sm),
+                  const SizedBox(height: PlayaSpacing.sm),
+
+                  Expanded(
                     child: Column(
                       children: [
                         DecoratedBox(
@@ -1165,26 +1270,41 @@ class _LibraryPageState extends State<LibraryPage> {
                           child: TextField(
                             controller: _searchCtrl,
                             onChanged: _filterSongs,
-                            style: const TextStyle(color: PlayaColors.onSurface),
-                            decoration: const InputDecoration(
+                            style: const TextStyle(
+                              color: PlayaColors.onSurface,
+                            ),
+                            decoration: InputDecoration(
                               hintText: 'Search songs, artists…',
-                              hintStyle: TextStyle(color: PlayaColors.onSurfaceVariant),
-                              prefixIcon: Icon(
+                              hintStyle: const TextStyle(
+                                color: PlayaColors.onSurfaceVariant,
+                              ),
+                              prefixIcon: const Icon(
                                 PhosphorIconsRegular.magnifyingGlass,
                                 color: PlayaColors.onSurfaceVariant,
                               ),
+                              suffixIcon: IconButton(
+                                tooltip: 'Sort',
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(
+                                  PhosphorIconsRegular.slidersHorizontal,
+                                  color: PlayaColors.onSurfaceVariant,
+                                  size: 18,
+                                ),
+                                onPressed:
+                                    scan.isScanning ? null : _showSortMenu,
+                              ),
                               filled: false,
-                              border: OutlineInputBorder(
+                              border: const OutlineInputBorder(
                                 borderSide: BorderSide.none,
                               ),
-                              contentPadding: EdgeInsets.symmetric(
+                              contentPadding: const EdgeInsets.symmetric(
                                 horizontal: 10,
                                 vertical: 10,
                               ),
                             ),
                           ),
                         ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: PlayaSpacing.xs),
                         AnimatedBuilder(
                           animation: SettingsService.instance,
                           builder: (context, _) {
@@ -1192,41 +1312,106 @@ class _LibraryPageState extends State<LibraryPage> {
                                 SettingsService.instance.libraryBrowseFilter;
                             final accent =
                                 Theme.of(context).colorScheme.primary;
-                            return Row(
-                              children: [
-                                for (final option in LibraryBrowseFilter.values) ...[
-                                  if (option != LibraryBrowseFilter.values.first)
-                                    const SizedBox(width: 6),
+                            return SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: [
+                                  for (final option
+                                      in LibraryBrowseFilter.values) ...[
+                                    if (option !=
+                                        LibraryBrowseFilter.values.first)
+                                      const SizedBox(
+                                        width: PlayaSpacing.xxs * 1.5,
+                                      ),
+                                    ChoiceChip(
+                                      label: Text(option.label),
+                                      selected: filter == option,
+                                      onSelected:
+                                          scan.isScanning
+                                              ? null
+                                              : (_) async {
+                                                await SettingsService.instance
+                                                    .setLibraryBrowseFilter(
+                                                      option,
+                                                    );
+                                                if (!mounted) return;
+                                                setState(() {
+                                                  _songs = _computeFiltered(
+                                                    _searchCtrl.text,
+                                                  );
+                                                });
+                                              },
+                                      selectedColor: accent.withValues(
+                                        alpha: 0.25,
+                                      ),
+                                      labelStyle: TextStyle(
+                                        color:
+                                            filter == option
+                                                ? accent
+                                                : PlayaColors.onSurfaceVariant,
+                                        fontSize: 12,
+                                        fontWeight:
+                                            filter == option
+                                                ? FontWeight.w600
+                                                : FontWeight.w500,
+                                      ),
+                                      side: BorderSide(
+                                        color:
+                                            filter == option
+                                                ? accent.withValues(alpha: 0.5)
+                                                : PlayaColors.borderSubtle,
+                                      ),
+                                      visualDensity: VisualDensity.compact,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 4,
+                                      ),
+                                    ),
+                                  ],
+                                  const SizedBox(width: PlayaSpacing.xxs * 1.5),
                                   ChoiceChip(
-                                    label: Text(option.label),
-                                    selected: filter == option,
-                                    onSelected: scan.isScanning
-                                        ? null
-                                        : (_) async {
-                                            await SettingsService.instance
-                                                .setLibraryBrowseFilter(option);
-                                            if (!mounted) return;
-                                            setState(() {
-                                              _songs = _computeFiltered(
-                                                _searchCtrl.text,
-                                              );
-                                            });
-                                          },
-                                    selectedColor:
-                                        accent.withValues(alpha: 0.25),
+                                    avatar: Icon(
+                                      _showFavoritesOnly
+                                          ? PhosphorIconsFill.heart
+                                          : PhosphorIconsRegular.heart,
+                                      size: 13,
+                                      color:
+                                          _showFavoritesOnly
+                                              ? accent
+                                              : PlayaColors.onSurfaceVariant,
+                                    ),
+                                    label: const Text('Favorites'),
+                                    selected: _showFavoritesOnly,
+                                    onSelected:
+                                        scan.isScanning
+                                            ? null
+                                            : (_) {
+                                              setState(() {
+                                                _showFavoritesOnly =
+                                                    !_showFavoritesOnly;
+                                                _songs = _computeFiltered(
+                                                  _searchCtrl.text,
+                                                );
+                                              });
+                                            },
+                                    selectedColor: accent.withValues(
+                                      alpha: 0.25,
+                                    ),
                                     labelStyle: TextStyle(
-                                      color: filter == option
-                                          ? accent
-                                          : PlayaColors.onSurfaceVariant,
+                                      color:
+                                          _showFavoritesOnly
+                                              ? accent
+                                              : PlayaColors.onSurfaceVariant,
                                       fontSize: 12,
-                                      fontWeight: filter == option
-                                          ? FontWeight.w600
-                                          : FontWeight.w500,
+                                      fontWeight:
+                                          _showFavoritesOnly
+                                              ? FontWeight.w600
+                                              : FontWeight.w500,
                                     ),
                                     side: BorderSide(
-                                      color: filter == option
-                                          ? accent.withValues(alpha: 0.5)
-                                          : PlayaColors.borderSubtle,
+                                      color:
+                                          _showFavoritesOnly
+                                              ? accent.withValues(alpha: 0.5)
+                                              : PlayaColors.borderSubtle,
                                     ),
                                     visualDensity: VisualDensity.compact,
                                     padding: const EdgeInsets.symmetric(
@@ -1234,17 +1419,14 @@ class _LibraryPageState extends State<LibraryPage> {
                                     ),
                                   ),
                                 ],
-                              ],
+                              ),
                             );
                           },
                         ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: PlayaSpacing.xs),
 
-                        Container(
-                          height: 1,
-                          color: PlayaColors.borderSubtle,
-                        ),
-                        const SizedBox(height: 6),
+                        Container(height: 1, color: PlayaColors.borderSubtle),
+                        const SizedBox(height: PlayaSpacing.xs),
 
                         Expanded(
                           child:
@@ -1286,10 +1468,9 @@ class _LibraryPageState extends State<LibraryPage> {
                                               onPressed:
                                                   scan.isScanning
                                                       ? null
-                                                      : () =>
-                                                          _loadSongs(
-                                                            force: true,
-                                                          ),
+                                                      : () => _loadSongs(
+                                                        force: true,
+                                                      ),
                                               child: const Text(
                                                 'Refresh Library',
                                               ),
@@ -1299,9 +1480,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                     ),
                                   )
                                   : ListView.separated(
-                                    padding: const EdgeInsets.only(
-                                      bottom: 72, 
-                                    ),
+                                    padding: const EdgeInsets.only(bottom: 72),
                                     itemCount: _songs.length,
                                     separatorBuilder: (context, index) {
                                       return Padding(
@@ -1314,21 +1493,25 @@ class _LibraryPageState extends State<LibraryPage> {
                                         ),
                                       );
                                     },
-                                     itemBuilder: (context, index) {
-                                       final s = _songs[index];
-                                       final isPlaying =
-                                           currentSongId == s.id.toString();
+                                    itemBuilder: (context, index) {
+                                      final s = _songs[index];
+                                      final isPlaying =
+                                          currentSongId == s.id.toString();
 
-                                        return _buildSongTile(s, isPlaying, accentColor);
-                                      },
+                                      return _buildSongTile(
+                                        s,
+                                        isPlaying,
+                                        accentColor,
+                                      );
+                                    },
                                   ),
                         ),
                       ],
                     ),
                   ),
-                ),
+                ],
               ),
-            ],
+            ),
           ),
         );
       },

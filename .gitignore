@@ -88,3 +88,8 @@ large_assets/
 agent-tools/
 mcps/
 terminals/
+
+# Debug capture artifacts
+waveform_*.mp4
+.github/appmod/
+.github/modernize/

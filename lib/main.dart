@@ -1,4 +1,4 @@
-﻿// lib/main.dart
+// lib/main.dart
 // Playa - The Real Deal Edition
 // ignore_for_file: prefer_const_declarations
 
@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -23,6 +24,9 @@ import 'services/service_locator.dart';
 import 'services/player_controller.dart';
 import 'services/library_scan_service.dart';
 import 'services/analytics_service.dart';
+import 'services/telemetry_service.dart';
+import 'services/sonic_dna_scheduler.dart';
+import 'services/neural_mix_index_service.dart';
 
 // UI & Screens
 
@@ -31,11 +35,14 @@ import 'ui/torch_engine_glow_overlay.dart';
 import 'screens/library_page.dart';
 import 'screens/player_screen.dart';
 import 'screens/equalizer_screen.dart';
+import 'screens/onboarding_screen.dart';
+import 'screens/playlists_screen.dart';
 
 import 'design/design_system.dart';
 import 'widgets/player_provider.dart';
 import 'widgets/audiobook_controls.dart';
-import 'widgets/bookmarks_sheet.dart';
+import 'widgets/artwork_image.dart';
+import 'widgets/telemetry_lifecycle_observer.dart';
 
 // Debug drawing for turntable painter (set with --dart-define=DEV_TT_GUIDES=true)
 const bool kDevPaintTurntableGuides = bool.fromEnvironment(
@@ -55,12 +62,13 @@ Future<void> main([List<String> args = const []]) async {
   PerfMetricsService.instance.markAppStart();
 
   // Global Error Handling
+  // Local, on-device error logging always runs; remote crash reporting is
+  // privacy-gated via TelemetryService.
   FlutterError.onError = (details) {
     FlutterError.presentError(details);
     debugPrint('FLUTTER ERROR: ${details.exception}');
-    unawaited(
-      AnalyticsService.instance.logFlutterError(details),
-    );
+    unawaited(AnalyticsService.instance.logFlutterError(details));
+    unawaited(TelemetryService.instance.captureFlutterError(details));
   };
   PlatformDispatcher.instance.onError = (error, stack) {
     debugPrint('PLATFORM ERROR: $error');
@@ -71,6 +79,7 @@ Future<void> main([List<String> args = const []]) async {
         stackTrace: stack.toString(),
       ),
     );
+    unawaited(TelemetryService.instance.capturePlatformError(error, stack));
     return true;
   };
 
@@ -82,6 +91,8 @@ Future<void> main([List<String> args = const []]) async {
 
   WidgetsFlutterBinding.ensureInitialized();
   await SettingsService.instance.init(); // Initialize Settings
+  await TelemetryService.instance
+      .init(); // Privacy-gated telemetry (reads consent)
   await DatabaseService.instance.init(); // Initialize Database
   await AnalyticsService.instance.init();
 
@@ -155,6 +166,12 @@ Future<void> main([List<String> args = const []]) async {
   // and playback commands are safe from the start.
   await PlayerController.ensureInitialized();
 
+  // Auto-run Sonic DNA analysis when charging + idle (non-blocking).
+  unawaited(SonicDnaScheduler.instance.start());
+
+  // Warm the Neural Mix index after DNA scans and invalidate on library change.
+  NeuralMixIndexService.instance.start();
+
   runApp(const PlayaApp());
 }
 
@@ -172,42 +189,43 @@ class PlayaApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: SettingsService.instance,
-      builder: (context, _) {
-        // Using new Design System (Phase 1)
-        final resolvedAccent = SettingsService.instance.resolveAccentColor(
-          SettingsService.instance.rawAccent,
-        );
+    return TelemetryLifecycleObserver(
+      child: AnimatedBuilder(
+        animation: SettingsService.instance,
+        builder: (context, _) {
+          // Using new Design System (Phase 1)
+          final resolvedAccent = SettingsService.instance.resolveAccentColor(
+            SettingsService.instance.rawAccent,
+          );
 
-        final playaColors = PlayaColorsExtension(
-          accent: resolvedAccent,
-        );
+          final playaColors = PlayaColorsExtension(accent: resolvedAccent);
 
-        final theme = AppTheme.dark.copyWith(
-          colorScheme: playaColorScheme(resolvedAccent),
-          extensions: <ThemeExtension<dynamic>>[
-            playaColors,
-          ],
-          textTheme: GoogleFonts.exo2TextTheme(
-            AppTheme.dark.textTheme.apply(bodyColor: PlayaColors.onSurface),
-          ),
-          sliderTheme: AppTheme.dark.sliderTheme.copyWith(
-            trackHeight: 3,
-            inactiveTrackColor: Colors.white24,
-            activeTrackColor: resolvedAccent,
-            thumbColor: resolvedAccent,
-            overlayShape: SliderComponentShape.noOverlay,
-          ),
-        );
+          final theme = AppTheme.dark.copyWith(
+            colorScheme: playaColorScheme(resolvedAccent),
+            extensions: <ThemeExtension<dynamic>>[playaColors],
+            textTheme: GoogleFonts.exo2TextTheme(
+              AppTheme.dark.textTheme.apply(bodyColor: PlayaColors.onSurface),
+            ),
+            sliderTheme: AppTheme.dark.sliderTheme.copyWith(
+              trackHeight: 3,
+              inactiveTrackColor: Colors.white24,
+              activeTrackColor: resolvedAccent,
+              thumbColor: resolvedAccent,
+              overlayShape: SliderComponentShape.noOverlay,
+            ),
+          );
 
-        return MaterialApp(
-          title: 'Playa',
-          debugShowCheckedModeBanner: false,
-          theme: theme,
-          home: const _Shell(),
-        );
-      },
+          return MaterialApp(
+            title: 'Playa',
+            debugShowCheckedModeBanner: false,
+            theme: theme,
+            home:
+                SettingsService.instance.onboardingComplete
+                    ? const _Shell()
+                    : const OnboardingScreen(),
+          );
+        },
+      ),
     );
   }
 }
@@ -233,12 +251,16 @@ class _ShellState extends State<_Shell> {
     // Handle any pending intent data from app launch
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_pendingIntentData != null && _pendingIntentData!.trim().isNotEmpty) {
-        ServiceLocator.instance.playerController.playExternalFile(_pendingIntentData!);
+        ServiceLocator.instance.playerController.playExternalFile(
+          _pendingIntentData!,
+        );
         _pendingIntentData = null; // Clear after handling
       }
       if (kAutoPlaybackTest) {
         // Run the automated playback scenario (non-blocking)
-        Future.microtask(() => _runAutoPlaybackTest(ServiceLocator.instance.playerController));
+        Future.microtask(
+          () => _runAutoPlaybackTest(ServiceLocator.instance.playerController),
+        );
       }
     });
   }
@@ -331,239 +353,290 @@ class _ShellState extends State<_Shell> {
           if (didPop) return;
           setState(() => _tab = 0);
         },
-        child: Stack(
-          children: [
-            // 1. Background Layer (Stars + Nebula)
-            if (settings.effectiveShowSpaceBackground)
-              Positioned.fill(
-                child: RepaintBoundary(
-                  child: DeepSpaceBackground(
-                    subtle: !immersiveSpace,
-                    hdrBoost: immersiveSpace,
-                    starDensity: _tab == 0 ? 0.96 : 0.62,
-                    mode: DeepSpaceMode.background,
-                  ),
-                ),
-              ),
+        child: StreamBuilder<Object?>(
+          stream: ctrl.player.sequenceStateStream,
+          builder: (context, snapshot) {
+            final item = ctrl.currentMediaItem;
+            final bpm = (item?.extras?['bpm'] as num?)?.toDouble();
 
-            // 2. Overlay Layer (Comets) - Behind Content
-            if (settings.effectiveShowSpaceBackground)
-              Positioned.fill(
-                child: RepaintBoundary(
-                  child: DeepSpaceBackground(
-                    subtle: !immersiveSpace,
-                    starDensity: _tab == 0 ? 0.96 : 0.62,
-                    mode: DeepSpaceMode.overlay,
-                  ),
-                ),
-              ),
-
-            // 2b. Torch engine glow bleed (Now Playing only)
-            if (settings.effectiveShowSpaceBackground && _tab != 0)
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: RepaintBoundary(
-                    child: TorchEngineGlowOverlay(ctrl: ctrl),
-                  ),
-                ),
-              ),
-
-            // 3. Content (Scaffold)
-            Scaffold(
-              backgroundColor: Colors.transparent,
-              appBar:
-                  _tab == 0
-                      ? null
-                      : AppBar(
-                        title: const Text('Now Playing'),
-                        actions: [
-                          if (Platform.isAndroid)
-                            IconButton(
-                              tooltip: 'Equalizer',
-                              icon: const PhosphorIcon(
-                                PhosphorIconsBold.sliders,
-                              ),
-                              onPressed:
-                                  () => Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder:
-                                          (_) => EqualizerScreen(
-                                            sessionId:
-                                                ctrl
-                                                    .player
-                                                    .androidAudioSessionId ??
-                                                0,
-                                          ),
-                                    ),
-                                  ),
-                            ),
-                          IconButton(
-                            tooltip: 'Sleep Timer',
-                            icon: const PhosphorIcon(PhosphorIconsBold.timer),
-                            onPressed: () => showSleepTimerSheet(context, ctrl),
-                          ),
-                          IconButton(
-                            tooltip: 'Queue',
-                            icon: const PhosphorIcon(PhosphorIconsBold.queue),
-                            onPressed: () => _showQueue(context, ctrl),
-                          ),
-                          IconButton(
-                            tooltip: 'Bookmarks',
-                            icon: const PhosphorIcon(
-                              PhosphorIconsBold.bookmarkSimple,
-                            ),
-                            onPressed: () => _showBookmarks(context, ctrl),
-                          ),
-                        ],
-                      ),
-              body: IndexedStack(
-                index: _tab,
-                children: [
-                  LibraryPage(isVisible: _tab == 0),
-                  PlayerScreen(isVisible: _tab == 1),
-                ],
-              ),
-              bottomNavigationBar: SafeArea(
-                top: false,
-                child: Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      PlayaSpacing.kSp * 2,
-                      0,
-                      PlayaSpacing.kSp * 2,
-                      PlayaSpacing.kSp,
-                    ),
-                    child: GlassPanel(
-                      borderRadius: BorderRadius.circular(32),
-                      borderWidth: 1.25,
-                      borderColor: PlayaColors.border,
-                      useStrongVariant: true,
-                      child: SizedBox(
-                        height: 48,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          _NavBarItem(
-                            icon: PhosphorIconsRegular.musicNotesSimple,
-                            selectedIcon: PhosphorIconsFill.musicNotesSimple,
-                            label: 'Library',
-                            selected: _tab == 0,
-                            onTap: () {
-                              FocusScope.of(context).unfocus();
-                              setState(() => _tab = 0);
-                            },
-                          ),
-                          _NavBarItem(
-                            icon: PhosphorIconsRegular.vinylRecord,
-                            selectedIcon: PhosphorIconsFill.vinylRecord,
-                            label: 'Player',
-                            selected: _tab == 1,
-                            onTap: () {
-                              FocusScope.of(context).unfocus();
-                              setState(() => _tab = 1);
-                            },
-                          ),
-                        ],
+            return Stack(
+              children: [
+                // 1. Background Layer (Stars + Nebula)
+                if (settings.effectiveShowSpaceBackground)
+                  Positioned.fill(
+                    child: RepaintBoundary(
+                      child: DeepSpaceBackground(
+                        subtle: !immersiveSpace,
+                        hdrBoost: immersiveSpace,
+                        hdrIntensity: _tab == 0 ? 1.0 : 0.75,
+                        starDensity: _tab == 0 ? 0.96 : 0.62,
+                        mode: DeepSpaceMode.background,
+                        bpm: bpm,
+                        accentColor: settings.accentFor(),
                       ),
                     ),
                   ),
-                ),
-              ),
-            ),
 
-            // 4. Global scan indicator (visible outside Library tab)
-            if (_tab != 0)
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: SafeArea(
-                  bottom: false,
-                  child: AnimatedBuilder(
-                    animation: scan,
-                    builder: (context, _) {
-                      if (scan.phase == LibraryScanPhase.error &&
-                          scan.lastError != null) {
-                        return Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: PlayaSpacing.kSp * 2,
-                            vertical: PlayaSpacing.kSp,
-                          ),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: PlayaSpacing.kSp,
-                              vertical: PlayaSpacing.kSp * 0.75,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.35),
-                              borderRadius: BorderRadius.circular(PlayaRadii.kRadius),
-                              border: Border.all(
-                                color: Colors.redAccent.withValues(alpha: 0.35),
-                                width: 1,
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(
-                                  Icons.error_outline,
-                                  color: Colors.redAccent,
-                                  size: 18,
-                                ),
-                                const SizedBox(width: PlayaSpacing.kSp),
-                                Expanded(
-                                  child: Text(
-                                    'Scan failed. ${scan.lastError}',
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: PlayaColors.onSurfaceVariant,
-                                      fontSize: 12,
-                                    ),
+                // 2. Overlay Layer (Comets) - Behind Content
+                if (settings.effectiveShowSpaceBackground)
+                  Positioned.fill(
+                    child: RepaintBoundary(
+                      child: DeepSpaceBackground(
+                        subtle: !immersiveSpace,
+                        hdrIntensity: _tab == 0 ? 1.0 : 0.75,
+                        starDensity: _tab == 0 ? 0.96 : 0.62,
+                        mode: DeepSpaceMode.overlay,
+                        bpm: bpm,
+                        accentColor: settings.accentFor(),
+                      ),
+                    ),
+                  ),
+
+                // 2b. Torch engine glow bleed (Now Playing only)
+                if (settings.effectiveShowSpaceBackground && _tab != 0)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: RepaintBoundary(
+                        child: TorchEngineGlowOverlay(ctrl: ctrl),
+                      ),
+                    ),
+                  ),
+
+                // 3. Content (Scaffold)
+                Scaffold(
+                  backgroundColor: Colors.transparent,
+                  appBar:
+                      _tab == 1
+                          ? PlayaAppBar(
+                            title: 'Now Playing',
+                            actions: [
+                              if (Platform.isAndroid)
+                                IconButton(
+                                  tooltip: 'Equalizer',
+                                  icon: const PhosphorIcon(
+                                    PhosphorIconsBold.sliders,
                                   ),
-                                ),
-                                TextButton(
                                   onPressed:
-                                      scan.isScanning
-                                          ? null
-                                          : () {
-                                            // Avoid disrupting playback while user is on Player tab.
-                                            unawaited(
-                                              LibraryScanService.instance
-                                                  .scanLibrary(
-                                                    restorePlayerState: false,
-                                                    force: true,
-                                                  ),
-                                            );
-                                          },
-                                  child: const Text('Retry'),
+                                      () => Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder:
+                                              (_) => EqualizerScreen(
+                                                sessionId:
+                                                    ctrl
+                                                        .player
+                                                        .androidAudioSessionId ??
+                                                    0,
+                                              ),
+                                        ),
+                                      ),
                                 ),
-                              ],
+                              IconButton(
+                                tooltip: 'Sleep Timer',
+                                icon: const PhosphorIcon(
+                                  PhosphorIconsBold.timer,
+                                ),
+                                onPressed:
+                                    () => showSleepTimerSheet(context, ctrl),
+                              ),
+                              IconButton(
+                                tooltip: 'Queue',
+                                icon: const PhosphorIcon(
+                                  PhosphorIconsBold.queue,
+                                ),
+                                onPressed: () => _showQueue(context, ctrl),
+                              ),
+                            ],
+                          )
+                          : null,
+                  body: IndexedStack(
+                    index: _tab,
+                    children: [
+                      LibraryPage(isVisible: _tab == 0),
+                      PlayerScreen(isVisible: _tab == 1),
+                      PlaylistsScreen(isVisible: _tab == 2),
+                    ],
+                  ),
+                  bottomNavigationBar: SafeArea(
+                    top: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        PlayaSpacing.kSp * 2,
+                        0,
+                        PlayaSpacing.kSp * 2,
+                        PlayaSpacing.kSp,
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_tab == 0)
+                            _MiniPlayer(
+                              ctrl: ctrl,
+                              onOpen: () {
+                                HapticFeedback.selectionClick();
+                                setState(() => _tab = 1);
+                              },
+                            ),
+                          if (_tab == 0)
+                            const SizedBox(height: PlayaSpacing.kSp),
+                          Container(
+                            decoration: PlayaEffects.matteSurface(
+                              borderRadius: BorderRadius.circular(32),
+                              elevated: true,
+                            ),
+                            child: SizedBox(
+                              height: 52,
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceEvenly,
+                                children: [
+                                  _NavBarItem(
+                                    icon: PhosphorIconsRegular.musicNotesSimple,
+                                    selectedIcon:
+                                        PhosphorIconsFill.musicNotesSimple,
+                                    label: 'Library',
+                                    selected: _tab == 0,
+                                    onTap: () {
+                                      if (_tab != 0) {
+                                        HapticFeedback.mediumImpact();
+                                        FocusScope.of(context).unfocus();
+                                        setState(() => _tab = 0);
+                                      }
+                                    },
+                                  ),
+                                  _NavBarItem(
+                                    icon: PhosphorIconsRegular.vinylRecord,
+                                    selectedIcon: PhosphorIconsFill.vinylRecord,
+                                    label: 'Player',
+                                    selected: _tab == 1,
+                                    onTap: () {
+                                      if (_tab != 1) {
+                                        HapticFeedback.mediumImpact();
+                                        setState(() => _tab = 1);
+                                      }
+                                    },
+                                  ),
+                                  _NavBarItem(
+                                    icon: PhosphorIconsRegular.playlist,
+                                    selectedIcon: PhosphorIconsFill.playlist,
+                                    label: 'Playlists',
+                                    selected: _tab == 2,
+                                    onTap: () {
+                                      if (_tab != 2) {
+                                        HapticFeedback.mediumImpact();
+                                        FocusScope.of(context).unfocus();
+                                        setState(() => _tab = 2);
+                                      }
+                                    },
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                        );
-                      }
-
-                      if (!scan.isScanning) return const SizedBox.shrink();
-                      return Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: PlayaSpacing.kSp * 2,
-                          vertical: PlayaSpacing.kSp,
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(999),
-                          child: LinearProgressIndicator(
-                            value: scan.progress == 0 ? null : scan.progress,
-                            backgroundColor: PlayaColors.trackMuted,
-                            color: SettingsService.instance.accentFor(),
-                            minHeight: 6,
-                          ),
-                        ),
-                      );
-                    },
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-              ),
-          ],
+
+                // 4. Global scan indicator (visible outside Library tab)
+                if (_tab != 0)
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: SafeArea(
+                      bottom: false,
+                      child: AnimatedBuilder(
+                        animation: scan,
+                        builder: (context, _) {
+                          if (scan.phase == LibraryScanPhase.error &&
+                              scan.lastError != null) {
+                            return Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: PlayaSpacing.kSp * 2,
+                                vertical: PlayaSpacing.kSp,
+                              ),
+                              child: GlassPanel(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: PlayaSpacing.xs,
+                                  vertical: PlayaSpacing.xxs * 1.5,
+                                ),
+                                borderRadius: BorderRadius.circular(
+                                  PlayaRadii.sm,
+                                ),
+                                borderColor: Colors.redAccent.withValues(
+                                  alpha: 0.35,
+                                ),
+                                color: Colors.black.withValues(alpha: 0.35),
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      PhosphorIconsRegular.warningCircle,
+                                      color: Colors.redAccent,
+                                      size: 18,
+                                    ),
+                                    const SizedBox(width: PlayaSpacing.xs),
+                                    Expanded(
+                                      child: Text(
+                                        'Scan failed. ${scan.lastError}',
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: PlayaColors.onSurfaceVariant,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
+                                    TextButton(
+                                      onPressed:
+                                          scan.isScanning
+                                              ? null
+                                              : () {
+                                                // Avoid disrupting playback while user is on Player tab.
+                                                unawaited(
+                                                  LibraryScanService.instance
+                                                      .scanLibrary(
+                                                        restorePlayerState:
+                                                            false,
+                                                        force: true,
+                                                      ),
+                                                );
+                                              },
+                                      child: const Text('Retry'),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }
+
+                          if (!scan.isScanning) return const SizedBox.shrink();
+                          return Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: PlayaSpacing.kSp * 2,
+                              vertical: PlayaSpacing.kSp,
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(
+                                PlayaRadii.pill,
+                              ),
+                              child: LinearProgressIndicator(
+                                value:
+                                    scan.progress == 0 ? null : scan.progress,
+                                backgroundColor: PlayaColors.trackMuted,
+                                color: SettingsService.instance.accentFor(),
+                                minHeight: 6,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -588,18 +661,6 @@ class _ShellState extends State<_Shell> {
     ).whenComplete(() {
       FocusManager.instance.primaryFocus?.unfocus();
     });
-  }
-
-  void _showBookmarks(BuildContext context, PlayerController ctrl) async {
-    if (!ctrl.isReady) return;
-    await ctrl.reloadBookmarks();
-    if (!context.mounted) return;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: false,
-      backgroundColor: Colors.transparent,
-      builder: (_) => BookmarksSheet(ctrl: ctrl),
-    );
   }
 }
 
@@ -657,6 +718,151 @@ class _NavBarItem extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _MiniPlayer extends StatelessWidget {
+  final PlayerController ctrl;
+  final VoidCallback onOpen;
+
+  const _MiniPlayer({required this.ctrl, required this.onOpen});
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    return StreamBuilder<SequenceState?>(
+      stream: ctrl.player.sequenceStateStream,
+      builder: (context, snapshot) {
+        final item = ctrl.currentMediaItem;
+        if (item == null) return const SizedBox.shrink();
+
+        final mediaId = item.extras?['mediaId'];
+
+        return Container(
+          height: 64,
+          decoration: PlayaEffects.matteSurface(
+            borderRadius: BorderRadius.circular(PlayaRadii.md),
+            elevated: true,
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(PlayaRadii.md),
+                  onTap: onOpen,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: PlayaSpacing.sm,
+                    ),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 40,
+                          height: 40,
+                          child: ArtworkImage(
+                            id:
+                                mediaId is int
+                                    ? mediaId
+                                    : (int.tryParse('$mediaId') ?? 0),
+                            nullArtworkWidget: const Icon(
+                              PhosphorIconsRegular.musicNote,
+                              color: PlayaColors.onSurfaceVariant,
+                            ),
+                            artworkBorder: BorderRadius.circular(PlayaRadii.xs),
+                            artworkFit: BoxFit.cover,
+                          ),
+                        ),
+                        const SizedBox(width: PlayaSpacing.sm),
+                        Expanded(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: PlayaColors.onSurface,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                item.artist ?? 'Unknown',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: PlayaColors.onSurfaceVariant,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              StreamBuilder<bool>(
+                stream: ctrl.player.playingStream,
+                initialData: ctrl.player.playing,
+                builder: (context, snap) {
+                  final playing = snap.data ?? false;
+                  return IconButton(
+                    tooltip: playing ? 'Pause' : 'Play',
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 44,
+                      minHeight: 44,
+                    ),
+                    icon: Icon(
+                      playing
+                          ? PhosphorIconsFill.pause
+                          : PhosphorIconsFill.play,
+                      color: accent,
+                      size: 26,
+                    ),
+                    onPressed:
+                        !ctrl.isReady
+                            ? null
+                            : () {
+                              HapticFeedback.selectionClick();
+                              if (playing) {
+                                ctrl.pause();
+                              } else {
+                                ctrl.play();
+                              }
+                            },
+                  );
+                },
+              ),
+              IconButton(
+                tooltip: 'Next',
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+                icon: const Icon(
+                  PhosphorIconsBold.skipForward,
+                  color: PlayaColors.onSurface,
+                  size: 22,
+                ),
+                onPressed:
+                    !ctrl.isReady
+                        ? null
+                        : () {
+                          HapticFeedback.selectionClick();
+                          ctrl.player.seekToNext();
+                        },
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

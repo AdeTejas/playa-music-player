@@ -46,7 +46,7 @@ class PlayaSettingsTile extends StatelessWidget {
               children: [
                 if (leading != null) ...[
                   IconTheme(
-                    data: IconThemeData(
+                    data: const IconThemeData(
                       color: PlayaColors.onSurfaceVariant,
                       size: 22,
                     ),
@@ -60,7 +60,7 @@ class PlayaSettingsTile extends StatelessWidget {
                     children: [
                       Text(
                         title,
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: PlayaTypography.md,
                           color: PlayaColors.onSurface,
                           fontWeight: FontWeight.w500,
@@ -71,7 +71,7 @@ class PlayaSettingsTile extends StatelessWidget {
                           padding: const EdgeInsets.only(top: 2),
                           child: Text(
                             subtitle!,
-                            style: TextStyle(
+                            style: const TextStyle(
                               fontSize: PlayaTypography.xs,
                               color: PlayaColors.onSurfaceVariant,
                             ),
@@ -87,8 +87,8 @@ class PlayaSettingsTile extends StatelessWidget {
               ],
             ),
             if (showDivider)
-              Padding(
-                padding: const EdgeInsets.only(top: PlayaSpacing.sm),
+              const Padding(
+                padding: EdgeInsets.only(top: PlayaSpacing.sm),
                 child: Divider(
                   height: 1,
                   color: PlayaColors.borderSubtle,

@@ -10,7 +10,7 @@ class AppTheme {
   const AppTheme._();
 
   static ThemeData get dark {
-    final colors = const PlayaColorsExtension();
+    const colors = PlayaColorsExtension();
 
     return ThemeData(
       brightness: Brightness.dark,
@@ -49,7 +49,7 @@ class AppTheme {
       ),
 
       // Extensions
-      extensions: <ThemeExtension<dynamic>>[
+      extensions: const <ThemeExtension<dynamic>>[
         colors,
       ],
 

@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -54,6 +55,35 @@ void main() {
     expect(cluster[2].scale, closeTo(0.58, 0.01));
     expect(cluster[0].offset, closeTo(-5.76, 0.01));
     expect(cluster[2].offset, closeTo(5.76, 0.01));
+  });
+
+  test('rocinante cluster has twin equal engines', () {
+    final cluster = TorchPlumeEngine.rocinanteCluster(8);
+    expect(cluster, hasLength(2));
+    expect(cluster[0].scale, closeTo(0.55, 0.01));
+    expect(cluster[1].scale, closeTo(0.55, 0.01));
+    expect(cluster[0].offset, closeTo(-3.84, 0.01));
+    expect(cluster[1].offset, closeTo(3.84, 0.01));
+  });
+
+  test('epstein cluster is center-dominant with flanking bells', () {
+    final cluster = TorchPlumeEngine.epsteinCluster(8);
+    expect(cluster, hasLength(3));
+    expect(cluster[0].offset, 0.0);
+    expect(cluster[0].scale, 1.0);
+    expect(cluster[1].scale, closeTo(0.50, 0.01));
+    expect(cluster[2].scale, closeTo(0.50, 0.01));
+    expect(cluster[1].offset, closeTo(-7.6, 0.01));
+    expect(cluster[2].offset, closeTo(7.6, 0.01));
+    expect(cluster[1].offset, lessThan(cluster[0].offset));
+    expect(cluster[2].offset, greaterThan(cluster[0].offset));
+  });
+
+  test('roci drive cluster is a single center bell', () {
+    final cluster = TorchPlumeEngine.rociDriveCluster(8);
+    expect(cluster, hasLength(1));
+    expect(cluster[0].offset, 0.0);
+    expect(cluster[0].scale, 1.0);
   });
 
   test('computeWaveformDrive reacts to local envelope', () {
@@ -198,7 +228,7 @@ void main() {
     expect(m.shipWidth, 20);
     expect(m.bellHalfW, closeTo(10.26, 0.01));
     expect(m.throatHalfW, closeTo(4.51, 0.01));
-    expect(m.engineFaceOffset, 36);
+    expect(m.engineFaceOffset, 40);
   });
 
   test('profileFor maps content modes', () {
@@ -210,5 +240,98 @@ void main() {
       TorchEffectBudget.profileFor(ContentMode.music),
       TorchContentProfile.music,
     );
+  });
+
+  test('waveformTinted horizontal plume paints without error', () {
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final budget = TorchEffectBudget.resolveForWaveform();
+    TorchPlumeEngine.paintHorizontalPlume(
+      canvas: canvas,
+      nozzleX: 200,
+      centerY: 60,
+      height: 120,
+      shipLen: 96,
+      baseColor: const Color(0xFFFF8A3D),
+      animTimeSeconds: 3.5,
+      beatStrength: 0.8,
+      waveformAmplitude: 0.7,
+      budget: budget,
+      blendScale: TorchPlumeEngine.waveformBlendScale,
+      cluster: TorchPlumeEngine.rociDriveCluster(
+        TorchPlumeEngine.engineMetrics(96).bellHalfW,
+      ),
+      waveformTinted: true,
+    );
+    expect(recorder.endRecording(), isNotNull);
+  });
+
+  test('waveformTinted plume stays accent-coherent (no cool-blue clash)', () {
+    const base = Color(0xFFFF8A3D);
+    final tinted = TorchPlumeEngine.exhaustWaveformGradientColors(
+      base,
+      waveformAmplitude: 0.7,
+    );
+    final tintedBody = tinted[3];
+    final sheath = TorchPlumeEngine.raptorSheath(base);
+    // The tinted body keeps the accent hue exactly (only alpha varies)...
+    expect(tintedBody.r, closeTo(base.r, 1e-6));
+    expect(tintedBody.g, closeTo(base.g, 1e-6));
+    expect(tintedBody.b, closeTo(base.b, 1e-6));
+    // ...while the untinted plume sheath stays cool (much bluer than accent).
+    expect(sheath.b, greaterThan(tintedBody.b));
+    expect(sheath.g, greaterThan(tintedBody.g));
+    expect(sheath.r, lessThan(tintedBody.r));
+  });
+
+  test('music full-tier budget enables waveform turbulence', () {
+    final budget = TorchEffectBudget.resolve(profile: TorchContentProfile.music);
+    expect(budget.drawTurbulence, isTrue);
+  });
+
+  test('audiobook budget disables waveform turbulence', () {
+    final budget =
+        TorchEffectBudget.resolve(profile: TorchContentProfile.audiobook);
+    expect(budget.drawTurbulence, isFalse);
+  });
+
+  test('paintWaveformTurbulence paints without error when enabled', () {
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    const budget = TorchEffectBudget(
+      tier: TorchEffectTier.full,
+      profile: TorchContentProfile.music,
+      plumeLengthMul: 1.0,
+      plumeAlphaMul: 1.0,
+      glowAlphaMul: 1.0,
+      diamondCount: 8,
+      outerBlur: 14.0,
+      innerBlur: 6.0,
+      coreBlur: 4.0,
+      nozzleBlur: 8.0,
+      drawOuterHalo: true,
+      drawTurbulence: true,
+      drawSecondGlow: true,
+      drawSideIons: true,
+    );
+
+    final data = List<double>.filled(50, 0.5);
+    final path = TorchPlumeEngine.buildExhaustWaveformPath(
+      waveformData: data,
+      width: 400,
+      height: 80,
+      centerY: 40,
+      nozzleX: 300,
+      shipLen: 64,
+    );
+    TorchPlumeEngine.paintWaveformTurbulence(
+      canvas: canvas,
+      path: path,
+      nozzleX: 300,
+      transitionWidth: 80,
+      waveformAmplitude: 0.7,
+      budget: budget,
+    );
+    expect(recorder.endRecording(), isNotNull);
   });
 }

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../design/design_system.dart';
+import '../design/utils/design_utils.dart';
 import '../services/settings_service.dart';
 import 'playback_motion.dart';
 
@@ -381,14 +382,16 @@ class _SacredResonanceSpeakerPainter extends CustomPainter {
           Offset(center.dx - r, center.dy - r),
           Offset(center.dx + r, center.dy + r),
           [
-            PlayaColors.matteGunmetal,
+            PlayaColors.matteSlate,
             PlayaColors.matteGraphite,
-            PlayaColors.matteWarm,
+            PlayaColors.obsidian,
             PlayaColors.deepVoid,
           ],
           const [0.0, 0.35, 0.72, 1.0],
         ),
     );
+
+    DesignUtils.drawNoise(canvas, outer.outerRect.size, opacity: 0.05);
 
     canvas.drawRRect(
       outer,

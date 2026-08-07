@@ -60,7 +60,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _updateWakelock() {
-    if (SettingsService.instance.keepScreenOn) {
+    if (SettingsService.instance.keepScreenOn &&
+        !SettingsService.instance.batterySaver) {
       WakelockPlus.enable();
     } else {
       WakelockPlus.disable();
@@ -98,7 +99,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           final isLandscape =
                               orientation == Orientation.landscape;
                           final hasWaveform = SettingsService.instance
-                                  .showWaveforms &&
+                                  .effectiveShowWaveforms &&
                               tag != null &&
                               tag.extras?['path'] is String &&
                               (tag.extras!['path'] as String).isNotEmpty;
@@ -115,6 +116,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             player: p,
                             waveformHeight: layout.waveformHeight,
                             waveformMode: layout.waveformMode,
+                            isVisible: widget.isVisible,
                           );
 
                           Widget scaledDock({
@@ -250,6 +252,7 @@ class _NowPlayingControlsColumn extends StatelessWidget {
   final AudioPlayer player;
   final double waveformHeight;
   final WaveformDisplayMode waveformMode;
+  final bool isVisible;
 
   const _NowPlayingControlsColumn({
     required this.item,
@@ -257,10 +260,11 @@ class _NowPlayingControlsColumn extends StatelessWidget {
     required this.player,
     required this.waveformHeight,
     this.waveformMode = WaveformDisplayMode.compact,
+    this.isVisible = true,
   });
 
   bool get _hasWaveform {
-    if (!SettingsService.instance.showWaveforms || item == null) {
+    if (!SettingsService.instance.effectiveShowWaveforms || item == null) {
       return false;
     }
     final path = item!.extras?['path'];
@@ -277,28 +281,35 @@ class _NowPlayingControlsColumn extends StatelessWidget {
       compact: true,
     );
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (_hasWaveform)
-          _WaveformSection(
-            item: item,
-            player: player,
-            height: waveformHeight,
-            showDuration: false,
-            displayMode: waveformMode,
-          ),
-        if (_hasWaveform) const SizedBox(height: _NowPlayingSpacing.tight),
-        _PlaybackTimeRow(ctrl: ctrl),
-        const SizedBox(height: _NowPlayingSpacing.section),
-        metadata,
-        if (isAudiobook) ...[
-          const SizedBox(height: _NowPlayingSpacing.group),
-          AudiobookSpeedRow(ctrl: ctrl, compact: true),
-        ],
-        const SizedBox(height: _NowPlayingSpacing.section),
-        _PlayerControlsSection(ctrl: ctrl, compact: true),
-      ],
+    return ValueListenableBuilder<List<Map<String, dynamic>>>(
+      valueListenable: ctrl.bookmarksNotifier,
+      builder: (context, bookmarks, _) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_hasWaveform)
+              _WaveformSection(
+                item: item,
+                player: player,
+                height: waveformHeight,
+                showDuration: false,
+                displayMode: waveformMode,
+                bookmarks: bookmarks,
+                isVisible: isVisible,
+              ),
+            const SizedBox(height: 2),
+            _PlaybackTimeRow(ctrl: ctrl),
+            const SizedBox(height: _NowPlayingSpacing.section),
+            metadata,
+            if (isAudiobook) ...[
+              const SizedBox(height: _NowPlayingSpacing.group),
+              AudiobookSpeedRow(ctrl: ctrl, compact: true),
+            ],
+            const SizedBox(height: _NowPlayingSpacing.section),
+            _PlayerControlsSection(ctrl: ctrl, compact: true),
+          ],
+        );
+      },
     );
   }
 }
@@ -320,9 +331,10 @@ class _NowPlayingFavoriteButton extends StatelessWidget {
         final isFav = item != null && favorites.contains(item!.id);
         final accent = Theme.of(context).colorScheme.primary;
         return IconButton(
+          tooltip: isFav ? 'Remove from favorites' : 'Add to favorites',
           visualDensity: VisualDensity.compact,
           padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+          constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
           onPressed: item == null ? null : () => ctrl.toggleFavorite(item!.id),
           icon: Icon(
             isFav ? PhosphorIconsFill.heart : PhosphorIconsRegular.heart,
@@ -333,9 +345,7 @@ class _NowPlayingFavoriteButton extends StatelessWidget {
       },
     );
   }
-}
-
-class _PlayerControlsSection extends StatelessWidget {
+}class _PlayerControlsSection extends StatelessWidget {
   final PlayerController ctrl;
   final bool compact;
 
@@ -700,8 +710,8 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
 
       case 'screensaver':
         return _ReorderableChipIcon(
-          key: ValueKey('screensaver'),
-          icon: Icons.slideshow,
+          key: const ValueKey('screensaver'),
+          icon: PhosphorIconsRegular.monitor,
           label: 'Screensaver',
           active: false,
           isReordering: _isReordering,
@@ -863,32 +873,69 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
       children: [
         Align(
           alignment: Alignment.centerRight,
-          child: GestureDetector(
-            onLongPress: () {
-              setState(() {
-                _isReordering = !_isReordering;
-                if (!_isReordering) {
-                  _selectedChipIndex = null;
+          child: Tooltip(
+            message: _isReordering ? 'Finish reordering' : 'Reorder controls',
+            child: InkWell(
+              onTap: () {
+                setState(() {
+                  _isReordering = !_isReordering;
+                  if (!_isReordering) {
+                    _selectedChipIndex = null;
+                  }
+                });
+                HapticFeedback.mediumImpact();
+                if (_isReordering) {
+                  showToast(
+                    context,
+                    'Tap a chip to select, long-press to move',
+                  );
+                } else {
+                  SettingsService.instance.setControlChipOrder(_chipOrder);
+                  showToast(context, 'Order saved');
                 }
-              });
-              HapticFeedback.mediumImpact();
-              if (_isReordering) {
-                showToast(context, 'Tap to select, long-press to move');
-              } else {
-                SettingsService.instance.setControlChipOrder(_chipOrder);
-                showToast(context, 'Order saved');
-              }
-            },
-            child: Container(
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: _isReordering ? Colors.blue.withValues(alpha: 0.2) : Colors.transparent,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Icon(
-                _isReordering ? Icons.check : Icons.reorder,
-                size: 16,
-                color: _isReordering ? Colors.blue : PlayaColors.onSurfaceVariant,
+              },
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: _isReordering
+                      ? Colors.blue.withValues(alpha: 0.2)
+                      : PlayaColors.surface.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: _isReordering
+                        ? Colors.blue.withValues(alpha: 0.6)
+                        : Colors.white12,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _isReordering
+                          ? PhosphorIconsRegular.check
+                          : PhosphorIconsRegular.list,
+                      size: 15,
+                      color: _isReordering
+                          ? Colors.blue
+                          : PlayaColors.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      _isReordering ? 'Done' : 'Reorder',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: _isReordering
+                            ? Colors.blue
+                            : PlayaColors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -933,7 +980,7 @@ class _IconBtn extends StatelessWidget {
         onPressed: onTap,
         visualDensity: VisualDensity.compact,
         padding: EdgeInsets.zero,
-        constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
       );
     }
 
@@ -945,13 +992,13 @@ class _IconBtn extends StatelessWidget {
           onTap: onTap,
           customBorder: const CircleBorder(),
           child: SizedBox(
-            width: 42,
-            height: 42,
+            width: 44,
+            height: 44,
             child: Stack(
               alignment: Alignment.center,
               children: [
                 Positioned(
-                  top: 7,
+                  top: 8,
                   child: PhosphorIcon(
                     icon,
                     size: 22,
@@ -959,12 +1006,12 @@ class _IconBtn extends StatelessWidget {
                   ),
                 ),
                 Positioned(
-                  bottom: 5,
+                  bottom: 6,
                   child: Text(
                     label!,
                     style: const TextStyle(
                       color: PlayaColors.onSurfaceVariant,
-                      fontSize: 9,
+                      fontSize: 10,
                       fontWeight: FontWeight.w600,
                       height: 1,
                     ),
@@ -1010,7 +1057,7 @@ class _PlaybackTimeRow extends StatelessWidget {
             return LayoutBuilder(
               builder: (context, constraints) {
                 final narrow = constraints.maxWidth < 180;
-                final fontSize = narrow ? 10.0 : 11.0;
+                final fontSize = narrow ? 11.0 : 12.0;
                 final timeStyle = TextStyle(
                   fontSize: fontSize,
                   fontFamily: 'monospace',
@@ -1132,6 +1179,8 @@ class _WaveformSection extends StatelessWidget {
   final double height;
   final bool showDuration;
   final WaveformDisplayMode displayMode;
+  final List<Map<String, dynamic>>? bookmarks;
+  final bool isVisible;
 
   const _WaveformSection({
     required this.item,
@@ -1139,11 +1188,13 @@ class _WaveformSection extends StatelessWidget {
     this.height = 80,
     this.showDuration = false,
     this.displayMode = WaveformDisplayMode.compact,
+    this.bookmarks,
+    this.isVisible = true,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (!SettingsService.instance.showWaveforms || item == null) {
+    if (!SettingsService.instance.effectiveShowWaveforms || item == null) {
       return const SizedBox();
     }
     final path = item!.extras?['path'];
@@ -1169,6 +1220,8 @@ class _WaveformSection extends StatelessWidget {
                   item: item,
                   showDuration: showDuration,
                   displayMode: displayMode,
+                  bookmarks: bookmarks,
+                  isVisible: isVisible,
                 ),
               ),
             );
@@ -1231,7 +1284,7 @@ class _ReorderableChipIconState extends State<_ReorderableChipIcon> {
       child: Transform.translate(
         offset: _isDragging ? _dragOffset : Offset.zero,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           decoration: BoxDecoration(
             color: widget.active
                 ? accent.withValues(alpha: 0.2)
@@ -1259,7 +1312,7 @@ class _ReorderableChipIconState extends State<_ReorderableChipIcon> {
             children: [
               if (widget.isReordering) ...[
                 Icon(
-                  widget.isSelected ? Icons.radio_button_checked : Icons.drag_indicator,
+                  widget.isSelected ? PhosphorIconsRegular.checkCircle : PhosphorIconsRegular.dotsSixVertical,
                   size: 14,
                   color: widget.isSelected ? Colors.orange : Colors.blue,
                 ),
@@ -1275,7 +1328,7 @@ class _ReorderableChipIconState extends State<_ReorderableChipIcon> {
                 widget.label,
                 style: TextStyle(
                   color: widget.active ? accent : PlayaColors.onSurfaceVariant,
-                  fontSize: 11,
+                  fontSize: 12,
                   fontWeight: widget.active ? FontWeight.bold : FontWeight.normal,
                 ),
               ),
@@ -1294,35 +1347,40 @@ class _SpeedSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = Theme.of(context).colorScheme.primary;
-    return Container(
-      color: PlayaColors.surface,
-      padding: const EdgeInsets.all(PlayaSpacing.kSp * 2),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text(
-            'Playback Speed',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: PlayaSpacing.kSp),
-          Wrap(
-            spacing: PlayaSpacing.kSp,
-            children:
-                [0.5, 0.8, 1.0, 1.2, 1.5, 2.0].map((speed) {
-                  final selected = (speed - current).abs() < 0.01;
-                  return ChoiceChip(
-                    label: Text('${speed}x'),
-                    selected: selected,
-                    onSelected: (_) => Navigator.pop(context, speed),
-                    selectedColor: accent,
-                    backgroundColor: PlayaColors.card,
-                    labelStyle: TextStyle(
-                      color: selected ? Colors.white : PlayaColors.onSurface,
-                    ),
-                  );
-                }).toList(),
-          ),
-        ],
+    return GlassPanel(
+      borderRadius: const BorderRadius.vertical(
+        top: Radius.circular(PlayaRadii.lg),
+      ),
+      isLibraryPanel: true,
+      child: Padding(
+        padding: const EdgeInsets.all(PlayaSpacing.kSp * 2),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Playback Speed',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: PlayaSpacing.kSp),
+            Wrap(
+              spacing: PlayaSpacing.kSp,
+              children:
+                  [0.5, 0.8, 1.0, 1.2, 1.5, 2.0].map((speed) {
+                    final selected = (speed - current).abs() < 0.01;
+                    return ChoiceChip(
+                      label: Text('${speed}x'),
+                      selected: selected,
+                      onSelected: (_) => Navigator.pop(context, speed),
+                      selectedColor: accent,
+                      backgroundColor: PlayaColors.card,
+                      labelStyle: TextStyle(
+                        color: selected ? Colors.white : PlayaColors.onSurface,
+                      ),
+                    );
+                  }).toList(),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1359,7 +1417,7 @@ class _QueueSheetState extends State<QueueSheet>
     return GlassPanel(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
       borderColor: PlayaColors.border,
-      backgroundColor: PlayaColors.glass,
+      isLibraryPanel: true,
       child: Column(
         children: [
           TabBar(
@@ -1488,6 +1546,7 @@ class _QueueSheetState extends State<QueueSheet>
                   style: const TextStyle(color: PlayaColors.onSurfaceVariant),
                 ),
                 trailing: IconButton(
+                  tooltip: 'Add to Queue',
                   icon: const Icon(
                     PhosphorIconsRegular.plusCircle,
                     color: PlayaColors.onSurfaceVariant,
@@ -1500,11 +1559,17 @@ class _QueueSheetState extends State<QueueSheet>
                 onTap: () {
                   showModalBottomSheet(
                     context: context,
-                    backgroundColor: PlayaColors.surface,
+                    backgroundColor: Colors.transparent,
                     builder:
-                        (ctx) => Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
+                        (ctx) => GlassPanel(
+                          borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(16),
+                          ),
+                          borderColor: Colors.white.withValues(alpha: 0.14),
+                          backgroundColor: PlayaColors.glass,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
                             ListTile(
                               leading: const Icon(
                                 PhosphorIconsRegular.play,
@@ -1552,6 +1617,7 @@ class _QueueSheetState extends State<QueueSheet>
                             ),
                           ],
                         ),
+                      ),
                   );
                 },
               );
@@ -1576,12 +1642,11 @@ class _SonicDnaBadge extends StatelessWidget {
         if (meta == null || meta.bpm == null) return const SizedBox.shrink();
 
         return Container(
-          margin: const EdgeInsets.only(top: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          decoration: BoxDecoration(
-            color: PlayaColors.surfaceVariant,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: PlayaColors.borderSubtle),
+          margin: const EdgeInsets.only(top: PlayaSpacing.xs),
+          padding: const EdgeInsets.symmetric(horizontal: PlayaSpacing.sm, vertical: PlayaSpacing.xxs),
+          decoration: PlayaEffects.matteSurface(
+            borderRadius: BorderRadius.circular(PlayaRadii.sm),
+            baseColor: PlayaColors.surfaceVariant,
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,

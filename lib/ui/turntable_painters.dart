@@ -787,7 +787,7 @@ class TurntableSpinnerPainter extends CustomPainter {
 
     canvas.drawPath(headshellPath, Paint()..color = const Color(0xFF1A1A1A));
 
-    final serviceAccent = Color(0xFFFF5722);
+    const serviceAccent = Color(0xFFFF5722);
     canvas.drawLine(
       Offset(w * 0.02, -w * 0.015),
       Offset(w * 0.02, w * 0.015),

@@ -26,15 +26,24 @@ class DeepSpaceFrameBudget {
     required DeepSpaceMode mode,
     required bool subtle,
     required bool hasComets,
-    required bool appActive,
   }) {
-    if (!appActive) return double.infinity;
     if (mode == DeepSpaceMode.overlay) {
       final fps = hasComets ? overlayActiveFps : overlayIdleFps;
       return 1.0 / fps;
     }
     final fps = subtle ? backgroundSubtleFps : backgroundImmersiveFps;
     return 1.0 / fps;
+  }
+
+  /// Smooth 0..1 envelope peaking exactly on each beat and troughing mid-beat.
+  /// [beatPhase] is the cumulative beat count (any bpm).
+  ///
+  /// The background ticker advances `timeSeconds` at (bpm/120), so
+  /// `2 * timeSeconds` is the true beat count: at 60/120/180 BPM it produces
+  /// 1/2/3 beats per wall-clock second.
+  static double beatPulseEnvelope(double beatPhase) {
+    final frac = beatPhase - beatPhase.floorToDouble();
+    return 0.5 + 0.5 * cos(2 * pi * frac);
   }
 }
 
@@ -53,6 +62,9 @@ class _QualityBudget {
   final double starAlpha;
   final int subtleStarFloor;
 
+  /// Scales the HDR realism grade (bloom, spikes, hot cores, filmic pass).
+  final double hdrIntensity;
+
   const _QualityBudget({
     required this.starCount,
     required this.nebulaClouds,
@@ -66,6 +78,7 @@ class _QualityBudget {
     required this.nebulaAlpha,
     required this.starAlpha,
     required this.subtleStarFloor,
+    required this.hdrIntensity,
   });
 
   factory _QualityBudget.resolve({
@@ -73,6 +86,7 @@ class _QualityBudget {
     required bool subtle,
     required bool isDesktop,
     double starDensity = 1.0,
+    double hdrIntensity = 1.0,
   }) {
     final areaBoost = isDesktop ? 1.25 : 1.0;
     final dprBoost = (dpr / 2.0).clamp(0.85, 1.35);
@@ -95,6 +109,7 @@ class _QualityBudget {
       nebulaAlpha: subtle ? 0.11 : (isDesktop ? 0.18 : 0.16),
       starAlpha: subtle ? 0.94 : (isDesktop ? 1.0 : 0.98),
       subtleStarFloor: subtle ? 420 : 0,
+      hdrIntensity: hdrIntensity.clamp(0.0, 1.5),
     );
   }
 }
@@ -106,15 +121,32 @@ class DeepSpaceBackground extends StatefulWidget {
   /// Star field density multiplier. Library ~0.80; Now Playing ~0.49; screensaver ~0.54.
   final double starDensity;
 
+  /// Current audio BPM to drive animation speed.
+  final double? bpm;
+
+  /// Optional accent color to tint the nebula.
+  final Color? accentColor;
+
   /// Perceptual HDR lift (bright cores / deep vignette) without extra particles.
   final bool hdrBoost;
+
+  /// Scales the HDR realism grade (bloom, spikes, hot cores, filmic pass).
+  /// Now Playing ~1.0, Library ~0.75. Ignored when [hdrBoost] is false.
+  final double hdrIntensity;
+
+  /// Optional sky seed for deterministic layouts (tests / previews).
+  final int? seed;
 
   const DeepSpaceBackground({
     super.key,
     this.subtle = false,
     this.mode = DeepSpaceMode.background,
     this.starDensity = 1.0,
+    this.bpm,
+    this.accentColor,
     this.hdrBoost = true,
+    this.hdrIntensity = 1.0,
+    this.seed,
   });
 
   @override
@@ -125,27 +157,31 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   static const int _maxConcurrentComets = 2;
   static const double _cometSpawnRate = 0.10;
-  static const double _nebulaCacheLifetimeSeconds = 2.5;
+  static const double _nebulaCacheLifetimeSeconds = 15.0;
 
   late Ticker _ticker;
   final ValueNotifier<double> _repaint = ValueNotifier<double>(0.0);
   double _repaintAccumulator = 0.0;
-  bool _appActive = true;
   final List<_Star> _stars = [];
   final List<_Star> _farStars = [];
   final List<_ShootingStar> _shootingStars = [];
-  final Random _rnd = Random();
+  late final Random _rnd =
+      widget.seed != null ? Random(widget.seed) : Random();
 
   Size? _lastSize;
   double? _lastDpr;
   bool? _lastSubtle;
   double? _lastStarDensity;
+  double? _lastHdrIntensity;
   _QualityBudget? _budget;
   ui.Picture? _cachedFarLayer;
   Size? _cachedFarLayerSize;
   ui.Picture? _cachedNebulaLayer;
   Size? _cachedNebulaLayerSize;
+  ui.Image? _cachedNebulaImage;
+  Size? _cachedNebulaImageSize;
   double _lastNebulaCacheAt = -999.0;
+  final List<ui.Image> _retiredNebulaImages = [];
 
   final List<Offset> _nebulaCenters = [];
   final List<Offset> _nebulaVels = [];
@@ -223,6 +259,7 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
         subtle: widget.subtle,
         isDesktop: _isDesktop,
         starDensity: widget.starDensity,
+        hdrIntensity: widget.hdrIntensity,
       );
       for (int i = 0; i < budget.nebulaClouds; i++) {
         _nebulaCenters.add(Offset(_rnd.nextDouble(), _rnd.nextDouble()));
@@ -247,17 +284,14 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
     _repaint.dispose();
     _cachedFarLayer = null;
     _cachedNebulaLayer = null;
+    _cachedNebulaImage?.dispose();
+    _cachedNebulaImage = null;
+    _flushRetiredNebulaImages();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    _appActive = state == AppLifecycleState.resumed;
-    if (_appActive && !_ticker.isActive) {
-      _ticker.start();
-    } else if (!_appActive) {
-      _ticker.stop();
-    }
   }
 
   Color _randomStarColor() {
@@ -317,6 +351,7 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
     _farStars.clear();
     _cachedFarLayer = null;
     _cachedNebulaLayer = null;
+    _retireNebulaImage();
     _lastNebulaCacheAt = -999.0;
 
     final budget = _QualityBudget.resolve(
@@ -324,6 +359,7 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
       subtle: widget.subtle,
       isDesktop: _isDesktop,
       starDensity: widget.starDensity,
+      hdrIntensity: widget.hdrIntensity,
     );
     _budget = budget;
 
@@ -379,8 +415,8 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
         color: _randomStarColor(),
         driftSpeed: switch (layer) {
           StarLayer.far => 0.002 + _rnd.nextDouble() * 0.004,
-          StarLayer.mid => 0.006 + _rnd.nextDouble() * 0.010,
-          StarLayer.near => 0.014 + _rnd.nextDouble() * 0.020,
+          StarLayer.mid => 0.010 + _rnd.nextDouble() * 0.014,
+          StarLayer.near => 0.022 + _rnd.nextDouble() * 0.028,
         },
         depth: depth,
       );
@@ -397,13 +433,15 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
     _lastDpr = devicePixelRatio;
     _lastSubtle = widget.subtle;
     _lastStarDensity = widget.starDensity;
+    _lastHdrIntensity = widget.hdrIntensity;
   }
 
   bool _needsStarReinit(Size size, double dpr) {
     return _lastSize != size ||
         _lastDpr != dpr ||
         _lastSubtle != widget.subtle ||
-        _lastStarDensity != widget.starDensity;
+        _lastStarDensity != widget.starDensity ||
+        _lastHdrIntensity != widget.hdrIntensity;
   }
 
   void _rebuildFarLayerCache(Size size) {
@@ -417,6 +455,29 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
     final paint = Paint();
     final w = size.width;
     final h = size.height;
+    final hdr = widget.hdrBoost && !widget.subtle;
+    final hi = _budget?.hdrIntensity ?? 1.0;
+
+    // Soft halo pass (baked once) — the wide component of HDR two-scale bloom
+    // for the distant layer, so it costs nothing per frame.
+    if (hdr) {
+      paint
+        ..blendMode = BlendMode.plus
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 2.2);
+      for (final star in _farStars) {
+        paint.color = star.color.withValues(
+          alpha: star.brightness * 0.16 * hi,
+        );
+        canvas.drawCircle(
+          Offset(star.x * w, star.y * h),
+          max(0.9, star.size * 2.4),
+          paint,
+        );
+      }
+      paint
+        ..maskFilter = null
+        ..blendMode = BlendMode.srcOver;
+    }
 
     for (final star in _farStars) {
       paint.color = star.color.withValues(alpha: star.brightness * 1.02);
@@ -431,12 +492,28 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
     _cachedFarLayerSize = size;
   }
 
+  void _retireNebulaImage() {
+    if (_cachedNebulaImage == null) return;
+    _retiredNebulaImages.add(_cachedNebulaImage!);
+    _cachedNebulaImage = null;
+    _cachedNebulaImageSize = null;
+  }
+
+  void _flushRetiredNebulaImages() {
+    for (final image in _retiredNebulaImages) {
+      image.dispose();
+    }
+    _retiredNebulaImages.clear();
+  }
+
   void _rebuildNebulaCache(Size size, double timeSeconds) {
     if (widget.subtle ||
         widget.mode != DeepSpaceMode.background ||
         _budget == null) {
       _cachedNebulaLayer = null;
       _cachedNebulaLayerSize = null;
+      _retireNebulaImage();
+      if (mounted) setState(() {});
       return;
     }
 
@@ -460,6 +537,20 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
     _cachedNebulaLayer = recorder.endRecording();
     _cachedNebulaLayerSize = size;
     _lastNebulaCacheAt = timeSeconds;
+
+    // Rasterize the baked nebula (clouds + vignette + grade + dither) into a
+    // texture once, so per-frame replay is a single draw op instead of the
+    // recorded picture's ~100 gradient shader calls. Soft nebulosity tolerates
+    // half-resolution: content is all low-frequency gradients, so a 2x upscale
+    // at composite is visually identical while halving bake cost and memory.
+    final dpr = _lastDpr ?? 1.0;
+    final wPx = max(1, (size.width * dpr * 0.5).round());
+    final hPx = max(1, (size.height * dpr * 0.5).round());
+    final image = _cachedNebulaLayer!.toImageSync(wPx, hPx);
+    _retireNebulaImage();
+    _cachedNebulaImage = image;
+    _cachedNebulaImageSize = size;
+    if (mounted) setState(() {});
   }
 
   void _maybeRefreshNebulaCache(Size size, double timeSeconds) {
@@ -473,6 +564,7 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
   @override
   Widget build(BuildContext context) {
     final disableAnimations = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    _flushRetiredNebulaImages();
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -486,6 +578,7 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
             _lastDpr = dpr;
             _lastSubtle = widget.subtle;
             _lastStarDensity = widget.starDensity;
+            _lastHdrIntensity = widget.hdrIntensity;
           }
         }
 
@@ -517,10 +610,14 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
               cachedFarLayerSize: _cachedFarLayerSize,
               cachedNebulaLayer: _cachedNebulaLayer,
               cachedNebulaLayerSize: _cachedNebulaLayerSize,
+              cachedNebulaImage: _cachedNebulaImage,
+              cachedNebulaImageSize: _cachedNebulaImageSize,
               mode: widget.mode,
               time: _repaint,
               devicePixelRatio: dpr,
               frame: _frame,
+              accentColor: widget.accentColor,
+              bpm: widget.bpm,
             ),
             size: Size.infinite,
           ),
@@ -530,10 +627,14 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
   }
 
   void _onTick(Duration elapsed) {
-    if (!mounted || !_appActive) return;
-    final dt = (elapsed - _lastElapsed).inMilliseconds / 1000.0;
+    if (!mounted) return;
+    final baseDt = (elapsed - _lastElapsed).inMilliseconds / 1000.0;
     _lastElapsed = elapsed;
-    if (!dt.isFinite || dt <= 0) return;
+    if (!baseDt.isFinite || baseDt <= 0) return;
+
+    // React to BPM: 120 BPM = 1.0x speed, 60 BPM = 0.5x, 180 BPM = 1.5x
+    final bpmFactor = widget.bpm != null ? (widget.bpm! / 120.0).clamp(0.5, 2.0) : 1.0;
+    final dt = baseDt * bpmFactor;
 
     _timeSeconds += dt;
     if (_timeSeconds > 3600) _timeSeconds -= 3600;
@@ -603,7 +704,6 @@ class _DeepSpaceBackgroundState extends State<DeepSpaceBackground>
       mode: widget.mode,
       subtle: widget.subtle,
       hasComets: _shootingStars.isNotEmpty,
-      appActive: _appActive,
     );
     _repaintAccumulator += dt;
     if (_repaintAccumulator < minInterval) return;
@@ -781,7 +881,7 @@ class _Star {
     final n2 = _hash11(timeSeconds * 1.25 + seed * 0.0000007);
     final noise = (n1 - 0.5) * 1.15 + (n2 - 0.5) * 0.55;
     final wave = baseWave + noise;
-    final twinkleAmp = 0.18 * (0.35 + depth * 0.65) * (layer == StarLayer.near ? 1.35 : 1.0);
+    final twinkleAmp = 0.08 * (0.35 + depth * 0.65) * (layer == StarLayer.near ? 1.35 : 1.0);
     return (brightness + wave * twinkleAmp).clamp(0.05, 1.0);
   }
 
@@ -901,10 +1001,16 @@ class _StarFieldPainter extends CustomPainter {
   final Size? cachedFarLayerSize;
   final ui.Picture? cachedNebulaLayer;
   final Size? cachedNebulaLayerSize;
+  final ui.Image? cachedNebulaImage;
+  final Size? cachedNebulaImageSize;
   final DeepSpaceMode mode;
   final ValueNotifier<double> time;
   final double devicePixelRatio;
   final int frame;
+  final Color? accentColor;
+
+  /// Current audio BPM (null = no playback → no beat-locked twinkle pulse).
+  final double? bpm;
 
   _StarFieldPainter({
     required this.stars,
@@ -921,10 +1027,14 @@ class _StarFieldPainter extends CustomPainter {
     required this.cachedFarLayerSize,
     this.cachedNebulaLayer,
     this.cachedNebulaLayerSize,
+    this.cachedNebulaImage,
+    this.cachedNebulaImageSize,
     required this.mode,
     required this.time,
     required this.devicePixelRatio,
     required this.frame,
+    this.accentColor,
+    this.bpm,
   }) : super(repaint: time);
 
   static void recordStaticLayers({
@@ -966,9 +1076,50 @@ class _StarFieldPainter extends CustomPainter {
     }
   }
 
-  double _hash01(double v) {
+  static double _hash01(double v) {
     final x = sin(v * 12.9898) * 43758.5453;
     return x - x.floorToDouble();
+  }
+
+  // Banding dither is baked into the cached nebula picture. It used to be
+  // ~180k tiny circles recorded per screen — a picture replayed every frame,
+  // so the raster thread re-executed ~180k draw calls at full resolution. The
+  // same noise is now generated once into a small tile and tiled with an
+  // ImageShader, collapsing the per-frame cost to a single draw op.
+  static ui.Image? _ditherTile;
+  static const int _ditherTilePx = 120;
+  static const double _ditherStep = 5.0;
+  static final Float64List _identity4 = Float64List.fromList([
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, 1, 0,
+    0, 0, 0, 1,
+  ]);
+
+  static ui.Image _ensureDitherTile() {
+    final cached = _ditherTile;
+    if (cached != null) return cached;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final paint = Paint()..style = PaintingStyle.fill;
+    int k = 0;
+    for (double y = _ditherStep * 0.5; y < _ditherTilePx; y += _ditherStep) {
+      for (double x = _ditherStep * 0.5; x < _ditherTilePx; x += _ditherStep) {
+        final s = _hash01(k * 0.173 + y * 0.37 + x * 0.61);
+        k++;
+        paint.color = (s < 0.5 ? Colors.white : Colors.black)
+            .withValues(alpha: 0.012 * (0.5 + s));
+        canvas.drawCircle(
+          Offset(x + (s - 0.5) * _ditherStep, y + (s - 0.5) * _ditherStep),
+          0.6,
+          paint,
+        );
+      }
+    }
+    final image =
+        recorder.endRecording().toImageSync(_ditherTilePx, _ditherTilePx);
+    _ditherTile = image;
+    return image;
   }
 
   void _drawSoftSpikes(
@@ -981,10 +1132,13 @@ class _StarFieldPainter extends CustomPainter {
     final paint = Paint()
       ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke;
-    final spikeLen = radius * 2.1;
+    final hi = budget?.hdrIntensity ?? 1.0;
+    final spikeLen =
+        radius * 2.1 * (hdrBoost ? (1.12 + 0.10 * hi) : 1.0);
     final spikeW = max(0.35, radius * 0.22);
 
-    for (int i = 0; i < 2; i++) {
+    // Symmetric 4-ray diffraction cross (0/90/180/270 degrees).
+    for (int i = 0; i < 4; i++) {
       final ang = i * pi / 2;
       paint.shader = ui.Gradient.linear(
         pos,
@@ -1002,6 +1156,30 @@ class _StarFieldPainter extends CustomPainter {
         paint,
       );
     }
+
+    // Faint diagonal rays on the brightest stars, HDR only — reads as the
+    // classic anamorphic star flare without adding real anamorphic artifacts.
+    if (hdrBoost) {
+      final diagLen = spikeLen * 0.62;
+      for (int i = 0; i < 4; i++) {
+        final ang = i * pi / 2 + pi / 4;
+        paint.shader = ui.Gradient.linear(
+          pos,
+          pos + Offset(cos(ang) * diagLen, sin(ang) * diagLen),
+          [
+            color.withValues(alpha: alpha * 0.22 * hi),
+            color.withValues(alpha: 0.0),
+          ],
+          const [0.0, 1.0],
+        );
+        paint.strokeWidth = spikeW * 0.6;
+        canvas.drawLine(
+          pos + Offset(cos(ang) * radius * 0.7, sin(ang) * radius * 0.7),
+          pos + Offset(cos(ang) * diagLen, sin(ang) * diagLen),
+          paint,
+        );
+      }
+    }
     paint.shader = null;
   }
 
@@ -1017,11 +1195,14 @@ class _StarFieldPainter extends CustomPainter {
     if (b.noiseField && !subtle && frame % 4 == 0) {
       for (int i = 0; i < nebulaCenters.length; i++) {
         if (i < nebulaEnabled.length && !nebulaEnabled[i]) continue;
+        final rawColor = nebulaColors[i];
+        final tint = accentColor != null ? Color.lerp(rawColor, accentColor, 0.45)! : rawColor;
+
         DeepSpaceNoise.paintNebulaField(
           canvas: canvas,
           size: size,
           timeSeconds: timeSeconds + i * 1.7,
-          tint: nebulaColors[i],
+          tint: tint,
           alphaMul: nebulaAlphaMul * 0.12,
           gridCols: b.noiseGridCols,
           gridRows: b.noiseGridRows,
@@ -1062,12 +1243,15 @@ class _StarFieldPainter extends CustomPainter {
         final center = baseCenter + blobOffset;
         final radius = baseRadius * (0.55 + j * 0.12) * (1.0 + wobble);
 
+        final rawColor = nebulaColors[i];
+        final tint = accentColor != null ? Color.lerp(rawColor, accentColor, 0.45)! : rawColor;
+
         paint.shader = ui.Gradient.radial(
           center,
           radius,
           [
-            nebulaColors[i].withValues(alpha: (0.045 - j * 0.008) * nebulaAlphaMul),
-            nebulaColors[i].withValues(alpha: (0.016 - j * 0.004) * nebulaAlphaMul),
+            tint.withValues(alpha: (0.045 - j * 0.008) * nebulaAlphaMul),
+            tint.withValues(alpha: (0.016 - j * 0.004) * nebulaAlphaMul),
             Colors.transparent,
           ],
           const [0.0, 0.55, 1.0],
@@ -1124,6 +1308,44 @@ class _StarFieldPainter extends CustomPainter {
       paint.blendMode = BlendMode.plus;
       canvas.drawCircle(coreCenter, coreRadius, paint);
 
+      // HDR hot cores: a tight white point over the bright center, plus a
+      // local-contrast annulus that punches the inner rim for a rendered feel.
+      if (hdrBoost && !subtle) {
+        final hi = b.hdrIntensity;
+        paint
+          ..shader = ui.Gradient.radial(
+            coreCenter,
+            coreRadius * 0.30,
+            [
+              Colors.white.withValues(
+                alpha: (0.045 * hi).clamp(0.0, 0.10) * nebulaAlphaMul,
+              ),
+              Colors.transparent,
+            ],
+            const [0.0, 1.0],
+          )
+          ..blendMode = BlendMode.plus;
+        canvas.drawCircle(coreCenter, coreRadius * 0.30, paint);
+
+        paint
+          ..shader = ui.Gradient.radial(
+            coreCenter,
+            coreRadius * 0.92,
+            [
+              Colors.white.withValues(
+                alpha: 0.014 * hi * nebulaAlphaMul,
+              ),
+              nebulaColors[i].withValues(
+                alpha: (0.012 * hi).clamp(0.0, 0.06) * nebulaAlphaMul,
+              ),
+              Colors.transparent,
+            ],
+            const [0.0, 0.42, 1.0],
+          )
+          ..blendMode = BlendMode.plus;
+        canvas.drawCircle(coreCenter, coreRadius * 0.92, paint);
+      }
+
       if (b.dustLanes && !subtle) {
         paint
           ..shader = ui.Gradient.radial(
@@ -1145,18 +1367,50 @@ class _StarFieldPainter extends CustomPainter {
   }
 
   void _paintHdrGradePass(Canvas canvas, Size size) {
+    final hi = budget?.hdrIntensity ?? 1.0;
     final paint = Paint()
       ..blendMode = BlendMode.screen
       ..shader = ui.Gradient.radial(
         Offset(size.width * 0.5, size.height * 0.38),
         size.shortestSide * 0.55,
         [
-          Colors.white.withValues(alpha: 0.028),
+          Colors.white.withValues(alpha: 0.028 * (0.55 + 0.45 * hi)),
           Colors.transparent,
         ],
         const [0.0, 1.0],
       );
     canvas.drawRect(Offset.zero & size, paint);
+
+    // Filmic shoulder: a gentle black encroachment on the far corners lifts
+    // midtone contrast without flattening the nebula (unlike a full multiply).
+    paint
+      ..blendMode = BlendMode.multiply
+      ..shader = ui.Gradient.radial(
+        Offset(size.width * 0.5, size.height * 0.40),
+        size.shortestSide * 0.80,
+        [
+          Colors.transparent,
+          Colors.black.withValues(alpha: 0.16 * hi),
+        ],
+        const [0.0, 1.0],
+      );
+    canvas.drawRect(Offset.zero & size, paint);
+
+    // Banding dither baked into the static grade so smooth nebula gradients
+    // don't posterize on 8-bit panels. Rendered as a tiled noise texture — one
+    // draw op per frame instead of the previous ~180k-dot loop replayed from
+    // the cached nebula picture. Paint alpha scales it by hdrIntensity, which
+    // the tile bakes at unit intensity.
+    final ditherPaint = Paint()
+      ..shader = ui.ImageShader(
+        _ensureDitherTile(),
+        ui.TileMode.repeated,
+        ui.TileMode.repeated,
+        _identity4,
+      )
+      ..color = Colors.white.withValues(alpha: hi);
+    canvas.drawRect(Offset.zero & size, ditherPaint);
+
     paint.shader = null;
     paint.blendMode = BlendMode.srcOver;
   }
@@ -1215,10 +1469,23 @@ class _StarFieldPainter extends CustomPainter {
     final alphaMul = (b?.starAlpha ?? 0.85) * (subtle ? 0.96 : 1.0);
     final floor = b?.subtleStarFloor ?? 0;
     final drawCount = subtle ? max(floor, stars.length) : stars.length;
+    final hi = b?.hdrIntensity ?? 1.0;
+
+    // Beat-locked twinkle pulse. timeSeconds advances at (bpm/120) in the
+    // ticker, so 2*timeSeconds is the true beat count for any bpm; a smooth
+    // envelope peaking on each beat lifts star brightness so the field
+    // shimmers in time with the music. Off when no bpm is supplied.
+    final beatPulse = (bpm != null && bpm! > 0)
+        ? DeepSpaceFrameBudget.beatPulseEnvelope(timeSeconds * 2.0) *
+            (subtle ? 0.5 : 1.0)
+        : 0.0;
 
     for (int i = 0; i < drawCount && i < stars.length; i++) {
       final star = stars[i];
-      final op = star.opacityAt(timeSeconds);
+      final layerFactor = star.layer == StarLayer.near ? 1.0 : 0.6;
+      final op =
+          (star.opacityAt(timeSeconds) + beatPulse * 0.10 * layerFactor)
+              .clamp(0.0, 1.0);
       final alpha = op * alphaMul;
       final pos = Offset(star.x * w, star.y * h);
 
@@ -1230,16 +1497,30 @@ class _StarFieldPainter extends CustomPainter {
         starRadius = star.size * (1.0 + 0.14 * sparkle);
       }
 
-      final bloomThreshold = hdrBoost ? 0.72 : 0.78;
+      // HDR two-scale bloom: fainter, more eligible stars glow; bright stars
+      // get a tight core plus a wide soft halo.
+      final bloomThreshold = hdrBoost ? 0.66 : 0.78;
       final bloomAlpha = hdrBoost ? 0.17 : 0.14;
-      if (!subtle && starRadius > 1.5 && op > bloomThreshold) {
-        paint.color = starColor.withValues(alpha: alpha * bloomAlpha);
-        canvas.drawCircle(pos, starRadius * (hdrBoost ? 2.35 : 2.2), paint);
+      final bloomEligible = hdrBoost ? starRadius > 1.1 : starRadius > 1.5;
+      if (!subtle && bloomEligible && op > bloomThreshold) {
+        paint.color = starColor.withValues(alpha: alpha * bloomAlpha * hi);
+        canvas.drawCircle(
+          pos,
+          starRadius * (hdrBoost ? 2.35 : 2.2),
+          paint,
+        );
+        if (hdrBoost && starRadius > 1.4) {
+          paint.color = starColor.withValues(
+            alpha: (alpha * 0.30 * hi).clamp(0.0, 0.42),
+          );
+          canvas.drawCircle(pos, starRadius * 1.5, paint);
+        }
       }
 
-      final spikeThreshold = hdrBoost ? 0.66 : 0.72;
+      final spikeThreshold = hdrBoost ? 0.60 : 0.72;
       if (!subtle &&
           star.layer == StarLayer.near &&
+          star.brightness > 0.62 &&
           starRadius > 1.1 &&
           op > spikeThreshold) {
         _drawSoftSpikes(canvas, pos, starRadius, starColor, alpha * 0.55);
@@ -1387,9 +1668,11 @@ class _StarFieldPainter extends CustomPainter {
       canvas.drawColor(const Color(0xFF000000), BlendMode.src);
 
       if (cachedFarLayer != null && cachedFarLayerSize != null) {
+        // Slow parallax pan on the baked far-star layer — fast enough to read
+        // as drifting sky within a few seconds instead of a frozen backdrop.
         final drift = Offset(
-          sin(timeSeconds * 0.004) * 8,
-          cos(timeSeconds * 0.0035) * 6,
+          sin(timeSeconds * 0.018) * 18,
+          cos(timeSeconds * 0.014) * 13,
         );
         canvas.save();
         canvas.translate(drift.dx, drift.dy);
@@ -1397,7 +1680,29 @@ class _StarFieldPainter extends CustomPainter {
         canvas.restore();
       }
 
-      if (cachedNebulaLayer != null &&
+      if (cachedNebulaImage != null && cachedNebulaImageSize == size) {
+        // Texture-baked nebula: a single draw op instead of replaying the
+        // recorded picture (~100 gradient shader calls) every frame. The bake
+        // freezes cloud positions between 15s cache refreshes, so draw it
+        // slightly overscanned and pan it continuously — the sky never reads
+        // as a still image and the cost stays at one transformed draw op.
+        final img = cachedNebulaImage!;
+        const overscan = 1.10;
+        final pan = Offset(
+          sin(timeSeconds * 0.013) * size.width * 0.035,
+          cos(timeSeconds * 0.010) * size.height * 0.030,
+        );
+        canvas.drawImageRect(
+          img,
+          Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
+          Rect.fromCenter(
+            center: size.center(Offset.zero) + pan,
+            width: size.width * overscan,
+            height: size.height * overscan,
+          ),
+          Paint()..filterQuality = FilterQuality.medium,
+        );
+      } else if (cachedNebulaLayer != null &&
           cachedNebulaLayerSize == size &&
           !subtle) {
         canvas.drawPicture(cachedNebulaLayer!);
@@ -1435,6 +1740,9 @@ class _StarFieldPainter extends CustomPainter {
         oldDelegate.nebulaEnabled != nebulaEnabled ||
         oldDelegate.cachedFarLayer != cachedFarLayer ||
         oldDelegate.cachedNebulaLayer != cachedNebulaLayer ||
-        oldDelegate.hdrBoost != hdrBoost;
+        oldDelegate.cachedNebulaImage != cachedNebulaImage ||
+        oldDelegate.cachedNebulaImageSize != cachedNebulaImageSize ||
+        oldDelegate.hdrBoost != hdrBoost ||
+        oldDelegate.bpm != bpm;
   }
 }

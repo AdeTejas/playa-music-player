@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../services/equalizer_service.dart';
+import '../services/settings_service.dart';
 import '../design/design_system.dart';
 
 class EqualizerScreen extends StatefulWidget {
@@ -25,6 +26,19 @@ class _EqualizerScreenState extends State<EqualizerScreen>
   int _currentPreset = 0;
   int? _lastTouchedBand;
   int? _sliderTouchedBand;
+
+  // Audio effects (Virtualizer / BassBoost / PresetReverb).
+  bool _vzSupported = false;
+  bool _vzEnabled = false;
+  int _vzStrength = 0;
+  bool _bbSupported = false;
+  bool _bbEnabled = false;
+  int _bbStrength = 0;
+  bool _prSupported = true;
+  bool _prEnabled = false;
+  int _currentReverb = 0;
+  List<String> _reverbNames = [];
+  bool _effectsExpanded = false;
 
   late AnimationController _animController;
   List<int> _animFrom = [];
@@ -82,6 +96,21 @@ class _EqualizerScreenState extends State<EqualizerScreen>
       _presetNames = await EqualizerService.getPresetNames();
       _currentPreset = await EqualizerService.getCurrentPreset();
       _isEnabled = await EqualizerService.isEnabled();
+
+      _vzSupported = await EqualizerService.getVirtualizerSupported();
+      _bbSupported = await EqualizerService.getBassBoostSupported();
+      _reverbNames = await EqualizerService.getPresetReverbPresets();
+      _prSupported = true;
+
+      // A fresh native session resets effects; re-apply persisted settings and
+      // read back the authoritative state.
+      await EqualizerService.restoreEffectsFromSettings();
+      _vzEnabled = await EqualizerService.isVirtualizerEnabled();
+      _vzStrength = await EqualizerService.getVirtualizerStrength();
+      _bbEnabled = await EqualizerService.isBassBoostEnabled();
+      _bbStrength = await EqualizerService.getBassBoostStrength();
+      _prEnabled = await EqualizerService.isPresetReverbEnabled();
+      _currentReverb = await EqualizerService.getCurrentPresetReverb();
 
       _animFrom = List.from(_bandLevels);
       _animTo = List.from(_bandLevels);
@@ -159,6 +188,78 @@ class _EqualizerScreenState extends State<EqualizerScreen>
     }
   }
 
+  Future<void> _toggleVirtualizer() async {
+    try {
+      await EqualizerService.setVirtualizerEnabled(!_vzEnabled);
+      _vzEnabled = !_vzEnabled;
+      await SettingsService.instance.setVirtualizerEnabled(_vzEnabled);
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('EQ Error: $e');
+    }
+  }
+
+  Future<void> _setVirtualizerStrength(int v) async {
+    _vzStrength = v;
+    if (mounted) setState(() {});
+    try {
+      await EqualizerService.setVirtualizerStrength(v);
+      await SettingsService.instance.setVirtualizerStrength(v);
+    } catch (e) {
+      debugPrint('EQ Error: $e');
+    }
+  }
+
+  Future<void> _toggleBassBoost() async {
+    try {
+      await EqualizerService.setBassBoostEnabled(!_bbEnabled);
+      _bbEnabled = !_bbEnabled;
+      await SettingsService.instance.setBassBoostEnabled(_bbEnabled);
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('EQ Error: $e');
+    }
+  }
+
+  Future<void> _setBassBoostStrength(int v) async {
+    _bbStrength = v;
+    if (mounted) setState(() {});
+    try {
+      await EqualizerService.setBassBoostStrength(v);
+      await SettingsService.instance.setBassBoostStrength(v);
+    } catch (e) {
+      debugPrint('EQ Error: $e');
+    }
+  }
+
+  Future<void> _togglePresetReverb() async {
+    try {
+      await EqualizerService.setPresetReverbEnabled(!_prEnabled);
+      _prEnabled = !_prEnabled;
+      await SettingsService.instance.setPresetReverbEnabled(_prEnabled);
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('EQ Error: $e');
+    }
+  }
+
+  Future<void> _useReverb(int preset) async {
+    _currentReverb = preset;
+    if (mounted) setState(() {});
+    try {
+      await EqualizerService.usePresetReverb(preset);
+      await SettingsService.instance.setPresetReverbPreset(preset);
+      if (!_prEnabled) {
+        await EqualizerService.setPresetReverbEnabled(true);
+        _prEnabled = true;
+        await SettingsService.instance.setPresetReverbEnabled(true);
+        if (mounted) setState(() {});
+      }
+    } catch (e) {
+      debugPrint('EQ Error: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final accentColor = Theme.of(context).colorScheme.primary;
@@ -196,8 +297,238 @@ class _EqualizerScreenState extends State<EqualizerScreen>
                   _buildPresetRow(accentColor, c, presetLabel),
                   _buildCurveSection(accentColor, c),
                   _buildSliderStrip(accentColor, c),
+                  _buildEffectsSection(accentColor, c),
                 ],
               ),
+    );
+  }
+
+  Widget _buildEffectsSection(Color accentColor, PlayaColorsExtension c) {
+    final anySupported = _vzSupported || _bbSupported || _prSupported;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
+      child: GlassPanel(
+        borderRadius: BorderRadius.circular(14),
+        borderColor: PlayaColors.borderSubtle,
+        child: Column(
+          children: [
+            InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => setState(() => _effectsExpanded = !_effectsExpanded),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      PhosphorIconsBold.waveSine,
+                      size: 16,
+                      color: c.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Audio Effects',
+                      style: TextStyle(
+                        color: c.onSurface,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Spacer(),
+                    Icon(
+                      _effectsExpanded
+                          ? PhosphorIconsBold.caretUp
+                          : PhosphorIconsBold.caretDown,
+                      size: 14,
+                      color: c.onSurfaceVariant,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (_effectsExpanded)
+              anySupported
+                  ? ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 218),
+                      child: SingleChildScrollView(
+                        child: Column(
+                          children: [
+                            if (_vzSupported)
+                              _buildEffectRow(
+                                accentColor: accentColor,
+                                icon: PhosphorIconsBold.headphones,
+                                label: 'Headphone spatialization',
+                                enabled: _vzEnabled,
+                                onToggle: _toggleVirtualizer,
+                                strength: _vzStrength,
+                                onStrength: _setVirtualizerStrength,
+                              ),
+                            if (_bbSupported)
+                              _buildEffectRow(
+                                accentColor: accentColor,
+                                icon: PhosphorIconsBold.waveform,
+                                label: 'Bass boost',
+                                enabled: _bbEnabled,
+                                onToggle: _toggleBassBoost,
+                                strength: _bbStrength,
+                                onStrength: _setBassBoostStrength,
+                              ),
+                            _buildReverbRow(accentColor, c),
+                          ],
+                        ),
+                      ),
+                    )
+                  : Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Text(
+                        'Not available on this device',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: c.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEffectRow({
+    required Color accentColor,
+    required IconData icon,
+    required String label,
+    required bool enabled,
+    required VoidCallback onToggle,
+    required int strength,
+    required ValueChanged<int> onStrength,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: Colors.white.withValues(alpha: 0.6)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(fontSize: 12),
+                ),
+                SizedBox(
+                  width: double.infinity,
+                  child: SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 2,
+                      thumbShape: const RoundSliderThumbShape(
+                        enabledThumbRadius: 6,
+                      ),
+                      overlayShape: const RoundSliderOverlayShape(
+                        overlayRadius: 12,
+                      ),
+                      activeTrackColor: accentColor,
+                      inactiveTrackColor: PlayaColors.borderSubtle,
+                      thumbColor: accentColor,
+                    ),
+                    child: Slider(
+                      min: 0,
+                      max: 1000,
+                      divisions: 20,
+                      value: strength.toDouble().clamp(0, 1000),
+                      onChanged: enabled ? (v) => onStrength(v.round()) : null,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Switch(
+            value: enabled,
+            onChanged: (_) => onToggle(),
+            thumbColor: WidgetStateProperty.all(accentColor),
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReverbRow(Color accentColor, PlayaColorsExtension c) {
+    if (_reverbNames.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                PhosphorIconsBold.sparkle,
+                size: 16,
+                color: Colors.white.withValues(alpha: 0.6),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(child: Text('Room reverb', style: TextStyle(fontSize: 12))),
+              Switch(
+                value: _prEnabled,
+                onChanged: (_) => _togglePresetReverb(),
+                thumbColor: WidgetStateProperty.all(accentColor),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          SizedBox(
+            height: 28,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: _reverbNames.length,
+              itemBuilder: (context, i) {
+                final isSelected = _currentReverb == i;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: GestureDetector(
+                    onTap: () => _useReverb(i),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? accentColor.withValues(alpha: 0.25)
+                            : PlayaColors.glass,
+                        borderRadius: BorderRadius.circular(20),
+                        border: isSelected
+                            ? Border.all(
+                                color: accentColor.withValues(alpha: 0.5),
+                                width: 1,
+                              )
+                            : null,
+                      ),
+                      child: Text(
+                        _reverbNames[i],
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: isSelected ? c.onSurface : c.onSurfaceVariant,
+                          fontWeight:
+                              isSelected ? FontWeight.w600 : FontWeight.w400,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -690,8 +1021,8 @@ class _EQSliderStripPainter extends CustomPainter {
     final trackLeft = bandWidth * 0.42;
     final trackRight = bandWidth * 0.58;
     final trackW = trackRight - trackLeft;
-    final thumbR = 5.0;
-    final topPad = 12.0;
+    const thumbR = 5.0;
+    const topPad = 12.0;
     const bottomPad = 16.0;
     final drawH = size.height - topPad - bottomPad;
 

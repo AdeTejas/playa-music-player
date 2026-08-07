@@ -69,7 +69,9 @@ class PlayaEffects {
   static BoxDecoration matteSurface({
     BorderRadius? borderRadius,
     bool elevated = false,
+    Color? baseColor,
   }) {
+    final effectiveBase = baseColor ?? PlayaColors.surface;
     return BoxDecoration(
       borderRadius: borderRadius ?? BorderRadius.circular(PlayaRadii.md),
       gradient: LinearGradient(
@@ -79,16 +81,19 @@ class PlayaEffects {
             ? [
                 PlayaColors.card,
                 PlayaColors.matteWarm,
-                PlayaColors.matteGraphite,
+                PlayaColors.obsidian,
               ]
             : [
-                Color.lerp(PlayaColors.surfaceVariant, PlayaColors.matteCool, 0.35)!,
-                PlayaColors.surface,
-                PlayaColors.matteGraphite,
+                Color.lerp(effectiveBase, PlayaColors.matteCool, 0.15)!,
+                effectiveBase,
+                Color.lerp(effectiveBase, PlayaColors.obsidian, 0.45)!,
               ],
-        stops: const [0.0, 0.52, 1.0],
+        stops: const [0.0, 0.45, 1.0],
       ),
-      border: Border.all(color: PlayaColors.borderSubtle, width: 0.75),
+      border: Border.all(
+        color: PlayaColors.borderSubtle.withValues(alpha: 0.1),
+        width: 0.75,
+      ),
     );
   }
 

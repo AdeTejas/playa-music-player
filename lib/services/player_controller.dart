@@ -18,10 +18,13 @@ import '../repositories/listening_progress_repository.dart';
 import '../repositories/song_repository.dart';
 import '../utils/bookmark_key.dart';
 import '../utils/content_mode.dart';
+import '../utils/neural_mix_key.dart';
 import '../utils/replaygain_tag_reader.dart';
 import 'database_service.dart';
 import '../utils/ui_utils.dart';
 import 'analytics_service.dart';
+import 'telemetry_service.dart';
+import 'neural_mix_index_service.dart';
 import 'artwork_cache_service.dart';
 import 'equalizer_service.dart';
 import 'settings_service.dart';
@@ -68,45 +71,7 @@ List<String> _neuralMixRankSongIds(Map<String, dynamic> args) {
       .toList(growable: false);
 
   ({int pitch, bool minor})? parseKey(String? key) {
-    if (key == null) return null;
-    final raw = key.trim();
-    if (raw.isEmpty) return null;
-    final compact = raw.replaceAll(RegExp(r'\s+'), '');
-    final lower = compact.toLowerCase();
-    final isMinor =
-        compact.endsWith('m') ||
-        lower.endsWith('min') ||
-        lower.endsWith('minor');
-    var note = compact;
-    if (lower.endsWith('minor')) note = note.substring(0, note.length - 5);
-    if (lower.endsWith('min')) note = note.substring(0, note.length - 3);
-    if (note.endsWith('m')) note = note.substring(0, note.length - 1);
-    if (note.isEmpty) return null;
-
-    final normalized = note[0].toUpperCase() + note.substring(1);
-    const map = <String, int>{
-      'C': 0,
-      'C#': 1,
-      'Db': 1,
-      'D': 2,
-      'D#': 3,
-      'Eb': 3,
-      'E': 4,
-      'F': 5,
-      'F#': 6,
-      'Gb': 6,
-      'G': 7,
-      'G#': 8,
-      'Ab': 8,
-      'A': 9,
-      'A#': 10,
-      'Bb': 10,
-      'B': 11,
-    };
-
-    final pitch = map[normalized];
-    if (pitch == null) return null;
-    return (pitch: pitch, minor: isMinor);
+    return parseNeuralMixKey(key);
   }
 
   double tempoScore(double seed, double other) {
@@ -156,7 +121,14 @@ List<String> _neuralMixRankSongIds(Map<String, dynamic> args) {
 
     final bpm = s['bpm'] as double?;
     final key = s['key'] as String?;
+    final keyPitch = s['keyPitch'] as int?;
+    final keyMinor = s['keyMinor'] as bool?;
     final artist = (s['artist'] as String).trim().toLowerCase();
+
+    ({int pitch, bool minor})? songKey =
+        keyPitch == null
+            ? parseKey(key)
+            : (pitch: keyPitch, minor: keyMinor ?? false);
 
     double score = 0;
     if (seedBpm != null && bpm != null && bpm > 0) {
@@ -170,7 +142,7 @@ List<String> _neuralMixRankSongIds(Map<String, dynamic> args) {
         score += (bpm - seedBpm) <= 0 ? 14 : -10;
       }
     }
-    score += keyScore(seedParsedKey, parseKey(key));
+    score += keyScore(seedParsedKey, songKey);
 
     if (seedArtist != null && seedArtist.isNotEmpty && artist.isNotEmpty) {
       if (artist == seedArtist) score -= 10;
@@ -236,6 +208,7 @@ class PlayerController {
   final _initCompleter = Completer<void>();
 
   int _lastSessionId = 0;
+  String? _lastTrackedPlaybackId;
 
   Object? _lastPlaybackError;
   DateTime? _lastPlaybackErrorAt;
@@ -647,16 +620,11 @@ class PlayerController {
     final source = await _buildSource(song, extraExtras: extra);
     if (source == null) return;
 
-    final audioSource = player.audioSource;
-    if (audioSource is ConcatenatingAudioSource) {
-      try {
-        await audioSource.add(source);
-        _sources.add(source);
-      } catch (e) {
-        debugPrint("Error adding to queue: $e");
-      }
-    } else {
-      await replaceQueue([song]);
+    try {
+      await player.addAudioSource(source);
+      _sources.add(source);
+    } catch (e) {
+      debugPrint("Error adding to queue: $e");
     }
   }
 
@@ -729,9 +697,7 @@ class PlayerController {
     if (seriesKey.isEmpty) return const [];
     final matches =
         library
-            .where(
-              (s) => ContentModeDetector.seriesKeyForSong(s) == seriesKey,
-            )
+            .where((s) => ContentModeDetector.seriesKeyForSong(s) == seriesKey)
             .toList();
     matches.sort((a, b) {
       final ta = a.track ?? 0;
@@ -757,7 +723,10 @@ class PlayerController {
       );
       await replaceQueue(seriesSongs, initialIndex: index, autoPlay: autoPlay);
     } else {
-      target = ListeningProgressRepository.resolveSingleTrack(library, progress);
+      target = ListeningProgressRepository.resolveSingleTrack(
+        library,
+        progress,
+      );
       if (target == null) return;
       await replaceQueue([target], autoPlay: autoPlay);
     }
@@ -848,6 +817,9 @@ class PlayerController {
 
     // Listen for track completion to update play counts
     player.playerStateStream.listen((state) {
+      if (state.processingState == ProcessingState.ready && state.playing) {
+        _maybeTrackPlaybackStart();
+      }
       if (state.processingState == ProcessingState.completed) {
         final item = currentMediaItem;
         if (item != null) {
@@ -929,6 +901,7 @@ class PlayerController {
       if (sid != 0) {
         _lastSessionId = sid;
         await EqualizerService.initializeEqualizer(sid);
+        await EqualizerService.restoreEffectsFromSettings();
       }
     } catch (_) {}
 
@@ -938,7 +911,9 @@ class PlayerController {
           final cur = player.androidAudioSessionId ?? 0;
           if (cur != 0 && cur != _lastSessionId) {
             _lastSessionId = cur;
-            EqualizerService.initializeEqualizer(cur).catchError((_) {});
+            EqualizerService.initializeEqualizer(cur)
+                .then((_) => EqualizerService.restoreEffectsFromSettings())
+                .catchError((_) {});
           }
         } catch (_) {}
       },
@@ -956,6 +931,26 @@ class PlayerController {
     );
 
     _initCompleter.complete();
+  }
+
+  /// Fires a coarse, privacy-safe engagement event when a track actually
+  /// starts playing. Never includes titles, artists, or file paths.
+  void _maybeTrackPlaybackStart() {
+    final item = currentMediaItem;
+    if (item == null) return;
+    if (item.id == _lastTrackedPlaybackId) return;
+    _lastTrackedPlaybackId = item.id;
+
+    final mode = ContentModeDetector.detectFromMediaItem(item);
+    unawaited(
+      TelemetryService.instance.track(
+        'track_play_started',
+        properties: {
+          'content_type': mode.name,
+          'duration_seconds': item.duration?.inSeconds ?? 0,
+        },
+      ),
+    );
   }
 
   Future<void> _saveState() async {
@@ -988,7 +983,9 @@ class PlayerController {
   Future<void> restoreState(List<oaq.SongModel> allSongs) async {
     if (hasQueue) return; // Don't restore if already playing (e.g. hot reload)
 
-    final recent = await ListeningProgressRepository.instance.getRecent(limit: 1);
+    final recent = await ListeningProgressRepository.instance.getRecent(
+      limit: 1,
+    );
     if (recent.isNotEmpty) {
       try {
         await resumeListeningProgress(recent.first, allSongs, autoPlay: false);
@@ -1097,17 +1094,14 @@ class PlayerController {
     final source = await _buildSource(song, extraExtras: extra);
     if (source == null) return;
 
-    final audioSource = player.audioSource;
-    if (audioSource is ConcatenatingAudioSource) {
-      final current = player.currentIndex ?? 0;
-      final insertAt = (current + 1).clamp(0, audioSource.length);
+    final current = player.currentIndex ?? 0;
+    final insertAt = (current + 1).clamp(0, player.sequence.length);
 
-      try {
-        await audioSource.insert(insertAt, source);
-        _sources.insert(insertAt, source);
-      } catch (e) {
-        debugPrint("Error inserting next: $e");
-      }
+    try {
+      await player.insertAudioSource(insertAt, source);
+      _sources.insert(insertAt, source);
+    } catch (e) {
+      debugPrint("Error inserting next: $e");
     }
   }
 
@@ -1230,7 +1224,8 @@ class PlayerController {
         artUri: artUri,
         extras: {
           'path': s.data,
-          'songId': s.data, // canonical key (file path) for metadata, favorites, Neural Mix etc.
+          'songId':
+              s.data, // canonical key (file path) for metadata, favorites, Neural Mix etc.
           'bookmarkKey': BookmarkKey.canonical(s.data),
           'mediaId': s.id, // Store original MediaStore ID as int
           if (extraExtras != null) ...extraExtras,
@@ -1241,9 +1236,7 @@ class PlayerController {
 
   List<String> _bookmarkAliasesFor(MediaItem? media) {
     if (media == null) {
-      return _currentBookmarkKey.isEmpty
-          ? const []
-          : [_currentBookmarkKey];
+      return _currentBookmarkKey.isEmpty ? const [] : [_currentBookmarkKey];
     }
 
     final mediaId = media.extras?['mediaId'];
@@ -1355,7 +1348,9 @@ class PlayerController {
     bookmarks
       ..clear()
       ..addAll(rows);
-    bookmarksNotifier.value = List<Map<String, dynamic>>.unmodifiable(bookmarks);
+    bookmarksNotifier.value = List<Map<String, dynamic>>.unmodifiable(
+      bookmarks,
+    );
   }
 
   /// Loads bookmarks for whatever track is currently considered "the one".
@@ -1392,9 +1387,7 @@ class PlayerController {
     // Keep optimistic entries if storage hasn't caught up yet (common right
     // after save while prefs/async DB settle).
     if (rows.isEmpty && bookmarks.isNotEmpty) {
-      final hasFreshLocal = bookmarks.any(
-        (b) => b['source'] == 'just-added',
-      );
+      final hasFreshLocal = bookmarks.any((b) => b['source'] == 'just-added');
       if (hasFreshLocal) return;
     }
 
@@ -1457,7 +1450,9 @@ class PlayerController {
       if (!saved) {
         _lastBookmarkError = 'storage write failed';
         if (kDebugMode) {
-          debugPrint('[BOOKMARKS] add failed: repo returned false key=$key pos=$pos');
+          debugPrint(
+            '[BOOKMARKS] add failed: repo returned false key=$key pos=$pos',
+          );
         }
         return false;
       }
@@ -1474,13 +1469,17 @@ class PlayerController {
       bookmarks.removeWhere((b) => _bookmarkPos(b) == pos);
       bookmarks.add(newBookmark);
       bookmarks.sort((a, b) => _bookmarkPos(a).compareTo(_bookmarkPos(b)));
-      bookmarksNotifier.value = List<Map<String, dynamic>>.unmodifiable(bookmarks);
+      bookmarksNotifier.value = List<Map<String, dynamic>>.unmodifiable(
+        bookmarks,
+      );
 
       // Reconcile with storage (DB ids, legacy keys, media-id aliases).
       await _loadBookmarks(forceLog: true);
 
       if (kDebugMode) {
-        debugPrint('[BOOKMARKS] add success: key=$key pos=$pos (optimistic publish done)');
+        debugPrint(
+          '[BOOKMARKS] add success: key=$key pos=$pos (optimistic publish done)',
+        );
       }
       return true;
     } catch (e) {
@@ -1549,6 +1548,36 @@ class PlayerController {
     await player.seek(Duration(milliseconds: ms));
   }
 
+  /// Returns the Neural Mix ranking rows, preferring the warmed index when
+  /// available (built after a DNA scan) and building on demand otherwise. On a
+  /// cold build it kicks off a background warm so the next mix is instant.
+  Future<List<Map<String, dynamic>>> _neuralMixSongRows() async {
+    final index = NeuralMixIndexService.instance;
+    final warmRows = index.songRows;
+    if (warmRows != null && warmRows.isNotEmpty) return warmRows;
+
+    final repo = SongRepository.instance;
+    final allMeta = await repo.getAllMetadata();
+    final metaMap = {for (final m in allMeta) m.id: m};
+    final rows = <Map<String, dynamic>>[];
+    for (final song in librarySongs) {
+      final id = songIdentity(song);
+      final meta = metaMap[id] ?? metaMap[song.id.toString()];
+      final key = meta?.key;
+      final parsed = key == null ? null : parseNeuralMixKey(key);
+      rows.add({
+        'id': id,
+        'artist': song.artist ?? '',
+        'bpm': meta?.bpm,
+        'key': key,
+        'keyPitch': parsed?.pitch,
+        'keyMinor': parsed?.minor,
+      });
+    }
+    unawaited(index.warm(songs: librarySongs, metas: allMeta));
+    return rows;
+  }
+
   Future<void> smartShuffle() async {
     if (!isReady) return;
     if (neuralMixBusy.value) return;
@@ -1586,26 +1615,13 @@ class PlayerController {
         );
       }
 
-      final allMeta = await repo.getAllMetadata();
-      final metaMap = {for (final m in allMeta) m.id: m};
+      final songRows = await _neuralMixSongRows();
 
       final songById = <String, oaq.SongModel>{
         for (final s in librarySongs) songIdentity(s): s,
       };
       final seedSong = songById[seedId];
       final seedArtist = seedSong?.artist?.trim().toLowerCase();
-
-      final songRows = <Map<String, dynamic>>[];
-      for (final song in librarySongs) {
-        final id = songIdentity(song);
-        final meta = metaMap[id] ?? metaMap[song.id.toString()]; // fallback for legacy DB keys
-        songRows.add({
-          'id': id,
-          'artist': song.artist ?? '',
-          'bpm': meta?.bpm,
-          'key': meta?.key,
-        });
-      }
 
       final exclude = <String>{};
       for (final src in player.sequenceState.sequence) {
@@ -1641,15 +1657,16 @@ class PlayerController {
       }
 
       final mixSources = <UriAudioSource>[];
+      final rowById = {for (final r in songRows) r['id'] as String: r};
       for (final s in mix) {
         final id = songIdentity(s);
-        final meta = metaMap[id] ?? metaMap[s.id.toString()];
+        final row = rowById[id] ?? rowById[s.id.toString()];
         final why = _neuralMixWhy(
           seedBpm: seedBpm,
           seedKey: seedKey,
           seedArtist: seedArtist,
-          bpm: meta?.bpm,
-          key: meta?.key,
+          bpm: (row?['bpm'] as num?)?.toDouble(),
+          key: row?['key'] as String?,
           artist: s.artist,
         );
         final extra =
@@ -1666,43 +1683,13 @@ class PlayerController {
       }
 
       // Prefer inserting into existing playlist to avoid disrupting playback.
-      final audioSource = player.audioSource;
-      if (audioSource is ConcatenatingAudioSource) {
-        final insertIndex = (player.currentIndex ?? 0) + 1;
-        try {
-          await audioSource.insertAll(insertIndex, mixSources);
-          final safeIndex = insertIndex.clamp(0, _sources.length);
-          _sources.insertAll(safeIndex, mixSources);
-        } catch (e) {
-          debugPrint("Neural Mix Error (insertAll): $e");
-        }
-      } else {
-        // Fallback: rebuild sources (may restart playback).
-        final seq = player.sequenceState.sequence;
-
-        _sources.clear();
-        if (seq.isNotEmpty) {
-          final currentIndex = player.currentIndex ?? 0;
-          if (currentIndex < seq.length) {
-            final currentSource = seq[currentIndex];
-            if (currentSource is UriAudioSource) {
-              _sources.add(currentSource);
-            }
-          }
-        }
-        _sources.addAll(mixSources);
-
-        try {
-          final wasPlaying = player.playing;
-          await player.setAudioSources(
-            _sources,
-            initialIndex: 0,
-            initialPosition: player.position,
-          );
-          if (wasPlaying) await player.play();
-        } catch (e) {
-          debugPrint("Neural Mix Error: $e");
-        }
+      final insertIndex = (player.currentIndex ?? 0) + 1;
+      try {
+        await player.insertAudioSources(insertIndex, mixSources);
+        final safeIndex = insertIndex.clamp(0, _sources.length);
+        _sources.insertAll(safeIndex, mixSources);
+      } catch (e) {
+        debugPrint("Neural Mix Error (insertAll): $e");
       }
 
       await player.setShuffleModeEnabled(false);
@@ -1718,11 +1705,8 @@ class PlayerController {
     if (!_neuralMixActive) return;
     if (neuralMixBusy.value) return;
 
-    final audioSource = player.audioSource;
-    if (audioSource is! ConcatenatingAudioSource) return;
-
     final cur = player.currentIndex ?? 0;
-    final remaining = audioSource.length - cur - 1;
+    final remaining = player.sequence.length - cur - 1;
     if (!force && remaining >= 8) return;
 
     final seedItem = currentMediaItem;
@@ -1748,9 +1732,9 @@ class PlayerController {
 
       if (newSources.isEmpty) return;
 
-      final insertAt = audioSource.length;
+      final insertAt = player.sequence.length;
       try {
-        await audioSource.insertAll(insertAt, newSources);
+        await player.insertAudioSources(insertAt, newSources);
         _sources.addAll(newSources);
       } catch (e) {
         debugPrint('Neural Mix Error (auto extend): $e');
@@ -1760,7 +1744,7 @@ class PlayerController {
       // If we had already reached "completed", jump into the newly added track.
       if (player.processingState == ProcessingState.completed) {
         final nextIndex = (player.currentIndex ?? 0) + 1;
-        if (nextIndex < audioSource.length) {
+        if (nextIndex < player.sequence.length) {
           try {
             await player.seek(Duration.zero, index: nextIndex);
             await player.play();
@@ -1798,25 +1782,12 @@ class PlayerController {
     final seedBpm = seedMeta?.bpm;
     final seedKey = seedMeta?.key;
 
-    final allMeta = await repo.getAllMetadata();
-    final metaMap = {for (final m in allMeta) m.id: m};
+    final songRows = await _neuralMixSongRows();
 
     final songById = <String, oaq.SongModel>{
       for (final s in librarySongs) songIdentity(s): s,
     };
     final seedArtist = songById[seedId]?.artist?.trim().toLowerCase();
-
-    final songRows = <Map<String, dynamic>>[];
-    for (final song in librarySongs) {
-      final id = songIdentity(song);
-      final meta = metaMap[id] ?? metaMap[song.id.toString()]; // fallback for legacy DB keys
-      songRows.add({
-        'id': id,
-        'artist': song.artist ?? '',
-        'bpm': meta?.bpm,
-        'key': meta?.key,
-      });
-    }
 
     final pickedIds = await compute(_neuralMixRankSongIds, {
       'seedId': seedId,
@@ -1839,15 +1810,16 @@ class PlayerController {
     if (picked.isEmpty) return const <UriAudioSource>[];
 
     final mixSources = <UriAudioSource>[];
+    final rowById = {for (final r in songRows) r['id'] as String: r};
     for (final s in picked) {
       final id = songIdentity(s);
-      final meta = metaMap[id] ?? metaMap[s.id.toString()];
+      final row = rowById[id] ?? rowById[s.id.toString()];
       final why = _neuralMixWhy(
         seedBpm: seedBpm,
         seedKey: seedKey,
         seedArtist: seedArtist,
-        bpm: meta?.bpm,
-        key: meta?.key,
+        bpm: (row?['bpm'] as num?)?.toDouble(),
+        key: row?['key'] as String?,
         artist: s.artist,
       );
       final extra = why == null ? null : <String, Object?>{'neuralMixWhy': why};
@@ -1862,34 +1834,30 @@ class PlayerController {
   }
 
   Future<void> removeFromQueue(int index) async {
-    final audioSource = player.audioSource;
-    if (audioSource is ConcatenatingAudioSource) {
-      if (index >= 0 && index < audioSource.length) {
-        try {
-          await audioSource.removeAt(index);
-          if (index < _sources.length) {
-            _sources.removeAt(index);
-          }
-        } catch (e) {
-          debugPrint("Error removing from queue: $e");
+    if (index >= 0 && index < player.sequence.length) {
+      try {
+        await player.removeAudioSourceAt(index);
+        if (index < _sources.length) {
+          _sources.removeAt(index);
         }
+      } catch (e) {
+        debugPrint("Error removing from queue: $e");
       }
     }
   }
 
   /// Reorder the current playback queue (supports drag-to-reorder in Now Playing list).
-  /// Keeps both the ConcatenatingAudioSource and our _sources list in sync.
+  /// Keeps the internal sequence and our _sources list in sync.
   Future<void> reorderQueue(int oldIndex, int newIndex) async {
     if (oldIndex == newIndex) return;
-    final audioSource = player.audioSource;
-    if (audioSource is! ConcatenatingAudioSource) return;
-    if (oldIndex < 0 || oldIndex >= audioSource.length) return;
+    final len = player.sequence.length;
+    if (oldIndex < 0 || oldIndex >= len) return;
     // Caller (ReorderableListView) conventionally does: if (old < new) new--;
     // Clamp newIndex just in case.
-    newIndex = newIndex.clamp(0, audioSource.length - 1);
+    newIndex = newIndex.clamp(0, len - 1);
     if (oldIndex == newIndex) return;
     try {
-      await audioSource.move(oldIndex, newIndex);
+      await player.moveAudioSource(oldIndex, newIndex);
       if (oldIndex < _sources.length && newIndex < _sources.length) {
         final item = _sources.removeAt(oldIndex);
         _sources.insert(newIndex, item);
@@ -1914,9 +1882,10 @@ class PlayerController {
         uri,
         tag: MediaItem(
           id: canonicalPath,
-          title: file.uri.pathSegments.isNotEmpty
-              ? file.uri.pathSegments.last
-              : 'External audio',
+          title:
+              file.uri.pathSegments.isNotEmpty
+                  ? file.uri.pathSegments.last
+                  : 'External audio',
           artist: 'External',
           extras: {
             'path': canonicalPath,

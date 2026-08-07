@@ -9,6 +9,7 @@ class PlayaColors {
 
   // ==================== BASE MATTE PALETTE ====================
   static const Color deepVoid = Color(0xFF060504);
+  static const Color obsidian = Color(0xFF0A0908);
   static const Color bg = Color(0xFF0C0B0A);
   static const Color surface = Color(0xFF151412);
   static const Color surfaceVariant = Color(0xFF1E1C19);
@@ -18,8 +19,15 @@ class PlayaColors {
   static const Color matteGraphite = Color(0xFF1C1A17);
   static const Color matteGunmetal = Color(0xFF302C28);
   static const Color matteSlate = Color(0xFF433E39);
+  static const Color matteStone = Color(0xFF38342F);
   static const Color matteWarm = Color(0xFF2A2622);
   static const Color matteCool = Color(0xFF1A1D20);
+  static const Color matteCarbon = Color(0xFF121212);
+
+  // Satin hardware (metallic sheen)
+  static const Color satinSlate = Color(0xFF4E545E);
+  static const Color satinGold = Color(0xFFB89B5E);
+  static const Color satinSteel = Color(0xFF787E87);
 
   // Text — warm stone neutrals
   static const Color onBg = Color(0xFFEDE9E4);

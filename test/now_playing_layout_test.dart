@@ -14,7 +14,7 @@ void main() {
     expect(NowPlayingLayoutMetrics.waveformLandscape % 8, 0);
     expect(NowPlayingLayoutMetrics.turntableScale, greaterThan(0.0));
     expect(layout.waveformMode, WaveformDisplayMode.standard);
-    expect(layout.expectedShipLength, 96 * 0.80);
+    expect(layout.expectedShipLength, 96 * 0.7125);
   });
 
   test('turntable scale is applied once in portrait', () {
@@ -33,7 +33,7 @@ void main() {
       viewportHeight: viewportH,
     );
 
-    final rawCap = viewportH * NowPlayingLayoutMetrics.turntableMaxPortraitShare;
+    const rawCap = viewportH * NowPlayingLayoutMetrics.turntableMaxPortraitShare;
     final rawBudget = viewportH - dock;
     final expectedRaw = [viewportW, rawBudget, rawCap].reduce((a, b) => a < b ? a : b);
     expect(side, closeTo(expectedRaw * NowPlayingLayoutMetrics.turntableScale, 0.01));

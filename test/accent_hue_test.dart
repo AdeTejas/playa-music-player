@@ -20,8 +20,8 @@ void main() {
   });
 
   test('ensureDistinct nudges hue away from neighbors', () {
-    final neighbor = const Color(0xFFDC2626);
-    final close = HSLColor.fromAHSL(1.0, 5, 0.8, 0.5).toColor();
+    const neighbor = Color(0xFFDC2626);
+    final close = const HSLColor.fromAHSL(1.0, 5, 0.8, 0.5).toColor();
     final distinct = AccentHue.ensureDistinct(close, avoid: [neighbor]);
     expect(
       AccentHue.isDistinctFrom(distinct, neighbor),

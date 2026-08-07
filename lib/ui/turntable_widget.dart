@@ -16,6 +16,8 @@ import '../services/player_controller.dart';
 import '../services/artwork_cache_service.dart';
 import '../services/settings_service.dart';
 import '../utils/content_mode.dart';
+import '../design/tokens/colors.dart';
+import '../design/utils/design_utils.dart';
 import 'high_tech_speaker.dart';
 import 'playback_motion.dart';
 
@@ -55,6 +57,8 @@ class _TurntableDeckState extends State<TurntableDeck>
   Duration? _dragPosition;
   int _lastSeekAtMs = 0;
   Duration? _pendingSeek;
+  Duration? _lastExplicitSeek;
+  int _lastSeekInteractionAt = 0;
 
   double? _armProgressOverride;
   bool _wasPlayingBeforeArmDrag = false;
@@ -77,6 +81,14 @@ class _TurntableDeckState extends State<TurntableDeck>
   bool _cueMoving = false;
   bool _pendingPlayAfterCue = false;
   bool _pendingPauseAfterCue = false;
+  bool _hasTriggeredNeedleDropHaptic = false;
+  bool _hasTriggeredNeedleLiftHaptic = false;
+
+  // Tonearm Physics (Horizontal Tracking)
+  double _armPhysicsPosition = 0.0; // 0.0 to 1.0 (internal progress)
+  double _armPhysicsVelocity = 0.0;
+  double _needleBounceOffset = 0.0;
+  double _needleBounceVelocity = 0.0;
 
   // Label Image State
   ui.Image? _labelImage;
@@ -131,6 +143,7 @@ class _TurntableDeckState extends State<TurntableDeck>
 
     _cueLift = widget.ctrl.player.playing ? 0.0 : 1.0;
     _cueTarget = _cueLift;
+    _armPhysicsPosition = _currentProgressFromPlayer();
 
     _updateBpmFromItem();
     _neuralMixListener = () {
@@ -688,6 +701,19 @@ class _TurntableDeckState extends State<TurntableDeck>
       } else {
         _cueLift += cueDelta.clamp(-cueStep, cueStep);
       }
+
+      // Physical haptics for needle contact
+      if (_cueLift <= 0.05 && !_hasTriggeredNeedleDropHaptic && _cueTarget == 0.0) {
+        _hasTriggeredNeedleDropHaptic = true;
+        _hasTriggeredNeedleLiftHaptic = false;
+        _needleBounceVelocity = -0.15; // Kick-start the physical bounce
+        HapticFeedback.heavyImpact();
+      } else if (_cueLift >= 0.95 && !_hasTriggeredNeedleLiftHaptic && _cueTarget == 1.0) {
+        _hasTriggeredNeedleLiftHaptic = true;
+        _hasTriggeredNeedleDropHaptic = false;
+        HapticFeedback.lightImpact();
+      }
+
       if ((_cueLift - _cueTarget).abs() <= 0.002) {
         _cueLift = _cueTarget;
         _cueMoving = false;
@@ -716,6 +742,37 @@ class _TurntableDeckState extends State<TurntableDeck>
     }
 
     _syncPitchFromPlaybackSpeed();
+
+    // --- Tonearm Horizontal Physics (Damped Spring) ---
+    final armTarget = _currentProgressFromPlayer();
+    if (_isDraggingArm) {
+      _armPhysicsPosition = armTarget;
+      _armPhysicsVelocity = 0.0;
+    } else {
+      const springK = 180.0;
+      const damping = 18.0;
+      final force = springK * (armTarget - _armPhysicsPosition);
+      _armPhysicsVelocity += (force - damping * _armPhysicsVelocity) * dt;
+      _armPhysicsPosition += _armPhysicsVelocity * dt;
+    }
+
+    // --- Needle Contact Bounce Physics ---
+    const bounceK = 240.0;
+    const bounceDamping = 12.0;
+    if (_cueLift <= 0.01 && _cueTarget == 0.0) {
+      // Just made contact or is on record
+      if (_needleBounceOffset.abs() < 0.001 && _needleBounceVelocity.abs() < 0.01) {
+        // Resting
+      } else {
+        final bounceForce = -bounceK * _needleBounceOffset;
+        _needleBounceVelocity += (bounceForce - bounceDamping * _needleBounceVelocity) * dt;
+        _needleBounceOffset += _needleBounceVelocity * dt;
+      }
+    } else {
+      // Lifting or in air: return bounce to zero quickly
+      _needleBounceOffset *= 0.8;
+      _needleBounceVelocity = 0.0;
+    }
 
     final rpmMult = _is33RPM ? 1.0 : 1.35;
     final speedFactor =
@@ -760,8 +817,12 @@ class _TurntableDeckState extends State<TurntableDeck>
 
     double wrapAngle(double a) {
       var v = a;
-      while (v > pi) v -= 2 * pi;
-      while (v < -pi) v += 2 * pi;
+      while (v > pi) {
+        v -= 2 * pi;
+      }
+      while (v < -pi) {
+        v += 2 * pi;
+      }
       return v;
     }
 
@@ -815,6 +876,27 @@ class _TurntableDeckState extends State<TurntableDeck>
     final p = widget.ctrl.player;
     final dur = p.duration;
     if (dur == null || dur.inMilliseconds <= 0) return 0.0;
+
+    // During active interaction, drive arm from drag state
+    if (_isDraggingArm || _isDragging) {
+      if (_dragPosition == null) return (p.position.inMilliseconds / dur.inMilliseconds).clamp(0.0, 1.0);
+      return (_dragPosition!.inMilliseconds / dur.inMilliseconds).clamp(0.0, 1.0);
+    }
+
+    // Settle period after seek: prevent arm from snapping back to old position 
+    // while audio engine buffer is updating.
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (_lastExplicitSeek != null && (now - _lastSeekInteractionAt) < 800) {
+      final actualPos = p.position.inMilliseconds;
+      final targetPos = _lastExplicitSeek!.inMilliseconds;
+      // Once player is within 500ms of target, we consider it "caught up"
+      if ((actualPos - targetPos).abs() < 500) {
+        _lastExplicitSeek = null;
+      } else {
+        return (targetPos / dur.inMilliseconds).clamp(0.0, 1.0);
+      }
+    }
+
     return (p.position.inMilliseconds / dur.inMilliseconds).clamp(0.0, 1.0);
   }
 
@@ -833,29 +915,32 @@ class _TurntableDeckState extends State<TurntableDeck>
         atan2(platterCenter.dy - pivot.dy, platterCenter.dx - pivot.dx) - 0.4;
     final restingStylus = pivot + Offset.fromDirection(restingAngle, armLength);
 
-    if (_cueLift >= 0.95 && !_isDraggingArm && _armProgressOverride == null) {
-      return restingStylus;
-    }
-
     final leadInRadius = recordR * 0.92;
     final finalRadius = recordR * 0.35;
     final animatedRadius =
         ui.lerpDouble(leadInRadius, finalRadius, progress.clamp(0.0, 1.0))!;
     final d = pivotToSpindle;
 
+    Offset groove;
     if (d > armLength + animatedRadius ||
         d < (armLength - animatedRadius).abs()) {
-      return restingStylus;
+      groove = restingStylus;
+    } else {
+      final a =
+          (d * d - animatedRadius * animatedRadius + armLength * armLength) /
+          (2 * d);
+      final hIntersect = sqrt(max(0, armLength * armLength - a * a));
+      final p2 = pivot + (platterCenter - pivot) * (a / d);
+      final x3 = p2.dx + hIntersect * (platterCenter.dy - pivot.dy) / d;
+      final y3 = p2.dy - hIntersect * (platterCenter.dx - pivot.dx) / d;
+      groove = Offset(x3, y3);
     }
 
-    final a =
-        (d * d - animatedRadius * animatedRadius + armLength * armLength) /
-        (2 * d);
-    final hIntersect = sqrt(max(0, armLength * armLength - a * a));
-    final p2 = pivot + (platterCenter - pivot) * (a / d);
-    final x3 = p2.dx + hIntersect * (platterCenter.dy - pivot.dy) / d;
-    final y3 = p2.dy - hIntersect * (platterCenter.dx - pivot.dx) / d;
-    return Offset(x3, y3);
+    // Match the painter: swing between the groove and the rest cradle as the
+    // cue lifts, so the hit test tracks the drawn arm.
+    if (_isDraggingArm || _armProgressOverride != null) return groove;
+    return Offset.lerp(restingStylus, groove, 1.0 - _cueLift.clamp(0.0, 1.0)) ??
+        restingStylus;
   }
 
   double _distancePointToSegment(Offset p, Offset a, Offset b) {
@@ -1230,13 +1315,11 @@ class _TurntableDeckState extends State<TurntableDeck>
                       ),
                     ),
                   ),
-                    // B2: Drive the expensive rotating disc primarily from our internal ticker
-                    // instead of rebuilding on every positionStream tick.
                     RepaintBoundary(
                       child: CustomPaint(
                         size: Size(size, size),
                         painter: _TurntableSpinnerPainter(
-                          progress: _currentProgressFromPlayer(), // actual song progress for tonearm position
+                          progress: _armPhysicsPosition, // Use physical smooth position
                           discAngle: _discAngle,
                           velocity: _angularVelocity,
                           strobeColor: highlightAccent,
@@ -1251,7 +1334,7 @@ class _TurntableDeckState extends State<TurntableDeck>
                           tonearmPulse: _tonearmPulse,
                           groovePulse: _groovePulse,
                           beatPulse: _beatPulse,
-                          cueLift: _cueLift,
+                          cueLift: _cueLift + _needleBounceOffset, // Add vertical bounce
                           armProgressOverride: _armProgressOverride,
                           perfTier: perfTier,
                           dustImage: perfTier == 2 ? _dustImage : null,
@@ -1271,7 +1354,9 @@ class _TurntableDeckState extends State<TurntableDeck>
 
   void _seekThrottled(Duration position) {
     _pendingSeek = position;
-    final now = DateTime.now().millisecondsSinceEpoch;
+    _lastExplicitSeek = position;
+    _lastSeekInteractionAt = DateTime.now().millisecondsSinceEpoch;
+    final now = _lastSeekInteractionAt;
     if (now - _lastSeekAtMs < 50) return;
     _lastSeekAtMs = now;
     widget.ctrl.player.seek(position);
@@ -1310,11 +1395,13 @@ class _TurntableBasePainter extends CustomPainter {
     final plinthRRect = RRect.fromRectAndRadius(plinthRect, Radius.circular(w * 0.04));
     final platterRadius = w * 0.33;
     final platterCenter = Offset(w * 0.42, h * 0.45);
-    final c1 = Color.lerp(const Color(0xFF2A3038), accentColor, 0.10)!;
-    final c2 = Color.lerp(const Color(0xFF1A1E24), accentColor, 0.07)!;
-    final c3 = Color.lerp(const Color(0xFF0E1013), accentColor, 0.04)!;
+    final c1 = Color.lerp(PlayaColors.matteSlate, accentColor, 0.12)!;
+    final c2 = Color.lerp(PlayaColors.matteGraphite, accentColor, 0.08)!;
+    final c3 = Color.lerp(PlayaColors.obsidian, accentColor, 0.04)!;
 
     canvas.drawRRect(plinthRRect, Paint()..shader = ui.Gradient.linear(plinthRect.topLeft, plinthRect.bottomRight, [c1, c2, c3], [0.0, 0.6, 1.0]));
+
+    DesignUtils.drawNoise(canvas, size, opacity: 0.04);
 
     if (isWindows) {
       canvas.drawRRect(plinthRRect, Paint()..style = PaintingStyle.stroke..strokeWidth = w * 0.0035..shader = ui.Gradient.linear(plinthRect.topLeft, plinthRect.bottomRight, [Colors.white.withValues(alpha: 0.14), Colors.transparent, Colors.black.withValues(alpha: 0.20)], [0.0, 0.55, 1.0]));
@@ -1355,9 +1442,9 @@ class _TurntableBasePainter extends CustomPainter {
           speakerRect.topLeft,
           speakerRect.bottomRight,
           [
-            Color.lerp(const Color(0xFF2A3038), accentColor, 0.06)!,
-            const Color(0xFF121418),
-            const Color(0xFF0A0B0D),
+            Color.lerp(PlayaColors.matteSlate, accentColor, 0.08)!,
+            PlayaColors.matteCarbon,
+            PlayaColors.obsidian,
           ],
           const [0.0, 0.5, 1.0],
         ),
@@ -1448,7 +1535,7 @@ class _TurntableSpinnerPainter extends CustomPainter {
     this.isPlaying = false, this.lowPerformanceMode = false, this.perfTier = 2,
     required this.accentColor, required this.accentHighlight, this.tonearmPulse = 0.0, this.groovePulse = 0.0,
     this.beatPulse = 0.0, this.cueLift = 1.0,
-    this.strobeRingImage = null,
+    this.strobeRingImage,
   });
 
   @override
@@ -1581,27 +1668,42 @@ class _TurntableSpinnerPainter extends CustomPainter {
     final ra = atan2(platterCenter.dy - pivot.dy, platterCenter.dx - pivot.dx) - 0.4;
     final rs = pivot + Offset.fromDirection(ra, armLength);
     final ar = recordR * ui.lerpDouble(0.92, 0.35, effectiveProgress)!;
-    Offset sty;
-    if (cueLift >= 0.95 && armProgressOverride == null) {
-      sty = rs;
-    } else if (pivotToSpindle < 1e-6 ||
+    Offset grooveSty;
+    if (pivotToSpindle < 1e-6 ||
         pivotToSpindle > armLength + ar ||
         pivotToSpindle < (armLength - ar).abs()) {
-      sty = rs;
+      grooveSty = rs;
     } else {
       final a_ = (pivotToSpindle * pivotToSpindle - ar * ar + armLength * armLength) /
           (2 * pivotToSpindle);
       final h_ = sqrt(max(0, armLength * armLength - a_ * a_));
       final p2_ = pivot + (platterCenter - pivot) * (a_ / pivotToSpindle);
-      sty = Offset(
+      grooveSty = Offset(
         p2_.dx + h_ * (platterCenter.dy - pivot.dy) / pivotToSpindle,
         p2_.dy - h_ * (platterCenter.dx - pivot.dx) / pivotToSpindle,
       );
     }
-    if (!sty.dx.isFinite || !sty.dy.isFinite) sty = rs;
+    if (!grooveSty.dx.isFinite || !grooveSty.dy.isFinite) grooveSty = rs;
     Offset rot(Offset p, Offset c, double a) { final dx = p.dx - c.dx; final dy = p.dy - c.dy; return Offset(c.dx + (dx * cos(a) - dy * sin(a)), c.dy + (dx * sin(a) + dy * cos(a))); }
-    var adj = rot(sty, pivot, tonearmPulse * 0.25); final aAng = atan2(adj.dy - pivot.dy, adj.dx - pivot.dx);
-    final lif = cueLift.clamp(0.0, 1.0); final lo = Offset(0, -lif * 10 - tonearmPulse * 3);
+    
+    // --- Groove Micro-Motion (High-Tech CEO Polish) ---
+    double grooveJitter = 0.0;
+    if (cueLift <= 0.1 && isPlaying && velocity > 0.1) {
+      grooveJitter = (sin(discAngle * 40.0) * 0.0004) + (sin(discAngle * 120.0) * 0.0002);
+    }
+    
+    // Smooth swing between the groove and the rest cradle as the cue lifts,
+    // so the arm never teleports across the record when crossing the lift
+    // threshold.
+    final lif = cueLift.clamp(0.0, 1.0);
+    final grooveWeight = armProgressOverride == null ? (1.0 - lif) : 1.0;
+    var adj = Offset.lerp(rs, grooveSty, grooveWeight) ?? rs;
+    adj = rot(adj, pivot, tonearmPulse * 0.25 + grooveJitter);
+    final lo = Offset(0, -lif * 10 - tonearmPulse * 3);
+    // Aim the headshell along the actual lifted arm line so it never detaches
+    // from the tonearm while raising.
+    final liftedTip = adj + lo;
+    final aAng = atan2(liftedTip.dy - pivot.dy, liftedTip.dx - pivot.dx);
     if (lif <= 0.15 && isPlaying && effectiveProgress < 0.995 && !lowPerformanceMode) adj += Offset(-sin(aAng), cos(aAng)) * ((sin(discAngle * 23.0) + sin(discAngle * 47.0)) * (w * 0.00022));
 
     canvas.drawLine(pivot.translate(4 + lif * 10, 4 + lif * 10), adj.translate(4 + lif * 10, 4 + lif * 10), Paint()..color = Colors.black.withValues(alpha: 0.3)..strokeWidth = w * 0.0135..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6));

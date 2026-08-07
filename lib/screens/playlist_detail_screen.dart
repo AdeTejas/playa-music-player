@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../models/playlist.dart';
@@ -87,17 +88,17 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        title: Text(_currentPlaylist.name),
+      appBar: PlayaAppBar(
+        title: _currentPlaylist.name,
         actions: [
           IconButton(
+            tooltip: 'Play',
             icon: const Icon(PhosphorIconsRegular.play),
             onPressed:
                 _songs.isEmpty
                     ? null
                     : () {
+                      HapticFeedback.mediumImpact();
                       PlayerController.ensure().replaceQueue(
                         _songs,
                         queueContextType: 'playlist',
@@ -135,64 +136,69 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
               )
               : ListView.builder(
                 itemCount: _songs.length,
+                padding: const EdgeInsets.symmetric(horizontal: PlayaSpacing.xs),
                 itemBuilder: (context, index) {
                   final song = _songs[index];
                   return Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                    child: GlassPanel(
+                    padding: const EdgeInsets.only(bottom: PlayaSpacing.xs),
+                    child: PlayaCard(
                       useStrongVariant: true,
-                      borderRadius: BorderRadius.circular(PlayaRadii.kRadius),
-                      borderColor: PlayaColors.border,
-                      child: Material(
-                        color: Colors.transparent,
-                        child: ListTile(
-                          leading: ArtworkImage(
-                            id: song.id,
-                            type: ArtworkType.AUDIO,
-                            nullArtworkWidget: Container(
-                              width: 48,
-                              height: 48,
-                              decoration: BoxDecoration(
+                      useMatteVariant: true,
+                      padding: EdgeInsets.zero,
+                      borderRadius: BorderRadius.circular(PlayaRadii.sm),
+                      child: ListTile(
+                        leading: ArtworkImage(
+                          id: song.id,
+                          type: ArtworkType.AUDIO,
+                          nullArtworkWidget: Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: PlayaColors.surfaceVariant,
+                              borderRadius: BorderRadius.circular(PlayaRadii.xs),
+                              border: Border.all(
                                 color: PlayaColors.borderSubtle,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: PlayaColors.border,
-                                ),
-                              ),
-                              child: const Icon(
-                                Icons.music_note,
-                                color: PlayaColors.onSurfaceVariant,
                               ),
                             ),
-                          ),
-                          title: Text(
-                            song.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: PlayaColors.onSurface),
-                          ),
-                          subtitle: Text(
-                            song.artist ?? 'Unknown',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: PlayaColors.onSurfaceVariant),
-                          ),
-                          trailing: IconButton(
-                            icon: const Icon(
-                              Icons.remove_circle_outline,
+                            child: const Icon(
+                              PhosphorIconsRegular.musicNote,
                               color: PlayaColors.onSurfaceVariant,
                             ),
-                            onPressed: () => _removeSong(song),
                           ),
-                          onTap: () {
-                            PlayerController.ensure().replaceQueue(
-                              _songs,
-                              initialIndex: index,
-                              queueContextType: 'playlist',
-                              queueContextId: _currentPlaylist.id,
-                            );
+                        ),
+                        title: Text(
+                          song.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: PlayaColors.onSurface, fontWeight: FontWeight.w600),
+                        ),
+                        subtitle: Text(
+                          song.artist ?? 'Unknown',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: PlayaColors.onSurfaceVariant, fontSize: 11),
+                        ),
+                        trailing: IconButton(
+                          tooltip: 'Remove from playlist',
+                          icon: const Icon(
+                            PhosphorIconsRegular.minusCircle,
+                            color: PlayaColors.onSurfaceVariant,
+                            size: 20,
+                          ),
+                          onPressed: () {
+                            HapticFeedback.selectionClick();
+                            _removeSong(song);
                           },
                         ),
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          PlayerController.ensure().replaceQueue(
+                            _songs,
+                            initialIndex: index,
+                            queueContextType: 'playlist',
+                            queueContextId: _currentPlaylist.id,
+                          );
+                        },
                       ),
                     ),
                   );

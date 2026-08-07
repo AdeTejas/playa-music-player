@@ -1,5 +1,6 @@
 // lib/screens/playlists_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../design/design_system.dart';
 import '../models/playlist.dart';
@@ -8,7 +9,9 @@ import 'smart_playlist_screen.dart';
 import 'playlist_detail_screen.dart';
 
 class PlaylistsScreen extends StatefulWidget {
-  const PlaylistsScreen({super.key});
+  final bool isVisible;
+
+  const PlaylistsScreen({super.key, this.isVisible = true});
 
   @override
   State<PlaylistsScreen> createState() => _PlaylistsScreenState();
@@ -22,7 +25,15 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
   @override
   void initState() {
     super.initState();
-    _loadPlaylists();
+    if (widget.isVisible) _loadPlaylists();
+  }
+
+  @override
+  void didUpdateWidget(PlaylistsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isVisible && !oldWidget.isVisible) {
+      _loadPlaylists();
+    }
   }
 
   Future<void> _loadPlaylists() async {
@@ -40,66 +51,67 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
       builder:
           (context) => Dialog(
             backgroundColor: Colors.transparent,
-            child: GlassPanel(
-              useStrongVariant: true,
+            child: RichMatteTexture(
               borderRadius: BorderRadius.circular(PlayaRadii.lg),
-              borderColor: PlayaColors.border,
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Create Playlist',
-                    style: TextStyle(
-                      color: PlayaColors.onSurface,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: nameController,
-                    decoration: const InputDecoration(labelText: 'Name'),
-                    autofocus: true,
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: descController,
-                    decoration: const InputDecoration(
-                      labelText: 'Description (optional)',
-                    ),
-                    maxLines: 2,
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Cancel'),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const PlayaSectionHeader(title: 'Create Playlist', showDivider: false),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: nameController,
+                      style: const TextStyle(color: PlayaColors.onSurface),
+                      decoration: const InputDecoration(
+                        labelText: 'Name',
+                        labelStyle: TextStyle(color: PlayaColors.onSurfaceVariant),
+                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: PlayaColors.borderSubtle)),
                       ),
-                      const SizedBox(width: 8),
-                      TextButton(
-                        onPressed: () async {
-                          if (nameController.text.trim().isEmpty) return;
-                          await _repo.create(
-                            nameController.text.trim(),
-                            description:
-                                descController.text.trim().isEmpty
-                                    ? null
-                                    : descController.text.trim(),
-                          );
-                          if (context.mounted) {
-                            Navigator.pop(context);
-                            _loadPlaylists();
-                          }
-                        },
-                        child: const Text('Create'),
+                      autofocus: true,
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: descController,
+                      style: const TextStyle(color: PlayaColors.onSurface),
+                      decoration: const InputDecoration(
+                        labelText: 'Description (optional)',
+                        labelStyle: TextStyle(color: PlayaColors.onSurfaceVariant),
+                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: PlayaColors.borderSubtle)),
                       ),
-                    ],
-                  ),
-                ],
+                      maxLines: 2,
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Cancel', style: TextStyle(color: PlayaColors.onSurfaceVariant)),
+                        ),
+                        const SizedBox(width: 8),
+                        PlayaButton(
+                          label: 'Create',
+                          onPressed: () async {
+                            if (nameController.text.trim().isEmpty) return;
+                            await _repo.create(
+                              nameController.text.trim(),
+                              description:
+                                  descController.text.trim().isEmpty
+                                      ? null
+                                      : descController.text.trim(),
+                            );
+                            if (context.mounted) {
+                              Navigator.pop(context);
+                              _loadPlaylists();
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -224,14 +236,16 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
     final accentColor = Theme.of(context).colorScheme.primary;
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        title: const Text('Playlists'),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
+      appBar: PlayaAppBar(
+        title: 'Playlists',
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadPlaylists,
+            tooltip: 'Refresh playlists',
+            icon: const Icon(PhosphorIconsRegular.arrowClockwise),
+            onPressed: () {
+              HapticFeedback.selectionClick();
+              _loadPlaylists();
+            },
           ),
         ],
       ),
@@ -239,20 +253,10 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
           _loading
               ? const Center(child: CircularProgressIndicator())
               : ListView(
+                padding: const EdgeInsets.symmetric(horizontal: PlayaSpacing.xs),
                 children: [
                   // Smart Playlists Section
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                    child: Text(
-                      'Smart Playlists',
-                      style: TextStyle(
-                        color: accentColor,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        letterSpacing: 1.0,
-                      ),
-                    ),
-                  ),
+                  const PlayaSectionHeader(title: 'Smart Playlists'),
                   _buildSmartTile(
                     icon: PhosphorIconsFill.fire,
                     title: 'Heavy Rotation',
@@ -275,28 +279,17 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
                     type: SmartPlaylistType.forgottenFavorites,
                   ),
 
-                  Divider(color: PlayaColors.borderSubtle, height: 32),
+                  const SizedBox(height: PlayaSpacing.md),
 
                   // User Playlists Section
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                    child: Text(
-                      'Your Playlists',
-                      style: TextStyle(
-                        color: accentColor,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        letterSpacing: 1.0,
-                      ),
-                    ),
-                  ),
+                  const PlayaSectionHeader(title: 'User Playlists'),
                   if (_playlists.isEmpty)
                     const Padding(
                       padding: EdgeInsets.all(32.0),
                       child: Column(
                         children: [
                           Icon(
-                            Icons.queue_music,
+                            PhosphorIconsRegular.musicNotesPlus,
                             size: 48,
                             color: PlayaColors.onSurfaceVariant,
                           ),
@@ -312,70 +305,81 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
                     ..._playlists.map(
                       (p) => Padding(
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                        child: GlassPanel(
-                          useShader: false,
-                          borderRadius: BorderRadius.circular(14),
-                          borderColor: PlayaColors.border,
-                          child: Material(
-                            color: Colors.transparent,
-                            child: ListTile(
-                              leading: Container(
-                                width: 48,
-                                height: 48,
-                                decoration: BoxDecoration(
+                        child: PlayaCard(
+                          useStrongVariant: true,
+                          useMatteVariant: true,
+                          padding: EdgeInsets.zero,
+                          borderRadius: BorderRadius.circular(PlayaRadii.sm),
+                          child: ListTile(
+                            leading: Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: PlayaColors.surfaceVariant,
+                                borderRadius: BorderRadius.circular(PlayaRadii.xs),
+                                border: Border.all(
                                   color: PlayaColors.borderSubtle,
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: PlayaColors.border,
-                                  ),
-                                ),
-                                child: Center(
-                                  child: Text(
-                                    '${p.songCount}',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
                                 ),
                               ),
-                              title: Text(
-                                p.name,
-                                style: const TextStyle(color: PlayaColors.onSurface),
-                              ),
-                              subtitle: Text(
-                                p.description?.isNotEmpty == true
-                                    ? p.description!
-                                    : '${p.songCount} songs',
-                                style: const TextStyle(color: PlayaColors.onSurfaceVariant),
-                              ),
-                              trailing: IconButton(
-                                icon: const Icon(
-                                  Icons.delete_outline,
-                                  color: PlayaColors.onSurfaceVariant,
-                                ),
-                                onPressed: () => _deletePlaylist(p),
-                              ),
-                              onTap: () async {
-                                await Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder:
-                                        (_) =>
-                                            PlaylistDetailScreen(playlist: p),
+                              child: Center(
+                                child: Text(
+                                  '${p.songCount}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'monospace',
+                                    fontSize: 12,
                                   ),
-                                );
-                                _loadPlaylists(); // Refresh count on return
+                                ),
+                              ),
+                            ),
+                            title: Text(
+                              p.name,
+                              style: const TextStyle(color: PlayaColors.onSurface, fontWeight: FontWeight.w600),
+                            ),
+                            subtitle: Text(
+                              p.description?.isNotEmpty == true
+                                  ? p.description!
+                                  : '${p.songCount} songs',
+                              style: const TextStyle(color: PlayaColors.onSurfaceVariant, fontSize: 11),
+                            ),
+                            trailing: IconButton(
+                              tooltip: 'Delete playlist',
+                              icon: const Icon(
+                                PhosphorIconsRegular.trash,
+                                color: PlayaColors.onSurfaceVariant,
+                                size: 20,
+                              ),
+                              onPressed: () {
+                                HapticFeedback.selectionClick();
+                                _deletePlaylist(p);
                               },
                             ),
+                            onTap: () async {
+                              HapticFeedback.selectionClick();
+                              await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder:
+                                      (_) =>
+                                          PlaylistDetailScreen(playlist: p),
+                                ),
+                              );
+                              _loadPlaylists(); // Refresh count on return
+                            },
                           ),
                         ),
                       ),
                     ),
+                  const SizedBox(height: 80),
                 ],
               ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _createPlaylist,
-        child: const Icon(Icons.add),
+        onPressed: () {
+          HapticFeedback.mediumImpact();
+          _createPlaylist();
+        },
+        backgroundColor: accentColor,
+        child: const Icon(PhosphorIconsBold.plus, color: Colors.black),
       ),
     );
   }

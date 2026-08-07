@@ -15,3 +15,6 @@ export 'components/glass_panel.dart';
 export 'components/playa_card.dart';
 export 'components/playa_settings_tile.dart';
 export 'components/playa_button.dart';
+export 'components/rich_matte_texture.dart';
+export 'components/playa_section_header.dart';
+export 'components/playa_app_bar.dart';
