@@ -18,6 +18,7 @@ import '../repositories/listening_progress_repository.dart';
 import '../repositories/song_repository.dart';
 import '../utils/bookmark_key.dart';
 import '../utils/content_mode.dart';
+import '../utils/audio_display_labels.dart';
 import '../utils/neural_mix_key.dart';
 import '../utils/replaygain_tag_reader.dart';
 import 'database_service.dart';
@@ -182,6 +183,54 @@ List<String> _neuralMixRankSongIds(Map<String, dynamic> args) {
 }
 
 enum NeuralMixEnergyMode { neutral, up, down }
+
+/// Snapshot of the last Neural Mix for explain / save-as-playlist UI.
+class NeuralMixSummary {
+  final List<String> songIds;
+  final double? seedBpm;
+  final String? seedKey;
+  final NeuralMixEnergyMode energyMode;
+  final String? seedTitle;
+  final String? seedArtist;
+  final int trackCount;
+
+  const NeuralMixSummary({
+    required this.songIds,
+    required this.energyMode,
+    required this.trackCount,
+    this.seedBpm,
+    this.seedKey,
+    this.seedTitle,
+    this.seedArtist,
+  });
+
+  String get explainBlurb {
+    final parts = <String>[];
+    if (seedBpm != null && seedBpm! > 0) {
+      parts.add('${seedBpm!.round()} BPM');
+    }
+    if (seedKey != null && seedKey!.trim().isNotEmpty) {
+      parts.add(seedKey!.trim());
+    }
+    switch (energyMode) {
+      case NeuralMixEnergyMode.up:
+        parts.add('energy ↑');
+        break;
+      case NeuralMixEnergyMode.down:
+        parts.add('energy ↓');
+        break;
+      case NeuralMixEnergyMode.neutral:
+        parts.add('balanced energy');
+        break;
+    }
+    final dna = parts.isEmpty ? 'library similarity' : parts.join(' · ');
+    final seed = seedTitle == null || seedTitle!.isEmpty
+        ? 'the current track'
+        : '"$seedTitle"';
+    return 'Mixed $trackCount tracks from $seed using Sonic DNA ($dna).';
+  }
+}
+
 
 class PlayerController {
   PlayerController._();
@@ -510,6 +559,7 @@ class PlayerController {
   final ValueNotifier<bool> neuralMixActiveNotifier = ValueNotifier(false);
 
   NeuralMixEnergyMode _neuralMixEnergyMode = NeuralMixEnergyMode.neutral;
+  NeuralMixSummary? lastNeuralMix;
   final ValueNotifier<NeuralMixEnergyMode> neuralMixEnergyModeNotifier =
       ValueNotifier(NeuralMixEnergyMode.neutral);
 
@@ -1217,9 +1267,18 @@ class PlayerController {
       uri,
       tag: MediaItem(
         id: s.data, // Using data (path) as ID for background service consistency
-        album: s.album ?? "Unknown Album",
-        title: s.title,
-        artist: s.artist ?? "Unknown Artist",
+        album: AudioDisplayLabels.isUnknownAlbum(s.album)
+            ? 'Album unknown'
+            : (s.album ?? 'Album unknown'),
+        title: AudioDisplayLabels.displayTitle(
+          title: s.title,
+          path: s.data,
+          artist: s.artist,
+        ),
+        artist: AudioDisplayLabels.displayArtistOrFallback(
+          artist: s.artist,
+          path: s.data,
+        ),
         duration: Duration(milliseconds: s.duration ?? 0),
         artUri: artUri,
         extras: {
@@ -1578,14 +1637,14 @@ class PlayerController {
     return rows;
   }
 
-  Future<void> smartShuffle() async {
-    if (!isReady) return;
-    if (neuralMixBusy.value) return;
+  Future<NeuralMixSummary?> smartShuffle() async {
+    if (!isReady) return null;
+    if (neuralMixBusy.value) return null;
 
     final seedItem = currentMediaItem;
-    if (seedItem == null) return;
+    if (seedItem == null) return null;
     final seedId = seedItem.extras?['songId']?.toString();
-    if (seedId == null) return;
+    if (seedId == null) return null;
 
     neuralMixBusy.value = true;
     try {
@@ -1653,7 +1712,7 @@ class PlayerController {
       if (mix.isEmpty) {
         debugPrint("Neural Mix: Library is empty. Cannot generate mix.");
         _setNeuralMixActive(false);
-        return;
+        return null;
       }
 
       final mixSources = <UriAudioSource>[];
@@ -1679,7 +1738,7 @@ class PlayerController {
 
       if (mixSources.isEmpty) {
         _setNeuralMixActive(false);
-        return;
+        return null;
       }
 
       // Prefer inserting into existing playlist to avoid disrupting playback.
@@ -1693,9 +1752,24 @@ class PlayerController {
       }
 
       await player.setShuffleModeEnabled(false);
+
+      final summary = NeuralMixSummary(
+        songIds: [
+          for (final s in mix) songIdentity(s),
+        ],
+        seedBpm: seedBpm,
+        seedKey: seedKey,
+        energyMode: _neuralMixEnergyMode,
+        seedTitle: seedItem.title,
+        seedArtist: seedItem.artist,
+        trackCount: mixSources.length,
+      );
+      lastNeuralMix = summary;
+      return summary;
     } catch (e) {
       debugPrint("Neural Mix Error: $e");
       _setNeuralMixActive(false);
+      return null;
     } finally {
       neuralMixBusy.value = false;
     }

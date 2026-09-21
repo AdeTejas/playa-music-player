@@ -20,10 +20,12 @@ import '../ui/waveform_widget.dart';
 import '../ui/lyrics_sheet.dart';
 import 'screensaver_screen.dart';
 import '../utils/content_mode.dart';
+import '../utils/audio_display_labels.dart';
 import '../utils/ui_utils.dart';
 import '../widgets/audiobook_controls.dart';
 import '../widgets/bookmarks_sheet.dart';
 import '../widgets/player_provider.dart';
+import '../repositories/playlist_repository.dart';
 
 class _NowPlayingSpacing {
   const _NowPlayingSpacing._();
@@ -104,10 +106,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               tag.extras?['path'] is String &&
                               (tag.extras!['path'] as String).isNotEmpty;
 
+                          final mediaSize = MediaQuery.sizeOf(context);
                           final layout = NowPlayingLayoutMetrics(
                             isLandscape: isLandscape,
                             isAudiobook: isAudiobook,
                             hasWaveform: hasWaveform,
+                            viewportHeight: mediaSize.height,
+                            viewportWidth: mediaSize.width,
+                            musicToolsCollapsed: !isAudiobook,
                           );
 
                           final controls = _NowPlayingControlsColumn(
@@ -124,6 +130,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             required double availableHeight,
                             Alignment alignment = Alignment.topCenter,
                           }) {
+                            if (layout.shouldScrollDock(availableHeight)) {
+                              return SizedBox(
+                                width: width,
+                                height: availableHeight,
+                                child: SingleChildScrollView(
+                                  physics: const ClampingScrollPhysics(),
+                                  child: Align(
+                                    alignment: alignment,
+                                    child: SizedBox(
+                                      width: width,
+                                      child: controls,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }
                             return SizedBox(
                               width: width,
                               height: availableHeight,
@@ -383,7 +405,26 @@ class _NowPlayingFavoriteButton extends StatelessWidget {
           ),
         ] else ...[
           if (compact) SizedBox(height: gap),
-          _SecondaryControls(ctrl: ctrl),
+          // Keep shuffle/repeat primary; bury Neural Mix / Speed clutter in Tools.
+          _SecondaryControls(
+            ctrl: ctrl,
+            visibleChips: const {'shuffle', 'repeat'},
+            showReorder: false,
+          ),
+          SizedBox(height: gap),
+          MusicToolsExpansion(
+            ctrl: ctrl,
+            child: _SecondaryControls(
+              ctrl: ctrl,
+              visibleChips: const {
+                'neural_mix',
+                'speed',
+                'lyrics',
+                'screensaver',
+                'bookmark',
+              },
+            ),
+          ),
         ],
       ],
     );
@@ -527,7 +568,13 @@ class _TransportBar extends StatelessWidget {
 class _SecondaryControls extends StatefulWidget {
   final PlayerController ctrl;
   final Set<String>? visibleChips;
-  const _SecondaryControls({required this.ctrl, this.visibleChips});
+  final bool showReorder;
+
+  const _SecondaryControls({
+    required this.ctrl,
+    this.visibleChips,
+    this.showReorder = true,
+  });
 
   @override
   State<_SecondaryControls> createState() => _SecondaryControlsState();
@@ -653,10 +700,22 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
             }
             if (!widget.ctrl.isReady) return;
             showToast(context, 'Generating Neural Mix...');
-            await widget.ctrl.smartShuffle();
+            final summary = await widget.ctrl.smartShuffle();
             if (!context.mounted) return;
+            if (summary == null) {
+              showToast(context, 'Could not generate mix');
+              return;
+            }
             showToast(context, 'Mix Ready');
             HapticFeedback.mediumImpact();
+            await showModalBottomSheet<void>(
+              context: context,
+              backgroundColor: Colors.transparent,
+              builder: (_) => _NeuralMixReadySheet(
+                ctrl: widget.ctrl,
+                summary: summary,
+              ),
+            );
           },
           onLongPress: _isReordering ? () {
             if (_selectedChipIndex != null && _selectedChipIndex != index) {
@@ -871,7 +930,8 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Align(
+        if (widget.showReorder)
+          Align(
           alignment: Alignment.centerRight,
           child: Tooltip(
             message: _isReordering ? 'Finish reordering' : 'Reorder controls',
@@ -1139,7 +1199,13 @@ class _TrackInfoPanel extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          item?.title ?? '—',
+          item == null
+              ? '—'
+              : AudioDisplayLabels.displayTitle(
+                  title: item!.title,
+                  path: item!.extras?['path'] as String?,
+                  artist: item!.artist,
+                ),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
@@ -1147,7 +1213,12 @@ class _TrackInfoPanel extends StatelessWidget {
         ),
         const SizedBox(height: 2),
         Text(
-          item?.artist ?? 'Unknown',
+          item == null
+              ? ''
+              : AudioDisplayLabels.displayArtistOrFallback(
+                  artist: item!.artist,
+                  path: item!.extras?['path'] as String?,
+                ),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
