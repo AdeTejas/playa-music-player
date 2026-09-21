@@ -182,6 +182,9 @@ class SettingsService extends ChangeNotifier {
   List<String> get windowsScanExtensions =>
       List.unmodifiable(_windowsScanExtensions);
   List<String> get controlChipOrder => List.unmodifiable(_controlChipOrder);
+  List<String> get smartPlaylistOrder => List.unmodifiable(_smartPlaylistOrder);
+  List<String> get pinnedSmartPlaylists => List.unmodifiable(_pinnedSmartPlaylists);
+  bool isSmartPlaylistPinned(String id) => _pinnedSmartPlaylists.contains(id);
   int get glowColor => _glowColor;
   int get vinylColor => _vinylColor;
   int get plinthColor => _plinthColor;
