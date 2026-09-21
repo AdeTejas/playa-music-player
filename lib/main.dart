@@ -32,6 +32,7 @@ import 'services/neural_mix_index_service.dart';
 
 import 'ui/deep_space_background.dart';
 import 'ui/torch_engine_glow_overlay.dart';
+import 'ui/now_playing_layout.dart';
 import 'screens/library_page.dart';
 import 'screens/player_screen.dart';
 import 'screens/equalizer_screen.dart';
@@ -462,93 +463,173 @@ class _ShellState extends State<_Shell> {
                             ],
                           )
                           : null,
-                  body: IndexedStack(
-                    index: _tab,
-                    children: [
-                      LibraryPage(isVisible: _tab == 0),
-                      PlayerScreen(isVisible: _tab == 1),
-                      PlaylistsScreen(isVisible: _tab == 2),
-                    ],
-                  ),
-                  bottomNavigationBar: SafeArea(
-                    top: false,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                        PlayaSpacing.kSp * 2,
-                        0,
-                        PlayaSpacing.kSp * 2,
-                        PlayaSpacing.kSp,
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
+                  body: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final wideDesktop = constraints.maxWidth >=
+                          NowPlayingLayoutMetrics.wideDesktopWidth;
+                      final stack = IndexedStack(
+                        index: _tab,
                         children: [
-                          if (_tab == 0)
-                            _MiniPlayer(
-                              ctrl: ctrl,
-                              onOpen: () {
-                                HapticFeedback.selectionClick();
-                                setState(() => _tab = 1);
-                              },
-                            ),
-                          if (_tab == 0)
-                            const SizedBox(height: PlayaSpacing.kSp),
-                          Container(
-                            decoration: PlayaEffects.matteSurface(
-                              borderRadius: BorderRadius.circular(32),
-                              elevated: true,
-                            ),
-                            child: SizedBox(
-                              height: 52,
-                              child: Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceEvenly,
-                                children: [
-                                  _NavBarItem(
-                                    icon: PhosphorIconsRegular.musicNotesSimple,
-                                    selectedIcon:
-                                        PhosphorIconsFill.musicNotesSimple,
-                                    label: 'Library',
-                                    selected: _tab == 0,
-                                    onTap: () {
-                                      if (_tab != 0) {
-                                        HapticFeedback.mediumImpact();
-                                        FocusScope.of(context).unfocus();
-                                        setState(() => _tab = 0);
-                                      }
-                                    },
-                                  ),
-                                  _NavBarItem(
-                                    icon: PhosphorIconsRegular.vinylRecord,
-                                    selectedIcon: PhosphorIconsFill.vinylRecord,
-                                    label: 'Player',
-                                    selected: _tab == 1,
-                                    onTap: () {
-                                      if (_tab != 1) {
-                                        HapticFeedback.mediumImpact();
-                                        setState(() => _tab = 1);
-                                      }
-                                    },
-                                  ),
-                                  _NavBarItem(
-                                    icon: PhosphorIconsRegular.playlist,
-                                    selectedIcon: PhosphorIconsFill.playlist,
-                                    label: 'Playlists',
-                                    selected: _tab == 2,
-                                    onTap: () {
-                                      if (_tab != 2) {
-                                        HapticFeedback.mediumImpact();
-                                        FocusScope.of(context).unfocus();
-                                        setState(() => _tab = 2);
-                                      }
-                                    },
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
+                          LibraryPage(isVisible: _tab == 0),
+                          PlayerScreen(isVisible: _tab == 1),
+                          PlaylistsScreen(isVisible: _tab == 2),
                         ],
-                      ),
-                    ),
+                      );
+
+                      void selectTab(int tab) {
+                        if (_tab == tab) return;
+                        HapticFeedback.mediumImpact();
+                        if (tab != 1) {
+                          FocusScope.of(context).unfocus();
+                        }
+                        setState(() => _tab = tab);
+                      }
+
+                      if (wideDesktop) {
+                        // Side rail avoids bottom-nav + mini-player clipping at
+                        // ~1280×720 Windows desktop windows.
+                        return Row(
+                          children: [
+                            NavigationRail(
+                              selectedIndex: _tab,
+                              onDestinationSelected: selectTab,
+                              labelType: NavigationRailLabelType.all,
+                              backgroundColor: Colors.transparent,
+                              destinations: const [
+                                NavigationRailDestination(
+                                  icon: Icon(
+                                    PhosphorIconsRegular.musicNotesSimple,
+                                  ),
+                                  selectedIcon: Icon(
+                                    PhosphorIconsFill.musicNotesSimple,
+                                  ),
+                                  label: Text('Library'),
+                                ),
+                                NavigationRailDestination(
+                                  icon: Icon(PhosphorIconsRegular.vinylRecord),
+                                  selectedIcon: Icon(
+                                    PhosphorIconsFill.vinylRecord,
+                                  ),
+                                  label: Text('Player'),
+                                ),
+                                NavigationRailDestination(
+                                  icon: Icon(PhosphorIconsRegular.playlist),
+                                  selectedIcon: Icon(
+                                    PhosphorIconsFill.playlist,
+                                  ),
+                                  label: Text('Playlists'),
+                                ),
+                              ],
+                            ),
+                            const VerticalDivider(width: 1),
+                            Expanded(child: stack),
+                          ],
+                        );
+                      }
+
+                      return stack;
+                    },
+                  ),
+                  bottomNavigationBar: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final wideDesktop = MediaQuery.sizeOf(context).width >=
+                          NowPlayingLayoutMetrics.wideDesktopWidth;
+                      if (wideDesktop) return const SizedBox.shrink();
+
+                      final shortViewport = MediaQuery.sizeOf(context).height <
+                          NowPlayingLayoutMetrics.shortViewportHeight;
+                      final bottomPad = shortViewport
+                          ? PlayaSpacing.kSp * 0.5
+                          : PlayaSpacing.kSp;
+
+                      return SafeArea(
+                        top: false,
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            PlayaSpacing.kSp * 2,
+                            0,
+                            PlayaSpacing.kSp * 2,
+                            bottomPad,
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_tab == 0)
+                                _MiniPlayer(
+                                  ctrl: ctrl,
+                                  onOpen: () {
+                                    HapticFeedback.selectionClick();
+                                    setState(() => _tab = 1);
+                                  },
+                                ),
+                              if (_tab == 0)
+                                SizedBox(
+                                  height: shortViewport
+                                      ? PlayaSpacing.kSp * 0.5
+                                      : PlayaSpacing.kSp,
+                                ),
+                              Container(
+                                decoration: PlayaEffects.matteSurface(
+                                  borderRadius: BorderRadius.circular(32),
+                                  elevated: true,
+                                ),
+                                child: SizedBox(
+                                  height: shortViewport ? 48 : 52,
+                                  child: Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceEvenly,
+                                    children: [
+                                      _NavBarItem(
+                                        icon: PhosphorIconsRegular
+                                            .musicNotesSimple,
+                                        selectedIcon: PhosphorIconsFill
+                                            .musicNotesSimple,
+                                        label: 'Library',
+                                        selected: _tab == 0,
+                                        onTap: () {
+                                          if (_tab != 0) {
+                                            HapticFeedback.mediumImpact();
+                                            FocusScope.of(context).unfocus();
+                                            setState(() => _tab = 0);
+                                          }
+                                        },
+                                      ),
+                                      _NavBarItem(
+                                        icon: PhosphorIconsRegular.vinylRecord,
+                                        selectedIcon:
+                                            PhosphorIconsFill.vinylRecord,
+                                        label: 'Player',
+                                        selected: _tab == 1,
+                                        onTap: () {
+                                          if (_tab != 1) {
+                                            HapticFeedback.mediumImpact();
+                                            setState(() => _tab = 1);
+                                          }
+                                        },
+                                      ),
+                                      _NavBarItem(
+                                        icon: PhosphorIconsRegular.playlist,
+                                        selectedIcon:
+                                            PhosphorIconsFill.playlist,
+                                        label: 'Playlists',
+                                        selected: _tab == 2,
+                                        onTap: () {
+                                          if (_tab != 2) {
+                                            HapticFeedback.mediumImpact();
+                                            FocusScope.of(context).unfocus();
+                                            setState(() => _tab = 2);
+                                          }
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
 
