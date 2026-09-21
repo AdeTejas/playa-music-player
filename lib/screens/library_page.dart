@@ -21,6 +21,8 @@ import '../utils/ui_utils.dart';
 import '../repositories/playlist_repository.dart';
 import '../models/listening_progress.dart';
 import '../widgets/continue_listening_section.dart';
+import '../widgets/pinned_smart_playlists_row.dart';
+import '../widgets/audiobook_series_shelf.dart';
 import '../utils/content_mode.dart';
 
 import '../design/design_system.dart';
@@ -1269,20 +1271,28 @@ class _LibraryPageState extends State<LibraryPage> {
                       ),
                     ),
 
-                  if (!_isSelectionMode &&
-                      _filteredContinueListening.isNotEmpty)
-                    ContinueListeningSection(
-                      items: _filteredContinueListening,
-                      ctrl: ServiceLocator.instance.playerController,
-                      librarySongs: _allSongs,
-                      onResume: () {
-                        if (mounted) {
-                          showToast(context, 'Resuming where you left off');
-                        }
-                      },
-                      onDismiss:
-                          (seriesKey) => _dismissContinueListening(seriesKey),
-                    ),
+                  if (!_isSelectionMode) ...[
+                    const PinnedSmartPlaylistsRow(),
+                    if (_filteredContinueListening.isNotEmpty)
+                      ContinueListeningSection(
+                        items: _filteredContinueListening,
+                        ctrl: ServiceLocator.instance.playerController,
+                        librarySongs: _allSongs,
+                        onResume: () {
+                          if (mounted) {
+                            showToast(
+                              context,
+                              'Resuming where you left off',
+                            );
+                          }
+                        },
+                        onDismiss: (seriesKey) =>
+                            _dismissContinueListening(seriesKey),
+                      ),
+                    if (SettingsService.instance.libraryBrowseFilter !=
+                        LibraryBrowseFilter.music)
+                      AudiobookSeriesShelf(librarySongs: _allSongs),
+                  ],
 
                   const SizedBox(height: PlayaSpacing.sm),
 
