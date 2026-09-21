@@ -5,14 +5,14 @@ import 'waveform_widget.dart';
 /// Single source of truth for Now Playing hero + dock proportions.
 ///
 /// Scale chain:
-/// 1. [waveformHeight] — fixed slot on the 8pt grid (shrinks on short viewports).
-/// 2. [dockHeight] — sums fixed control rows + waveform slot.
-/// 3. [turntableSide] — `min(width, height budget) * [turntableScale]` (scale applied once).
-/// 4. Ship length inside the painter — `waveformHeight * modeShipFill` (see [waveformMode]).
+/// 1. [waveformHeight] - fixed slot on the 8pt grid (shrinks on short desktop).
+/// 2. [dockHeight] - sums fixed control rows + waveform slot.
+/// 3. [turntableSide] - min(width, height budget) * [turntableScale] (once).
+/// 4. Ship length inside the painter - waveformHeight * modeShipFill.
 ///
-/// Short viewports (~1280×720 Windows desktop) opt into a compact budget so
+/// Short viewports (~1280x720 Windows desktop) opt into a compact budget so
 /// Library/Player chrome, filters, and the scrubber stop clipping. Phone-sized
-/// portrait layouts keep the original proportions.
+/// portrait layouts keep the original proportions even when height < 780.
 class NowPlayingLayoutMetrics {
   const NowPlayingLayoutMetrics({
     required this.isLandscape,
@@ -51,21 +51,28 @@ class NowPlayingLayoutMetrics {
   static const double dockMaxUpscale = 1.32;
   static const double dockMinScale = 0.82;
 
-  /// Below this height we treat the viewport as "short" (720p desktop, etc.).
+  /// Below this height we *may* treat the viewport as short desktop.
   static const double shortViewportHeight = 780;
 
   /// Wide enough to prefer a side rail over a bottom nav (desktop).
   static const double wideDesktopWidth = 1100;
+
+  /// Min width to treat a short window as desktop (not phone portrait).
+  static const double shortDesktopMinWidth = 900;
 
   /// Ship fill inside the waveform slot (must match [PreciseWaveformPainter]).
   static const double shipFillStandard = 0.7125;
   static const double shipFillCompact = 0.45;
   static const double shipFillCalm = 0.7125;
 
+  /// Short *desktop* window (e.g. 1280x720). Phone portrait is often under
+  /// [shortViewportHeight] too - do not steal its proportions.
   bool get isShortViewport {
     final h = viewportHeight;
-    if (h == null) return false;
-    return h < shortViewportHeight;
+    if (h == null || h >= shortViewportHeight) return false;
+    final w = viewportWidth;
+    if (w == null) return false;
+    return w >= shortDesktopMinWidth;
   }
 
   bool get isWideDesktop {
@@ -73,8 +80,7 @@ class NowPlayingLayoutMetrics {
     return w != null && w >= wideDesktopWidth;
   }
 
-  /// Prefer scrolling the dock over crushing controls when the scale would
-  /// drop below [dockMinScale] on short desktop viewports.
+  /// Prefer scrolling the dock over crushing controls on short desktop.
   bool get preferScrollableDock => isShortViewport || isWideDesktop;
 
   double get waveformHeight {
@@ -91,22 +97,22 @@ class NowPlayingLayoutMetrics {
   }
 
   double get shipFill => switch (waveformMode) {
-        WaveformDisplayMode.standard => shipFillStandard,
-        WaveformDisplayMode.compact => shipFillCompact,
-        WaveformDisplayMode.calm => shipFillCalm,
-      };
+    WaveformDisplayMode.standard => shipFillStandard,
+    WaveformDisplayMode.compact => shipFillCompact,
+    WaveformDisplayMode.calm => shipFillCalm,
+  };
 
   /// Expected ship length in logical pixels (for layout sanity checks).
   double get expectedShipLength => waveformHeight * shipFill;
 
   double get dockHeight => _dockReserve(
-        isAudiobook: isAudiobook,
-        hasWaveform: hasWaveform,
-        waveformHeight: waveformHeight,
-        isLandscape: isLandscape,
-        musicToolsCollapsed: musicToolsCollapsed,
-        compact: isShortViewport,
-      );
+    isAudiobook: isAudiobook,
+    hasWaveform: hasWaveform,
+    waveformHeight: waveformHeight,
+    isLandscape: isLandscape,
+    musicToolsCollapsed: musicToolsCollapsed,
+    compact: isShortViewport,
+  );
 
   /// Scales dock content up (or slightly down) to absorb leftover viewport.
   double dockScaleFor(double availableHeight) {
@@ -115,7 +121,7 @@ class NowPlayingLayoutMetrics {
     return (availableHeight / intrinsic).clamp(dockMinScale, dockMaxUpscale);
   }
 
-  /// True when FittedBox scaling would crush controls — prefer scroll instead.
+  /// True when FittedBox scaling would crush controls - prefer scroll instead.
   bool shouldScrollDock(double availableHeight) {
     if (preferScrollableDock && availableHeight + 0.5 < dockHeight) {
       return true;
@@ -142,7 +148,9 @@ class NowPlayingLayoutMetrics {
 
     final heroBudget = math.max(0.0, height - dockHeight);
     final share =
-        isShortViewport ? turntableMaxShortPortraitShare : turntableMaxPortraitShare;
+        isShortViewport
+            ? turntableMaxShortPortraitShare
+            : turntableMaxPortraitShare;
     final cap = vh * share;
     return math.min(width, math.min(heroBudget, cap)) * turntableScale;
   }
