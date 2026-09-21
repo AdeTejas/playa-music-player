@@ -9,7 +9,7 @@ import java.util.Properties
 
 android {
     namespace = "com.paxpiece.playa"
-    compileSdk = 35
+    compileSdk = 36
     ndkVersion = "27.0.12077973"
 
     val keyProperties = Properties()
@@ -30,9 +30,9 @@ android {
 
     defaultConfig {
         applicationId = "com.paxpiece.playa"
-        // Explicitly set to 23 to satisfy androidx.work and other modern dependencies
-        minSdk = 23
-        targetSdk = 35
+        // minSdk 24 required by androidx.work (was 23)
+        minSdk = 24
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
