@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:isolate';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
@@ -6,6 +7,8 @@ import 'package:on_audio_query/on_audio_query.dart';
 import 'package:path/path.dart' as p;
 
 import 'settings_service.dart';
+import '../utils/audio_tag_reader.dart';
+import '../utils/audio_display_labels.dart';
 
 class WindowsAudioQuery {
   static final WindowsAudioQuery _instance = WindowsAudioQuery._();
@@ -95,17 +98,7 @@ class WindowsAudioQuery {
             final ext = p.extension(entity.path).toLowerCase();
             if (audioExtensions.contains(ext)) {
               found++;
-              final name = p.basenameWithoutExtension(entity.path);
-              songs.add({
-                '_id': entity.path.hashCode,
-                '_data': entity.path,
-                '_display_name': p.basename(entity.path),
-                'title': name,
-                'artist': 'Unknown Artist',
-                'album': 'Unknown Album',
-                'duration': 0,
-                'is_music': true,
-              });
+              songs.add(_mapFileTagsSync(entity));
             }
 
             if (scannedFiles % 500 == 0 ||
@@ -278,19 +271,71 @@ class WindowsAudioQuery {
   }
 
   SongModel _fileToSongModel(File file) {
-    final name = p.basenameWithoutExtension(file.path);
-    return SongModel({
-      '_id': file.path.hashCode,
-      '_data': file.path,
-      '_display_name': p.basename(file.path),
-      'title': name,
-      'artist': 'Unknown Artist',
-      'album': 'Unknown Album',
-      'duration': 0,
-      'is_music': true,
-    });
+    return SongModel(_mapFileTagsSync(file));
   }
 }
+
+/// Shared by the main isolate path and the scan worker.
+Map<String, Object?> _mapFileTagsSync(File file) {
+  final basename = p.basenameWithoutExtension(file.path);
+  String title = basename;
+  String artist = '';
+  String album = '';
+  int duration = 0;
+
+  try {
+    final raf = file.openSync(mode: FileMode.read);
+    try {
+      final length = raf.lengthSync();
+      final take = length < 512 * 1024 ? length : 512 * 1024;
+      final bytes = raf.readSync(take);
+      final tags = AudioTagReader.readFromBytes(
+        bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+        file.path,
+      );
+      if (tags.title != null && tags.title!.trim().isNotEmpty) {
+        title = tags.title!.trim();
+      } else {
+        title = AudioDisplayLabels.displayTitle(title: basename, path: file.path);
+      }
+      if (tags.artist != null && tags.artist!.trim().isNotEmpty) {
+        artist = tags.artist!.trim();
+      } else {
+        artist = AudioDisplayLabels.displayArtist(
+          artist: null,
+          path: file.path,
+          title: title,
+        );
+      }
+      if (tags.album != null && tags.album!.trim().isNotEmpty) {
+        album = tags.album!.trim();
+      }
+      if (tags.durationMs != null && tags.durationMs! > 0) {
+        duration = tags.durationMs!;
+      }
+    } finally {
+      raf.closeSync();
+    }
+  } catch (_) {
+    title = AudioDisplayLabels.displayTitle(title: basename, path: file.path);
+    artist = AudioDisplayLabels.displayArtist(artist: null, path: file.path);
+  }
+
+  if (artist.isEmpty) artist = 'Artist unknown';
+  if (album.isEmpty) album = 'Album unknown';
+
+  return {
+    '_id': file.path.hashCode,
+    '_data': file.path,
+    '_display_name': p.basename(file.path),
+    'title': title,
+    'artist': artist,
+    'album': album,
+    'duration': duration,
+    'is_music': true,
+  };
+}
+
 
 class WindowsScanCancelToken {
   WindowsScanCancelToken._();

@@ -33,10 +33,18 @@ void main() {
       viewportHeight: viewportH,
     );
 
-    const rawCap = viewportH * NowPlayingLayoutMetrics.turntableMaxPortraitShare;
+    const rawCap =
+        viewportH * NowPlayingLayoutMetrics.turntableMaxPortraitShare;
     final rawBudget = viewportH - dock;
-    final expectedRaw = [viewportW, rawBudget, rawCap].reduce((a, b) => a < b ? a : b);
-    expect(side, closeTo(expectedRaw * NowPlayingLayoutMetrics.turntableScale, 0.01));
+    final expectedRaw = [
+      viewportW,
+      rawBudget,
+      rawCap,
+    ].reduce((a, b) => a < b ? a : b);
+    expect(
+      side,
+      closeTo(expectedRaw * NowPlayingLayoutMetrics.turntableScale, 0.01),
+    );
   });
 
   test('landscape turntable uses panel min side', () {
@@ -75,5 +83,52 @@ void main() {
 
     expect(layout.waveformMode, WaveformDisplayMode.calm);
     expect(layout.shipFill, NowPlayingLayoutMetrics.shipFillCalm);
+  });
+
+  test('short viewport shrinks waveform and prefers scrollable dock', () {
+    const layout = NowPlayingLayoutMetrics(
+      isLandscape: true,
+      isAudiobook: false,
+      hasWaveform: true,
+      viewportHeight: 720,
+      viewportWidth: 1280,
+      musicToolsCollapsed: true,
+    );
+
+    expect(layout.isShortViewport, isTrue);
+    expect(layout.isWideDesktop, isTrue);
+    expect(layout.preferScrollableDock, isTrue);
+    expect(
+      layout.waveformHeight,
+      NowPlayingLayoutMetrics.waveformLandscapeCompact,
+    );
+    expect(layout.shouldScrollDock(layout.dockHeight * 0.5), isTrue);
+  });
+
+  test('phone portrait is not treated as short desktop', () {
+    const layout = NowPlayingLayoutMetrics(
+      isLandscape: false,
+      isAudiobook: false,
+      hasWaveform: true,
+      viewportHeight: 800,
+      viewportWidth: 390,
+    );
+
+    expect(layout.isShortViewport, isFalse);
+    expect(layout.isWideDesktop, isFalse);
+    expect(layout.waveformHeight, NowPlayingLayoutMetrics.waveformPortrait);
+  });
+
+  test('phone landscape stays off short-desktop compact path', () {
+    const layout = NowPlayingLayoutMetrics(
+      isLandscape: true,
+      isAudiobook: false,
+      hasWaveform: true,
+      viewportHeight: 390,
+      viewportWidth: 844,
+    );
+
+    expect(layout.isShortViewport, isFalse);
+    expect(layout.waveformHeight, NowPlayingLayoutMetrics.waveformLandscape);
   });
 }

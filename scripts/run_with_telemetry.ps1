@@ -20,11 +20,19 @@ $root = Split-Path -Parent $PSScriptRoot
 $envFile = Join-Path $root '.env.local'
 
 if (-not (Test-Path $envFile)) {
-    Write-Host "Missing $envFile. Copy the blank template and fill in your keys:" -ForegroundColor Yellow
+    $example = Join-Path $root '.env.local.example'
+    Write-Host "Missing $envFile." -ForegroundColor Yellow
+    if (Test-Path $example) {
+        Write-Host "Copy the example and fill in your keys (no secrets in git):" -ForegroundColor Yellow
+        Write-Host "  Copy-Item .env.local.example .env.local" -ForegroundColor Yellow
+    } else {
+        Write-Host "Create .env.local with:" -ForegroundColor Yellow
+    }
     Write-Host "  PLAYA_SENTRY_DSN=" -ForegroundColor Yellow
     Write-Host "  PLAYA_POSTHOG_KEY=" -ForegroundColor Yellow
-    Write-Host "  PLAYA_POSTHOG_HOST=" -ForegroundColor Yellow
+    Write-Host "  PLAYA_POSTHOG_HOST=https://us.i.posthog.com" -ForegroundColor Yellow
     Write-Host "  PLAYA_TELEMETRY_DEBUG=" -ForegroundColor Yellow
+    Write-Host "Keys are build-time only via --dart-define-from-file; TelemetryService stays inert until consent." -ForegroundColor DarkGray
     exit 1
 }
 

@@ -20,17 +20,21 @@ import '../ui/waveform_widget.dart';
 import '../ui/lyrics_sheet.dart';
 import 'screensaver_screen.dart';
 import '../utils/content_mode.dart';
+import '../utils/audio_display_labels.dart';
 import '../utils/ui_utils.dart';
 import '../widgets/audiobook_controls.dart';
 import '../widgets/bookmarks_sheet.dart';
 import '../widgets/player_provider.dart';
+import '../repositories/playlist_repository.dart';
 
 class _NowPlayingSpacing {
   const _NowPlayingSpacing._();
 
   static const double screenX = PlayaSpacing.sm;
+
   /// Between major blocks (metadata / scrub / transport).
   static const double section = PlayaSpacing.xxs;
+
   /// Within a related group (e.g. speed pills, transport extras).
   static const double group = PlayaSpacing.xxs;
   static const double tight = PlayaSpacing.xxs;
@@ -98,16 +102,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         builder: (context, orientation) {
                           final isLandscape =
                               orientation == Orientation.landscape;
-                          final hasWaveform = SettingsService.instance
-                                  .effectiveShowWaveforms &&
+                          final hasWaveform =
+                              SettingsService.instance.effectiveShowWaveforms &&
                               tag != null &&
                               tag.extras?['path'] is String &&
                               (tag.extras!['path'] as String).isNotEmpty;
 
+                          final mediaSize = MediaQuery.sizeOf(context);
                           final layout = NowPlayingLayoutMetrics(
                             isLandscape: isLandscape,
                             isAudiobook: isAudiobook,
                             hasWaveform: hasWaveform,
+                            viewportHeight: mediaSize.height,
+                            viewportWidth: mediaSize.width,
+                            musicToolsCollapsed: !isAudiobook,
                           );
 
                           final controls = _NowPlayingControlsColumn(
@@ -124,16 +132,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             required double availableHeight,
                             Alignment alignment = Alignment.topCenter,
                           }) {
+                            if (layout.shouldScrollDock(availableHeight)) {
+                              return SizedBox(
+                                width: width,
+                                height: availableHeight,
+                                child: SingleChildScrollView(
+                                  physics: const ClampingScrollPhysics(),
+                                  child: Align(
+                                    alignment: alignment,
+                                    child: SizedBox(
+                                      width: width,
+                                      child: controls,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }
                             return SizedBox(
                               width: width,
                               height: availableHeight,
                               child: FittedBox(
                                 fit: BoxFit.contain,
                                 alignment: alignment,
-                                child: SizedBox(
-                                  width: width,
-                                  child: controls,
-                                ),
+                                child: SizedBox(width: width, child: controls),
                               ),
                             );
                           }
@@ -210,19 +231,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                     SizedBox(
                                       height: side,
                                       width: double.infinity,
-                                      child: Center(
-                                        child: turntableHero(side),
-                                      ),
+                                      child: Center(child: turntableHero(side)),
                                     ),
-                                    SizedBox(
-                                      height: _NowPlayingSpacing.tight,
-                                    ),
+                                    SizedBox(height: _NowPlayingSpacing.tight),
                                     Expanded(
                                       child: LayoutBuilder(
                                         builder: (context, dockBox) {
+                                          // Phone: park controls above bottom nav.
+                                          // Short/wide desktop (#10): keep top/scroll.
+                                          final align =
+                                              layout.isShortViewport ||
+                                                      layout.isWideDesktop
+                                                  ? Alignment.topCenter
+                                                  : Alignment.bottomCenter;
                                           return scaledDock(
                                             width: constraints.maxWidth,
                                             availableHeight: dockBox.maxHeight,
+                                            alignment: align,
                                           );
                                         },
                                       ),
@@ -318,10 +343,7 @@ class _NowPlayingFavoriteButton extends StatelessWidget {
   final MediaItem? item;
   final PlayerController ctrl;
 
-  const _NowPlayingFavoriteButton({
-    required this.item,
-    required this.ctrl,
-  });
+  const _NowPlayingFavoriteButton({required this.item, required this.ctrl});
 
   @override
   Widget build(BuildContext context) {
@@ -345,14 +367,13 @@ class _NowPlayingFavoriteButton extends StatelessWidget {
       },
     );
   }
-}class _PlayerControlsSection extends StatelessWidget {
+}
+
+class _PlayerControlsSection extends StatelessWidget {
   final PlayerController ctrl;
   final bool compact;
 
-  const _PlayerControlsSection({
-    required this.ctrl,
-    this.compact = false,
-  });
+  const _PlayerControlsSection({required this.ctrl, this.compact = false});
 
   @override
   Widget build(BuildContext context) {
@@ -383,7 +404,26 @@ class _NowPlayingFavoriteButton extends StatelessWidget {
           ),
         ] else ...[
           if (compact) SizedBox(height: gap),
-          _SecondaryControls(ctrl: ctrl),
+          // Keep shuffle/repeat primary; bury Neural Mix / Speed clutter in Tools.
+          _SecondaryControls(
+            ctrl: ctrl,
+            visibleChips: const {'shuffle', 'repeat'},
+            showReorder: false,
+          ),
+          SizedBox(height: gap),
+          MusicToolsExpansion(
+            ctrl: ctrl,
+            child: _SecondaryControls(
+              ctrl: ctrl,
+              visibleChips: const {
+                'neural_mix',
+                'speed',
+                'lyrics',
+                'screensaver',
+                'bookmark',
+              },
+            ),
+          ),
         ],
       ],
     );
@@ -527,7 +567,13 @@ class _TransportBar extends StatelessWidget {
 class _SecondaryControls extends StatefulWidget {
   final PlayerController ctrl;
   final Set<String>? visibleChips;
-  const _SecondaryControls({required this.ctrl, this.visibleChips});
+  final bool showReorder;
+
+  const _SecondaryControls({
+    required this.ctrl,
+    this.visibleChips,
+    this.showReorder = true,
+  });
 
   @override
   State<_SecondaryControls> createState() => _SecondaryControlsState();
@@ -567,7 +613,8 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
             final shuf = snap.data ?? false;
             return _ReorderableChipIcon(
               key: const ValueKey('shuffle'),
-              icon: shuf ? PhosphorIconsFill.shuffle : PhosphorIconsLight.shuffle,
+              icon:
+                  shuf ? PhosphorIconsFill.shuffle : PhosphorIconsLight.shuffle,
               label: 'Shuffle',
               active: shuf,
               isReordering: _isReordering,
@@ -584,13 +631,17 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
                 if (!shuf) await p.shuffle();
                 HapticFeedback.selectionClick();
               },
-              onLongPress: _isReordering ? () {
-                // In reorder mode, long-press moves selected chip here
-                if (_selectedChipIndex != null && _selectedChipIndex != index) {
-                  _reorderChips(_selectedChipIndex!, index);
-                  setState(() => _selectedChipIndex = null);
-                }
-              } : null,
+              onLongPress:
+                  _isReordering
+                      ? () {
+                        // In reorder mode, long-press moves selected chip here
+                        if (_selectedChipIndex != null &&
+                            _selectedChipIndex != index) {
+                          _reorderChips(_selectedChipIndex!, index);
+                          setState(() => _selectedChipIndex = null);
+                        }
+                      }
+                      : null,
             );
           },
         );
@@ -601,19 +652,22 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
           initialData: p.loopMode,
           builder: (_, snap) {
             final lm = snap.data ?? LoopMode.off;
-            final next = lm == LoopMode.off
-                ? LoopMode.one
-                : (lm == LoopMode.one ? LoopMode.all : LoopMode.off);
-            final icon = lm == LoopMode.one
-                ? PhosphorIconsBold.numberCircleOne
-                : PhosphorIconsBold.arrowsClockwise;
+            final next =
+                lm == LoopMode.off
+                    ? LoopMode.one
+                    : (lm == LoopMode.one ? LoopMode.all : LoopMode.off);
+            final icon =
+                lm == LoopMode.one
+                    ? PhosphorIconsBold.numberCircleOne
+                    : PhosphorIconsBold.arrowsClockwise;
             final active = lm != LoopMode.off;
             return _ReorderableChipIcon(
               key: ValueKey('repeat'),
               icon: icon,
-              label: lm == LoopMode.all
-                  ? 'Repeat All'
-                  : (lm == LoopMode.one ? 'Repeat One' : 'Repeat'),
+              label:
+                  lm == LoopMode.all
+                      ? 'Repeat All'
+                      : (lm == LoopMode.one ? 'Repeat One' : 'Repeat'),
               active: active,
               isReordering: _isReordering,
               isSelected: _selectedChipIndex == index,
@@ -627,12 +681,16 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
                 p.setLoopMode(next);
                 HapticFeedback.selectionClick();
               },
-              onLongPress: _isReordering ? () {
-                if (_selectedChipIndex != null && _selectedChipIndex != index) {
-                  _reorderChips(_selectedChipIndex!, index);
-                  setState(() => _selectedChipIndex = null);
-                }
-              } : null,
+              onLongPress:
+                  _isReordering
+                      ? () {
+                        if (_selectedChipIndex != null &&
+                            _selectedChipIndex != index) {
+                          _reorderChips(_selectedChipIndex!, index);
+                          setState(() => _selectedChipIndex = null);
+                        }
+                      }
+                      : null,
             );
           },
         );
@@ -653,17 +711,32 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
             }
             if (!widget.ctrl.isReady) return;
             showToast(context, 'Generating Neural Mix...');
-            await widget.ctrl.smartShuffle();
+            final summary = await widget.ctrl.smartShuffle();
             if (!context.mounted) return;
+            if (summary == null) {
+              showToast(context, 'Could not generate mix');
+              return;
+            }
             showToast(context, 'Mix Ready');
             HapticFeedback.mediumImpact();
+            await showModalBottomSheet<void>(
+              context: context,
+              backgroundColor: Colors.transparent,
+              builder:
+                  (_) =>
+                      _NeuralMixReadySheet(ctrl: widget.ctrl, summary: summary),
+            );
           },
-          onLongPress: _isReordering ? () {
-            if (_selectedChipIndex != null && _selectedChipIndex != index) {
-              _reorderChips(_selectedChipIndex!, index);
-              setState(() => _selectedChipIndex = null);
-            }
-          } : null,
+          onLongPress:
+              _isReordering
+                  ? () {
+                    if (_selectedChipIndex != null &&
+                        _selectedChipIndex != index) {
+                      _reorderChips(_selectedChipIndex!, index);
+                      setState(() => _selectedChipIndex = null);
+                    }
+                  }
+                  : null,
         );
 
       case 'speed':
@@ -700,12 +773,16 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
               }
             }
           },
-          onLongPress: _isReordering ? () {
-            if (_selectedChipIndex != null && _selectedChipIndex != index) {
-              _reorderChips(_selectedChipIndex!, index);
-              setState(() => _selectedChipIndex = null);
-            }
-          } : null,
+          onLongPress:
+              _isReordering
+                  ? () {
+                    if (_selectedChipIndex != null &&
+                        _selectedChipIndex != index) {
+                      _reorderChips(_selectedChipIndex!, index);
+                      setState(() => _selectedChipIndex = null);
+                    }
+                  }
+                  : null,
         );
 
       case 'screensaver':
@@ -724,9 +801,7 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
             }
             HapticFeedback.selectionClick();
             Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => const ScreensaverScreen(),
-              ),
+              MaterialPageRoute(builder: (_) => const ScreensaverScreen()),
             );
           },
           onLongPress: () {
@@ -738,9 +813,7 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
               return;
             }
             Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => const ScreensaverScreen(),
-              ),
+              MaterialPageRoute(builder: (_) => const ScreensaverScreen()),
             );
           },
         );
@@ -776,7 +849,9 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
                       hintText: 'Note (optional)...',
                       hintStyle: const TextStyle(color: Colors.white38),
                       enabledBorder: const UnderlineInputBorder(
-                        borderSide: BorderSide(color: PlayaColors.onSurfaceVariant),
+                        borderSide: BorderSide(
+                          color: PlayaColors.onSurfaceVariant,
+                        ),
                       ),
                       focusedBorder: UnderlineInputBorder(
                         borderSide: BorderSide(color: a),
@@ -853,12 +928,16 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
               builder: (_) => LyricsSheet(ctrl: widget.ctrl),
             );
           },
-          onLongPress: _isReordering ? () {
-            if (_selectedChipIndex != null && _selectedChipIndex != index) {
-              _reorderChips(_selectedChipIndex!, index);
-              setState(() => _selectedChipIndex = null);
-            }
-          } : null,
+          onLongPress:
+              _isReordering
+                  ? () {
+                    if (_selectedChipIndex != null &&
+                        _selectedChipIndex != index) {
+                      _reorderChips(_selectedChipIndex!, index);
+                      setState(() => _selectedChipIndex = null);
+                    }
+                  }
+                  : null,
         );
 
       default:
@@ -871,89 +950,187 @@ class _SecondaryControlsState extends State<_SecondaryControls> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Align(
-          alignment: Alignment.centerRight,
-          child: Tooltip(
-            message: _isReordering ? 'Finish reordering' : 'Reorder controls',
-            child: InkWell(
-              onTap: () {
-                setState(() {
-                  _isReordering = !_isReordering;
-                  if (!_isReordering) {
-                    _selectedChipIndex = null;
+        if (widget.showReorder)
+          Align(
+            alignment: Alignment.centerRight,
+            child: Tooltip(
+              message: _isReordering ? 'Finish reordering' : 'Reorder controls',
+              child: InkWell(
+                onTap: () {
+                  setState(() {
+                    _isReordering = !_isReordering;
+                    if (!_isReordering) {
+                      _selectedChipIndex = null;
+                    }
+                  });
+                  HapticFeedback.mediumImpact();
+                  if (_isReordering) {
+                    showToast(
+                      context,
+                      'Tap a chip to select, long-press to move',
+                    );
+                  } else {
+                    SettingsService.instance.setControlChipOrder(_chipOrder);
+                    showToast(context, 'Order saved');
                   }
-                });
-                HapticFeedback.mediumImpact();
-                if (_isReordering) {
-                  showToast(
-                    context,
-                    'Tap a chip to select, long-press to move',
-                  );
-                } else {
-                  SettingsService.instance.setControlChipOrder(_chipOrder);
-                  showToast(context, 'Order saved');
-                }
-              },
-              borderRadius: BorderRadius.circular(8),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: _isReordering
-                      ? Colors.blue.withValues(alpha: 0.2)
-                      : PlayaColors.surface.withValues(alpha: 0.4),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: _isReordering
-                        ? Colors.blue.withValues(alpha: 0.6)
-                        : Colors.white12,
+                },
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
                   ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      _isReordering
-                          ? PhosphorIconsRegular.check
-                          : PhosphorIconsRegular.list,
-                      size: 15,
-                      color: _isReordering
-                          ? Colors.blue
-                          : PlayaColors.onSurfaceVariant,
+                  decoration: BoxDecoration(
+                    color:
+                        _isReordering
+                            ? Colors.blue.withValues(alpha: 0.2)
+                            : PlayaColors.surface.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color:
+                          _isReordering
+                              ? Colors.blue.withValues(alpha: 0.6)
+                              : Colors.white12,
                     ),
-                    const SizedBox(width: 4),
-                    Text(
-                      _isReordering ? 'Done' : 'Reorder',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: _isReordering
-                            ? Colors.blue
-                            : PlayaColors.onSurfaceVariant,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        _isReordering
+                            ? PhosphorIconsRegular.check
+                            : PhosphorIconsRegular.list,
+                        size: 15,
+                        color:
+                            _isReordering
+                                ? Colors.blue
+                                : PlayaColors.onSurfaceVariant,
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 4),
+                      Text(
+                        _isReordering ? 'Done' : 'Reorder',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color:
+                              _isReordering
+                                  ? Colors.blue
+                                  : PlayaColors.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
-        ),
         const SizedBox(height: 4),
         Wrap(
           spacing: PlayaSpacing.kSp,
           runSpacing: PlayaSpacing.kSp,
           alignment: WrapAlignment.center,
-          children: _chipOrder.asMap().entries
-              .where((e) => widget.visibleChips?.contains(e.value) ?? true)
-              .map((entry) {
-            final index = entry.key;
-            final chipId = entry.value;
-            return _buildChip(chipId, context, index);
-          }).toList(),
+          children:
+              _chipOrder
+                  .asMap()
+                  .entries
+                  .where((e) => widget.visibleChips?.contains(e.value) ?? true)
+                  .map((entry) {
+                    final index = entry.key;
+                    final chipId = entry.value;
+                    return _buildChip(chipId, context, index);
+                  })
+                  .toList(),
         ),
       ],
+    );
+  }
+}
+
+class _NeuralMixReadySheet extends StatelessWidget {
+  final PlayerController ctrl;
+  final NeuralMixSummary summary;
+
+  const _NeuralMixReadySheet({required this.ctrl, required this.summary});
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    final title =
+        summary.seedTitle?.trim().isNotEmpty == true
+            ? summary.seedTitle!.trim()
+            : 'Neural Mix';
+    final artist = summary.seedArtist?.trim();
+    return GlassPanel(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      borderColor: Colors.white.withValues(alpha: 0.14),
+      backgroundColor: PlayaColors.glass,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Mix ready',
+              style: TextStyle(
+                fontSize: PlayaTypography.lg,
+                fontWeight: FontWeight.bold,
+                color: PlayaColors.onSurface,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              artist == null || artist.isEmpty ? title : '$title — $artist',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: PlayaColors.onSurfaceVariant),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              summary.explainBlurb,
+              style: TextStyle(color: accent, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '${summary.trackCount} tracks from DNA (BPM / key / energy).',
+              style: const TextStyle(
+                color: PlayaColors.onSurfaceVariant,
+                fontSize: PlayaTypography.sm,
+              ),
+            ),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              onPressed: () {
+                showToast(context, summary.explainBlurb);
+              },
+              icon: const Icon(PhosphorIconsBold.lightbulb),
+              label: const Text('Explain this mix'),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: () async {
+                final name =
+                    'Neural Mix · ${title.length > 28 ? '${title.substring(0, 28)}…' : title}';
+                try {
+                  await PlaylistRepository.instance.createWithSongs(
+                    name,
+                    summary.songIds,
+                    description: summary.explainBlurb,
+                  );
+                  if (!context.mounted) return;
+                  Navigator.of(context).pop();
+                  showToast(context, 'Saved playlist');
+                } catch (e) {
+                  if (!context.mounted) return;
+                  showToast(context, 'Could not save playlist');
+                }
+              },
+              icon: const Icon(PhosphorIconsBold.playlist),
+              label: const Text('Save as playlist'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1139,7 +1316,13 @@ class _TrackInfoPanel extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          item?.title ?? '—',
+          item == null
+              ? '—'
+              : AudioDisplayLabels.displayTitle(
+                title: item!.title,
+                path: item!.extras?['path'] as String?,
+                artist: item!.artist,
+              ),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
@@ -1147,7 +1330,12 @@ class _TrackInfoPanel extends StatelessWidget {
         ),
         const SizedBox(height: 2),
         Text(
-          item?.artist ?? 'Unknown',
+          item == null
+              ? ''
+              : AudioDisplayLabels.displayArtistOrFallback(
+                artist: item!.artist,
+                path: item!.extras?['path'] as String?,
+              ),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
@@ -1268,51 +1456,71 @@ class _ReorderableChipIconState extends State<_ReorderableChipIcon> {
     return GestureDetector(
       onTap: widget.isReordering ? null : widget.onTap,
       onLongPress: widget.isReordering ? null : widget.onLongPress,
-      onLongPressStart: widget.isReordering ? (details) {
-        setState(() => _isDragging = true);
-        HapticFeedback.mediumImpact();
-      } : null,
-      onLongPressMoveUpdate: widget.isReordering ? (details) {
-        setState(() => _dragOffset = details.localPosition);
-      } : null,
-      onLongPressEnd: widget.isReordering ? (details) {
-        setState(() {
-          _isDragging = false;
-          _dragOffset = Offset.zero;
-        });
-      } : null,
+      onLongPressStart:
+          widget.isReordering
+              ? (details) {
+                setState(() => _isDragging = true);
+                HapticFeedback.mediumImpact();
+              }
+              : null,
+      onLongPressMoveUpdate:
+          widget.isReordering
+              ? (details) {
+                setState(() => _dragOffset = details.localPosition);
+              }
+              : null,
+      onLongPressEnd:
+          widget.isReordering
+              ? (details) {
+                setState(() {
+                  _isDragging = false;
+                  _dragOffset = Offset.zero;
+                });
+              }
+              : null,
       child: Transform.translate(
         offset: _isDragging ? _dragOffset : Offset.zero,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           decoration: BoxDecoration(
-            color: widget.active
-                ? accent.withValues(alpha: 0.2)
-                : (widget.isSelected
-                    ? Colors.orange.withValues(alpha: 0.3)
-                    : (widget.isReordering ? Colors.blue.withValues(alpha: 0.1) : Colors.transparent)),
+            color:
+                widget.active
+                    ? accent.withValues(alpha: 0.2)
+                    : (widget.isSelected
+                        ? Colors.orange.withValues(alpha: 0.3)
+                        : (widget.isReordering
+                            ? Colors.blue.withValues(alpha: 0.1)
+                            : Colors.transparent)),
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: widget.active
-                  ? accent
-                  : (widget.isSelected
-                      ? Colors.orange
-                      : (widget.isReordering ? Colors.blue.withValues(alpha: 0.5) : PlayaColors.trackMuted)),
+              color:
+                  widget.active
+                      ? accent
+                      : (widget.isSelected
+                          ? Colors.orange
+                          : (widget.isReordering
+                              ? Colors.blue.withValues(alpha: 0.5)
+                              : PlayaColors.trackMuted)),
             ),
-            boxShadow: _isDragging ? [
-              BoxShadow(
-                color: Colors.blue.withValues(alpha: 0.3),
-                blurRadius: 8,
-                spreadRadius: 2,
-              ),
-            ] : null,
+            boxShadow:
+                _isDragging
+                    ? [
+                      BoxShadow(
+                        color: Colors.blue.withValues(alpha: 0.3),
+                        blurRadius: 8,
+                        spreadRadius: 2,
+                      ),
+                    ]
+                    : null,
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               if (widget.isReordering) ...[
                 Icon(
-                  widget.isSelected ? PhosphorIconsRegular.checkCircle : PhosphorIconsRegular.dotsSixVertical,
+                  widget.isSelected
+                      ? PhosphorIconsRegular.checkCircle
+                      : PhosphorIconsRegular.dotsSixVertical,
                   size: 14,
                   color: widget.isSelected ? Colors.orange : Colors.blue,
                 ),
@@ -1329,7 +1537,8 @@ class _ReorderableChipIconState extends State<_ReorderableChipIcon> {
                 style: TextStyle(
                   color: widget.active ? accent : PlayaColors.onSurfaceVariant,
                   fontSize: 12,
-                  fontWeight: widget.active ? FontWeight.bold : FontWeight.normal,
+                  fontWeight:
+                      widget.active ? FontWeight.bold : FontWeight.normal,
                 ),
               ),
             ],
@@ -1471,7 +1680,10 @@ class _QueueSheetState extends State<QueueSheet>
                 item.tag.artist ?? 'Unknown',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: PlayaColors.onSurfaceVariant, fontSize: 12),
+                style: const TextStyle(
+                  color: PlayaColors.onSurfaceVariant,
+                  fontSize: 12,
+                ),
               ),
               trailing:
                   isPlaying
@@ -1570,54 +1782,60 @@ class _QueueSheetState extends State<QueueSheet>
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                            ListTile(
-                              leading: const Icon(
-                                PhosphorIconsRegular.play,
-                                color: PlayaColors.onSurface,
+                              ListTile(
+                                leading: const Icon(
+                                  PhosphorIconsRegular.play,
+                                  color: PlayaColors.onSurface,
+                                ),
+                                title: const Text(
+                                  'Play Now',
+                                  style: TextStyle(
+                                    color: PlayaColors.onSurface,
+                                  ),
+                                ),
+                                onTap: () {
+                                  widget.ctrl.replaceQueue([s]);
+                                  Navigator.pop(ctx);
+                                  Navigator.pop(context);
+                                },
                               ),
-                              title: const Text(
-                                'Play Now',
-                                style: TextStyle(color: PlayaColors.onSurface),
+                              ListTile(
+                                leading: const Icon(
+                                  PhosphorIconsRegular.queue,
+                                  color: PlayaColors.onSurface,
+                                ),
+                                title: const Text(
+                                  'Play Next',
+                                  style: TextStyle(
+                                    color: PlayaColors.onSurface,
+                                  ),
+                                ),
+                                onTap: () {
+                                  widget.ctrl.insertNext(s);
+                                  Navigator.pop(ctx);
+                                  showToast(context, 'Playing Next');
+                                },
                               ),
-                              onTap: () {
-                                widget.ctrl.replaceQueue([s]);
-                                Navigator.pop(ctx);
-                                Navigator.pop(context);
-                              },
-                            ),
-                            ListTile(
-                              leading: const Icon(
-                                PhosphorIconsRegular.queue,
-                                color: PlayaColors.onSurface,
+                              ListTile(
+                                leading: const Icon(
+                                  PhosphorIconsRegular.plus,
+                                  color: PlayaColors.onSurface,
+                                ),
+                                title: const Text(
+                                  'Add to Queue',
+                                  style: TextStyle(
+                                    color: PlayaColors.onSurface,
+                                  ),
+                                ),
+                                onTap: () {
+                                  widget.ctrl.addToQueue(s);
+                                  Navigator.pop(ctx);
+                                  showToast(context, 'Added to Queue');
+                                },
                               ),
-                              title: const Text(
-                                'Play Next',
-                                style: TextStyle(color: PlayaColors.onSurface),
-                              ),
-                              onTap: () {
-                                widget.ctrl.insertNext(s);
-                                Navigator.pop(ctx);
-                                showToast(context, 'Playing Next');
-                              },
-                            ),
-                            ListTile(
-                              leading: const Icon(
-                                PhosphorIconsRegular.plus,
-                                color: PlayaColors.onSurface,
-                              ),
-                              title: const Text(
-                                'Add to Queue',
-                                style: TextStyle(color: PlayaColors.onSurface),
-                              ),
-                              onTap: () {
-                                widget.ctrl.addToQueue(s);
-                                Navigator.pop(ctx);
-                                showToast(context, 'Added to Queue');
-                              },
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
                   );
                 },
               );
@@ -1643,7 +1861,10 @@ class _SonicDnaBadge extends StatelessWidget {
 
         return Container(
           margin: const EdgeInsets.only(top: PlayaSpacing.xs),
-          padding: const EdgeInsets.symmetric(horizontal: PlayaSpacing.sm, vertical: PlayaSpacing.xxs),
+          padding: const EdgeInsets.symmetric(
+            horizontal: PlayaSpacing.sm,
+            vertical: PlayaSpacing.xxs,
+          ),
           decoration: PlayaEffects.matteSurface(
             borderRadius: BorderRadius.circular(PlayaRadii.sm),
             baseColor: PlayaColors.surfaceVariant,

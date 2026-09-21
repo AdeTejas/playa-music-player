@@ -9,6 +9,7 @@ import '../services/android_audio_query.dart';
 import '../services/windows_audio_query.dart';
 import '../services/settings_service.dart';
 import '../utils/ui_utils.dart';
+import '../utils/song_tag_enricher.dart';
 import 'service_locator.dart';
 
 enum LibraryScanPhase {
@@ -235,7 +236,13 @@ class LibraryScanService extends ChangeNotifier {
       }
 
       // Guard against duplicate results (some devices/scans can return duplicates).
-      final dedupedSongs = _dedupeByData(filteredSongs);
+      var dedupedSongs = _dedupeByData(filteredSongs);
+
+      // Strengthen Unknown Artist / filename-as-title when tags are readable.
+      if (!Platform.isWindows) {
+        _setPhase(LibraryScanPhase.filtering, progress: 0.72);
+        dedupedSongs = await SongTagEnricher.enrichWeakTags(dedupedSongs);
+      }
 
       // Apply current sort settings (critical for Windows where native sort is not used).
       final sortedSongs = _sortSongs(dedupedSongs);

@@ -4,8 +4,8 @@ import '../repositories/song_repository.dart';
 import '../widgets/player_provider.dart';
 import '../design/design_system.dart';
 import '../widgets/artwork_image.dart';
-
-enum SmartPlaylistType { heavyRotation, forgottenFavorites, recentlyAdded }
+import '../utils/smart_playlist_catalog.dart';
+import '../utils/audio_display_labels.dart';
 
 class SmartPlaylistScreen extends StatefulWidget {
   final SmartPlaylistType type;
@@ -152,13 +152,20 @@ class _SmartPlaylistScreenState extends State<SmartPlaylistScreen> {
                             ),
                           ),
                           title: Text(
-                            song.title,
+                            AudioDisplayLabels.displayTitle(
+                              title: song.title,
+                              path: song.data,
+                              artist: song.artist,
+                            ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(color: PlayaColors.onSurface),
                           ),
                           subtitle: Text(
-                            song.artist ?? 'Unknown',
+                            AudioDisplayLabels.displayArtistOrFallback(
+                              artist: song.artist,
+                              path: song.data,
+                            ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(color: PlayaColors.onSurfaceVariant),

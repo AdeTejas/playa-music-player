@@ -37,12 +37,7 @@ class ContentModeDetector {
 
   static const int audiobookMinDurationMs = 45 * 60 * 1000;
 
-  static const Set<String> audiobookExtensions = {
-    'm4b',
-    'aa',
-    'aax',
-    'opus',
-  };
+  static const Set<String> audiobookExtensions = {'m4b', 'aa', 'aax', 'opus'};
 
   static const Set<String> audiobookMetadataHints = {
     'audiobook',
@@ -76,7 +71,8 @@ class ContentModeDetector {
   };
 
   static ContentMode detectFromMediaItem(MediaItem? item) {
-    if (item == null) return ContentMode.audiobook;
+    if (item == null)
+      return ContentMode.music; // idle/empty player — not audiobook chrome
 
     final path = (item.extras?['path'] as String?) ?? item.id;
     final durationMs = item.duration?.inMilliseconds ?? 0;

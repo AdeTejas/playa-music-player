@@ -113,4 +113,26 @@ void main() {
     expect(SettingsService.instance.keepScreenOn, isTrue);
     expect(SettingsService.instance.screensaverEnabled, isTrue);
   });
+
+
+  test('SettingsService persists smart playlist pin and order', () async {
+    SharedPreferences.setMockInitialValues({});
+    await SettingsService.instance.init();
+
+    expect(
+      SettingsService.instance.smartPlaylistOrder,
+      SettingsService.defaultSmartPlaylistOrder,
+    );
+    expect(SettingsService.instance.pinnedSmartPlaylists, isEmpty);
+
+    await SettingsService.instance.setSmartPlaylistPinned('heavyRotation', true);
+    expect(SettingsService.instance.isSmartPlaylistPinned('heavyRotation'), isTrue);
+
+    await SettingsService.instance.setSmartPlaylistOrder([
+      'forgottenFavorites',
+      'heavyRotation',
+      'recentlyAdded',
+    ]);
+    expect(SettingsService.instance.smartPlaylistOrder.first, 'forgottenFavorites');
+  });
 }

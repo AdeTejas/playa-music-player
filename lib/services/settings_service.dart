@@ -114,6 +114,15 @@ class SettingsService extends ChangeNotifier {
     'screensaver',
   ];
 
+  static const List<String> defaultSmartPlaylistOrder = <String>[
+    'heavyRotation',
+    'recentlyAdded',
+    'forgottenFavorites',
+  ];
+
+  List<String> _smartPlaylistOrder = defaultSmartPlaylistOrder;
+  List<String> _pinnedSmartPlaylists = const <String>[];
+
   // Theme customization colors
   int _glowColor = 0xFF00E5FF; // Default cyan glow
   int _vinylColor = 0xFF1A1A1A; // Default dark vinyl
@@ -173,6 +182,9 @@ class SettingsService extends ChangeNotifier {
   List<String> get windowsScanExtensions =>
       List.unmodifiable(_windowsScanExtensions);
   List<String> get controlChipOrder => List.unmodifiable(_controlChipOrder);
+  List<String> get smartPlaylistOrder => List.unmodifiable(_smartPlaylistOrder);
+  List<String> get pinnedSmartPlaylists => List.unmodifiable(_pinnedSmartPlaylists);
+  bool isSmartPlaylistPinned(String id) => _pinnedSmartPlaylists.contains(id);
   int get glowColor => _glowColor;
   int get vinylColor => _vinylColor;
   int get plinthColor => _plinthColor;
@@ -273,6 +285,16 @@ class SettingsService extends ChangeNotifier {
           'bookmark',
           'lyrics',
         ];
+    _smartPlaylistOrder = _prefs.getStringList('smartPlaylistOrder') ??
+        List<String>.from(defaultSmartPlaylistOrder);
+    // Ensure all known ids present once.
+    for (final id in defaultSmartPlaylistOrder) {
+      if (!_smartPlaylistOrder.contains(id)) {
+        _smartPlaylistOrder = [..._smartPlaylistOrder, id];
+      }
+    }
+    _pinnedSmartPlaylists =
+        _prefs.getStringList('pinnedSmartPlaylists') ?? const <String>[];
     _glowColor = _prefs.getInt('glowColor') ?? 0xFFFF9F40;
     _vinylColor = _prefs.getInt('vinylColor') ?? 0xFF1A1A1A;
     _plinthColor = _prefs.getInt('plinthColor') ?? 0xFF2A2A2A;
@@ -580,6 +602,38 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setSmartPlaylistOrder(List<String> order) async {
+    final cleaned = <String>[];
+    for (final id in order) {
+      if (defaultSmartPlaylistOrder.contains(id) && !cleaned.contains(id)) {
+        cleaned.add(id);
+      }
+    }
+    for (final id in defaultSmartPlaylistOrder) {
+      if (!cleaned.contains(id)) cleaned.add(id);
+    }
+    _smartPlaylistOrder = List.unmodifiable(cleaned);
+    await _prefs.setStringList('smartPlaylistOrder', cleaned);
+    notifyListeners();
+  }
+
+  Future<void> setSmartPlaylistPinned(String id, bool pinned) async {
+    if (!defaultSmartPlaylistOrder.contains(id)) return;
+    final next = List<String>.from(_pinnedSmartPlaylists);
+    if (pinned) {
+      if (!next.contains(id)) next.add(id);
+    } else {
+      next.remove(id);
+    }
+    _pinnedSmartPlaylists = List.unmodifiable(next);
+    await _prefs.setStringList('pinnedSmartPlaylists', next);
+    notifyListeners();
+  }
+
+  Future<void> toggleSmartPlaylistPinned(String id) async {
+    await setSmartPlaylistPinned(id, !isSmartPlaylistPinned(id));
+  }
+
   Future<void> setGlowColor(int color) async {
     _glowColor = color;
     await _prefs.setInt('glowColor', color);
@@ -715,6 +769,9 @@ class SettingsService extends ChangeNotifier {
       'bookmark',
       'lyrics',
     ]);
+    await setSmartPlaylistOrder(defaultSmartPlaylistOrder);
+    _pinnedSmartPlaylists = const <String>[];
+    await _prefs.setStringList('pinnedSmartPlaylists', const <String>[]);
 
     // Privacy / telemetry (opt-out on reset)
     await setTelemetryConsent(false);

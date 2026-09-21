@@ -14,11 +14,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: subosaurus/flutter-action@v2
+
+      # Was: subosaurus/flutter-action (typo) + flutter-version: stable - job died in seconds.
+      - uses: subosito/flutter-action@v2
         with:
-          flutter-version: stable
+          channel: stable
+          cache: true
 
       - run: flutter pub get
-      - run: flutter format --set-exit-if-changed .
+      - run: dart format --output=none --set-exit-if-changed .
+      - run: flutter analyze
       - run: flutter test
-      - run: flutter build appbundle --release
