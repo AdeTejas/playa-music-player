@@ -37,6 +37,7 @@ import 'screens/player_screen.dart';
 import 'screens/equalizer_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/playlists_screen.dart';
+import 'screens/settings_screen.dart';
 
 import 'design/design_system.dart';
 import 'widgets/player_provider.dart';
@@ -445,6 +446,18 @@ class _ShellState extends State<_Shell> {
                                   PhosphorIconsBold.queue,
                                 ),
                                 onPressed: () => _showQueue(context, ctrl),
+                              ),
+                              IconButton(
+                                tooltip: 'Settings',
+                                icon: const PhosphorIcon(
+                                  PhosphorIconsBold.gear,
+                                ),
+                                onPressed: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const SettingsScreen(),
+                                  ),
+                                ),
                               ),
                             ],
                           )

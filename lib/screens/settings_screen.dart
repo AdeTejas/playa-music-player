@@ -132,6 +132,53 @@ class SettingsScreen extends StatelessWidget {
               const SizedBox(height: PlayaSpacing.sm),
 
               const PlayaSectionHeader(title: 'Appearance'),
+              Padding(
+                padding: const EdgeInsets.only(
+                  bottom: PlayaSpacing.sm,
+                  left: PlayaSpacing.xs,
+                  right: PlayaSpacing.xs,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Quick themes',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: PlayaColors.onSurfaceVariant.withValues(
+                          alpha: 0.9,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        FilledButton.tonal(
+                          onPressed: () async {
+                            await settings.setAccentColor(
+                              SettingsService.colorPresets['Lime Shock']!,
+                            );
+                            await settings.setShowSpaceBackground(true);
+                          },
+                          child: const Text('Neon Lime'),
+                        ),
+                        FilledButton.tonal(
+                          onPressed: () async {
+                            await settings.setAccentColor(
+                              SettingsService.colorPresets['Champagne Gold']!,
+                            );
+                            await settings.setShowSpaceBackground(false);
+                          },
+                          child: const Text('Classic Gold'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
               _buildSwitchTile(
                 context: context,
                 title: 'Show Waveforms',

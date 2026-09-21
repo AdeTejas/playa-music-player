@@ -41,6 +41,17 @@ class ContinueListeningSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const PlayaSectionHeader(title: 'Continue Listening'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Text(
+            'Swipe up or tap X to hide a series from this row.',
+            style: TextStyle(
+              color: PlayaColors.onSurfaceVariant.withValues(alpha: 0.85),
+              fontSize: 11,
+              height: 1.3,
+            ),
+          ),
+        ),
         SizedBox(
           height: carouselHeight,
           child: ListView.separated(
@@ -168,7 +179,7 @@ class _ContinueCard extends StatelessWidget {
                             width: 24,
                             height: 24,
                             child: IconButton(
-                              tooltip: 'Remove',
+                              tooltip: 'Hide from Continue Listening',
                               visualDensity: VisualDensity.compact,
                               padding: EdgeInsets.zero,
                               icon: const Icon(

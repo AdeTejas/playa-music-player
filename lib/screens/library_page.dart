@@ -241,7 +241,9 @@ class _LibraryPageState extends State<LibraryPage> {
 
   String _emptyLibraryMessage() {
     if (_showFavoritesOnly) return 'No favorites yet';
-    if (_allSongs.isEmpty) return 'No songs found';
+    if (_allSongs.isEmpty) {
+      return 'Your library is empty';
+    }
 
     final filter = SettingsService.instance.libraryBrowseFilter;
     if (filter == LibraryBrowseFilter.audiobook) {
@@ -251,6 +253,30 @@ class _LibraryPageState extends State<LibraryPage> {
       return 'No music tracks found';
     }
     return 'No matches';
+  }
+
+  String? _emptyLibraryHint() {
+    if (_showFavoritesOnly) {
+      return 'Tap the heart on any track to save it here.';
+    }
+    if (_allSongs.isEmpty) {
+      return 'Grant media access or add folders in Settings, then refresh.';
+    }
+    final filter = SettingsService.instance.libraryBrowseFilter;
+    if (filter == LibraryBrowseFilter.audiobook) {
+      return 'Try All or Music, or rescan after adding long-form files.';
+    }
+    if (filter == LibraryBrowseFilter.music) {
+      return 'Try All, or clear search if you are filtering.';
+    }
+    return 'Clear search or switch filters to see more.';
+  }
+
+  String _tracksHeaderLabel(LibraryScanService scan) {
+    if (_isSelectionMode) return '${_selectedIds.length} selected';
+    final n = _allSongs.length;
+    if (scan.isScanning) return '$n TRACKS · updating';
+    return '$n TRACKS';
   }
 
   List<oaq.SongModel> _computeFiltered(String query) {
@@ -1027,9 +1053,7 @@ class _LibraryPageState extends State<LibraryPage> {
                             middleSpacing: 0,
                             leading: const SizedBox.shrink(),
                             middle: Text(
-                              _isSelectionMode
-                                  ? '${_selectedIds.length} selected'
-                                  : '${_allSongs.length} TRACKS',
+                              _tracksHeaderLabel(scan),
                               style: TextStyle(
                                 fontSize: 16,
                                 fontFamily: 'monospace',
@@ -1452,30 +1476,64 @@ class _LibraryPageState extends State<LibraryPage> {
                                         const SizedBox(height: 12),
                                         Text(
                                           _emptyLibraryMessage(),
+                                          textAlign: TextAlign.center,
                                           style: const TextStyle(
                                             color: PlayaColors.onSurfaceVariant,
                                             fontSize: 14,
                                             fontWeight: FontWeight.w600,
                                           ),
                                         ),
-                                        if (_allSongs.isEmpty &&
-                                            !_showFavoritesOnly)
+                                        if (_emptyLibraryHint() != null)
                                           Padding(
-                                            padding: const EdgeInsets.only(
-                                              top: 10,
+                                            padding: const EdgeInsets.fromLTRB(
+                                              24,
+                                              8,
+                                              24,
+                                              0,
                                             ),
-                                            child: TextButton(
-                                              onPressed:
-                                                  scan.isScanning
-                                                      ? null
-                                                      : () => _loadSongs(
-                                                        force: true,
-                                                      ),
-                                              child: const Text(
-                                                'Refresh Library',
+                                            child: Text(
+                                              _emptyLibraryHint()!,
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                color: PlayaColors
+                                                    .onSurfaceVariant
+                                                    .withValues(alpha: 0.85),
+                                                fontSize: 12,
+                                                height: 1.35,
                                               ),
                                             ),
                                           ),
+                                        if (_allSongs.isEmpty &&
+                                            !_showFavoritesOnly) ...[
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              top: 14,
+                                            ),
+                                            child: FilledButton.tonal(
+                                              onPressed: () => Navigator.push(
+                                                context,
+                                                MaterialPageRoute(
+                                                  builder: (_) =>
+                                                      const SettingsScreen(),
+                                                ),
+                                              ),
+                                              child: const Text(
+                                                'Open Settings',
+                                              ),
+                                            ),
+                                          ),
+                                          TextButton(
+                                            onPressed:
+                                                scan.isScanning
+                                                    ? null
+                                                    : () => _loadSongs(
+                                                      force: true,
+                                                    ),
+                                            child: const Text(
+                                              'Refresh Library',
+                                            ),
+                                          ),
+                                        ],
                                       ],
                                     ),
                                   )
