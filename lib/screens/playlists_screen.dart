@@ -6,6 +6,8 @@ import '../design/design_system.dart';
 import '../models/playlist.dart';
 import '../repositories/playlist_repository.dart';
 import 'smart_playlist_screen.dart';
+import '../utils/smart_playlist_catalog.dart';
+import '../services/settings_service.dart';
 import 'playlist_detail_screen.dart';
 
 class PlaylistsScreen extends StatefulWidget {
@@ -21,6 +23,7 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
   final _repo = PlaylistRepository.instance;
   List<Playlist> _playlists = [];
   bool _loading = true;
+  bool _smartReorder = false;
 
   @override
   void initState() {
@@ -177,11 +180,9 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
   }
 
   Widget _buildSmartTile({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required Color color,
-    required SmartPlaylistType type,
+    required SmartPlaylistInfo info,
+    required bool pinned,
+    required bool reorderMode,
   }) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
@@ -197,34 +198,69 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
               height: 48,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [color.withValues(alpha: 0.2), Colors.transparent],
+                  colors: [
+                    info.color.withValues(alpha: 0.2),
+                    Colors.transparent,
+                  ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: color.withValues(alpha: 0.3)),
+                border: Border.all(color: info.color.withValues(alpha: 0.3)),
               ),
-              child: Icon(icon, color: color),
+              child: Icon(info.icon, color: info.color),
             ),
             title: Text(
-              title,
+              info.title,
               style: const TextStyle(
                 color: PlayaColors.onSurface,
                 fontWeight: FontWeight.w600,
               ),
             ),
             subtitle: Text(
-              subtitle,
-              style: const TextStyle(color: PlayaColors.onSurfaceVariant, fontSize: 12),
+              info.subtitle,
+              style: const TextStyle(
+                color: PlayaColors.onSurfaceVariant,
+                fontSize: 12,
+              ),
             ),
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => SmartPlaylistScreen(type: type),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  tooltip: pinned ? 'Unpin' : 'Pin to Library',
+                  icon: Icon(
+                    pinned
+                        ? PhosphorIconsFill.pushPin
+                        : PhosphorIconsRegular.pushPin,
+                    color: pinned
+                        ? Theme.of(context).colorScheme.primary
+                        : PlayaColors.onSurfaceVariant,
+                  ),
+                  onPressed: () async {
+                    HapticFeedback.selectionClick();
+                    await SettingsService.instance
+                        .toggleSmartPlaylistPinned(info.id);
+                    if (mounted) setState(() {});
+                  },
                 ),
-              );
-            },
+                if (reorderMode)
+                  const Icon(
+                    PhosphorIconsRegular.dotsSixVertical,
+                    color: PlayaColors.onSurfaceVariant,
+                  ),
+              ],
+            ),
+            onTap: reorderMode
+                ? null
+                : () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => SmartPlaylistScreen(type: info.type),
+                      ),
+                    );
+                  },
           ),
         ),
       ),
@@ -255,28 +291,80 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
               : ListView(
                 padding: const EdgeInsets.symmetric(horizontal: PlayaSpacing.xs),
                 children: [
-                  // Smart Playlists Section
-                  const PlayaSectionHeader(title: 'Smart Playlists'),
-                  _buildSmartTile(
-                    icon: PhosphorIconsFill.fire,
-                    title: 'Heavy Rotation',
-                    subtitle: 'Your most played tracks',
-                    color: Colors.orangeAccent,
-                    type: SmartPlaylistType.heavyRotation,
-                  ),
-                  _buildSmartTile(
-                    icon: PhosphorIconsFill.clockCounterClockwise,
-                    title: 'Recently Added',
-                    subtitle: 'Fresh tunes',
-                    color: Colors.blueAccent,
-                    type: SmartPlaylistType.recentlyAdded,
-                  ),
-                  _buildSmartTile(
-                    icon: PhosphorIconsFill.archive,
-                    title: 'Forgotten Favorites',
-                    subtitle: 'Rediscover old gems',
-                    color: Colors.purpleAccent,
-                    type: SmartPlaylistType.forgottenFavorites,
+                  // Smart Playlists Section (pin + reorder with persistence)
+                  AnimatedBuilder(
+                    animation: SettingsService.instance,
+                    builder: (context, _) {
+                      final settings = SettingsService.instance;
+                      final ordered = orderedSmartPlaylists(
+                        settings.smartPlaylistOrder,
+                      );
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              const Expanded(
+                                child: PlayaSectionHeader(
+                                  title: 'Smart Playlists',
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: _smartReorder
+                                    ? 'Done reordering'
+                                    : 'Reorder smart playlists',
+                                icon: Icon(
+                                  _smartReorder
+                                      ? PhosphorIconsRegular.check
+                                      : PhosphorIconsRegular.list,
+                                ),
+                                onPressed: () {
+                                  HapticFeedback.selectionClick();
+                                  setState(
+                                    () => _smartReorder = !_smartReorder,
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                          if (_smartReorder)
+                            ReorderableListView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: ordered.length,
+                              onReorder: (oldIndex, newIndex) async {
+                                if (newIndex > oldIndex) newIndex -= 1;
+                                final ids = ordered.map((e) => e.id).toList();
+                                final item = ids.removeAt(oldIndex);
+                                ids.insert(newIndex, item);
+                                await settings.setSmartPlaylistOrder(ids);
+                                if (mounted) setState(() {});
+                              },
+                              itemBuilder: (context, index) {
+                                final info = ordered[index];
+                                return Container(
+                                  key: ValueKey(info.id),
+                                  child: _buildSmartTile(
+                                    info: info,
+                                    pinned: settings.isSmartPlaylistPinned(
+                                      info.id,
+                                    ),
+                                    reorderMode: true,
+                                  ),
+                                );
+                              },
+                            )
+                          else
+                            ...ordered.map(
+                              (info) => _buildSmartTile(
+                                info: info,
+                                pinned: settings.isSmartPlaylistPinned(info.id),
+                                reorderMode: false,
+                              ),
+                            ),
+                        ],
+                      );
+                    },
                   ),
 
                   const SizedBox(height: PlayaSpacing.md),
